@@ -14,7 +14,11 @@ const STR = String.raw`(['"])((?:\\.|(?!\1).)*)\1`;
 const unescape = (s) => s.replace(/\\(.)/g, '$1');
 
 // Texts in index.html that are the same in every language.
-const SAME = new Set(['CSV', 'JSON', 'English', 'Deutsch', 'Eumetria', 'AI', 'REM', 'HRV', 'Fitbit', 'YAZIO', 'Nutri-Score', 'NOVA', 'kcal', 'g', 'kg', 'min', 'bpm', 'ms', 'Open Food Facts', 'Open Database License']);
+const SAME = new Set(['CSV', 'JSON', 'English', 'Deutsch', 'Eumetria', 'AI', 'REM', 'HRV', 'Fitbit', 'YAZIO', 'Nutri-Score', 'NOVA', 'kcal', 'g', 'kg', 'min', 'bpm', 'ms', 'Open Food Facts', 'Open Database License',
+  // A command to type, the same in every language.
+  'docker compose run --rm -it eumetria -create-user <name> -role admin',
+  // An example code as placeholder.
+  '123456']);
 
 async function codeTexts() {
   const out = new Map(); // text → file

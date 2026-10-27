@@ -50,8 +50,7 @@ Keep secret values in **single quotes**: unquoted, Compose expands `$` and cuts 
 | `YAZIO_EMAIL`, `YAZIO_PASSWORD` | – | Your Yazio login |
 | `YAZIO_CLIENT_ID`, `YAZIO_CLIENT_SECRET` | – | The Yazio app's OAuth client, see [🥗 Yazio](#-yazio) |
 | `SYNC_INTERVAL` | `30m` | Time between syncs, at least `5m` |
-| `ADMIN_TOKEN` | – | Turns on the refresh button and the sync API (`openssl rand -hex 32`) |
-| `STATS_PASSWORD` | – | Password-protects the page, see [🔒 Password protection](#-password-protection) |
+| `STATS_PASSWORD` | – | Optional extra encryption of the data, see [🔒 Password protection](#-password-protection) |
 | `TZ` | `UTC` | Decides what "today" is, e.g. `Europe/Berlin` |
 | `STATS_TITLE` | `Eumetria` | Page heading |
 | `PUBLISH_FOODS`, `PUBLISH_PHOTOS`, `PUBLISH_HEALTH`, `PUBLISH_ROUTES`, `PUBLISH_REVIEW` | `true` | `false` keeps food names, meal photos, Fitbit data, GPS tracks or the weekly review off the page |
@@ -67,6 +66,14 @@ docker compose pull && docker compose up -d
 docker compose logs -f                              # "serving … syncing every 30m0s", then the first sync
 curl -s http://127.0.0.1:8090/healthz               # ok
 ```
+
+Then create your account. It asks for a password of at least 12 characters (common ones are refused):
+
+```sh
+docker compose run --rm -it eumetria -create-user <name> -role admin
+```
+
+Until an account exists the page only says how to make one.
 
 The first sync fetches a year of history and every photo, which takes a few minutes. The container's port is bound to `127.0.0.1` only: ports Docker publishes bypass `ufw`.
 
@@ -88,9 +95,25 @@ certbot certonly --webroot -w /var/www/letsencrypt -d eumetria.example.com \
   --cert-name eumetria.example.com --force-renewal --deploy-hook "systemctl reload nginx"
 ```
 
-**5. Backups and updates.** Copy [`deploy/cron`](deploy/cron) to `/etc/cron.d/eumetria` (mode 644). Every night it backs up `data/` to `/var/backups/eumetria` (14 days are kept) and pulls the newest image, so a push to `main` is live the next morning. Copy the backups off the server too: the history can be fetched from Yazio again, old photos can't.
+**5. Backups and updates.** Copy [`deploy/cron`](deploy/cron) to `/etc/cron.d/eumetria` (mode 644). Every night it backs up `data/` to `/var/backups/eumetria` (14 days are kept) and pulls the newest image, so a push to `main` is live the next morning. The accounts database goes in as the copy the server writes at 03:20 (`data/backup/app.db`), not as the live file. Copy the backups off the server too: the history can be fetched from Yazio again, old photos and accounts can't.
 
-**6. Refresh button.** On each device where you want it, open `https://eumetria.example.com/#admin` and enter the `ADMIN_TOKEN`. A sync button appears next to the theme switch; its menu has **Full refresh**.
+## 👥 Accounts
+
+Everything but the sign-in page needs an account. Admins also see the sync button (its menu has **Full refresh**); viewers only read.
+
+- **Passwords:** at least 12 characters, no common ones, stored as argon2id hashes.
+- **Sessions:** "Keep me signed in" lasts until a week without use, a month at most; without it, until the browser closes (12 hours at most). The account menu (your initial, top right) signs out here or everywhere.
+- **Wrong passwords:** five in 15 minutes lock that account for 15 minutes, doubling up to a day; twenty from one address lock the address. Wrong codes count the same.
+- **Second factors** (account menu → **Security**): passkeys (fingerprint, face or PIN, synced by your phone or password manager), security keys such as a YubiKey, an authenticator app, and ten recovery codes for when the others are lost. With one, the password is followed by a second step; a passkey alone signs in without a password, from the button or from the browser's suggestions in the name field. **Admins need one** before they can sync or open the admin tools. Changing them needs a sign-in within the last 10 minutes.
+- **Passkeys only work on the real domain over HTTPS** (and on `http://localhost` for development), not on an IP address.
+- **Scripts** use an API token instead of a password (see the table below). It carries scopes, `read` (the data) and/or `sync`, and an expiry, and is shown only once.
+
+| Task | Command (on the server, in `/srv/eumetria`) |
+|---|---|
+| Add someone | `docker compose run --rm -it eumetria -create-user <name>` (`-role admin` for an admin) |
+| Forgotten password | `docker compose run --rm -it eumetria -reset-password <name>` (ends their sessions too) |
+| Every second factor lost (and the recovery codes too) | `docker compose run --rm eumetria -reset-second-factors <name>`, then sign in with the password and set up new ones |
+| Token for a script | `docker compose run --rm eumetria -create-token <name> -token-name cron -scopes sync -expires 365` |
 
 ## 🥗 Yazio
 
@@ -125,7 +148,7 @@ The Anthropic API is prepaid: buy credit at [console.anthropic.com](https://cons
 
 ## 🔒 Password protection
 
-With `STATS_PASSWORD` set, the sync encrypts the data (AES-256-GCM, key from PBKDF2-SHA256 with 600,000 iterations) and the page asks for the password before decrypting it in the browser. "Remember me" keeps the derived key, never the password, on that device. Changing the password signs every device out.
+Optional, on top of the accounts, and on its way out (the accounts make it unnecessary). With `STATS_PASSWORD` set, the sync encrypts the data (AES-256-GCM, key from PBKDF2-SHA256 with 600,000 iterations) and the page asks for the password before decrypting it in the browser. "Remember me" keeps the derived key, never the password, on that device. Changing the password signs every device out.
 
 Use a long passphrase: the encrypted file can be downloaded by anyone and the password guessed offline. Meal photos aren't encrypted, but their names are only listed inside the encrypted data.
 
@@ -136,15 +159,15 @@ All commands run on the server in `/srv/eumetria`.
 | Task | How |
 |---|---|
 | Logs | `docker compose logs -f --tail 100` |
-| Sync now | the refresh button, or `curl -X POST -H "Authorization: Bearer <ADMIN_TOKEN>" https://eumetria.example.com/api/sync` |
+| Sync now | the refresh button, or `curl -X POST -H "Authorization: Bearer <token>" https://eumetria.example.com/api/sync` with a `sync` token |
 | Fetch the whole history again (after editing old days in Yazio) | the button's menu → **Full refresh**, or the same `curl` with `/api/sync?all=1` |
-| Sync state | `curl -H "Authorization: Bearer <ADMIN_TOKEN>" https://eumetria.example.com/api/status` |
+| Sync state | `curl -H "Authorization: Bearer <token>" https://eumetria.example.com/api/status` |
 | Change a setting | edit `eumetria.env`, then `docker compose up -d` |
 | Update | `docker compose pull && docker compose up -d` (the cron does this nightly) |
 | Roll back | `image: …:<commit>` in `compose.yaml`, then `docker compose up -d` |
 | Authorize Fitbit again | `docker compose run --rm -it eumetria -google-auth -google-token /data/google-token.json` |
 | Raw Yazio / Fitbit answers for a day | `docker compose run --rm eumetria -debug-day 2026-10-13` / `… -debug-google 2026-10-13 -google-token /data/google-token.json` |
-| Restore a backup | `docker compose down`, `rm -rf data`, `tar -xzf /var/backups/eumetria/data-<date>.tar.gz`, `chown -R eumetria:eumetria data && chmod 700 data`, `docker compose up -d` |
+| Restore a backup | `docker compose down`, `rm -rf data`, `tar -xzf /var/backups/eumetria/data-<date>.tar.gz`, `cp data/backup/app.db data/app.db`, `chown -R eumetria:eumetria data && chmod 700 data`, `docker compose up -d` |
 
 **Write all weekly reviews again** (e.g. after a prompt change). Both the server and this command write the history, so stop the server first:
 
@@ -159,11 +182,11 @@ docker compose up -d
 ## 🛠️ Local development
 
 ```sh
-# the page with generated sample data (Fitbit data included), no accounts needed
-go run ./cmd/eumetria -demo -serve :8080 -site site -out site/stats.json
-# -site serves the page from the folder: edits show on reload
-ADMIN_TOKEN=test go run ./cmd/eumetria -demo -serve :8080 -site site -out site/stats.json   # #admin, token "test"
-STATS_PASSWORD=test go run ./cmd/eumetria -demo -serve :8080 -site site -out site/stats.json  # try the password prompt
+# the page with generated sample data (Fitbit data included); sign in as demo / demo
+# at http://localhost:8080 (passkeys don't work on 127.0.0.1)
+go run ./cmd/eumetria -demo -serve :8080 -site site -data /tmp/eumetria-demo -out site/stats.json
+# -site serves the page from the folder: edits show on reload. Its own -data
+# keeps the demo account out of your real data folder.
 
 # real data (settings as in the server's env file)
 set -a; . path/to/eumetria.env; set +a

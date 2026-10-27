@@ -40,7 +40,9 @@
 // With -serve it runs as a long-lived server instead (see serve.go):
 //
 //	SYNC_INTERVAL                time between syncs (default 30m)
-//	ADMIN_TOKEN                  enables POST /api/sync, the page's refresh button
+//
+// Accounts live in app.db; -create-user, -reset-password,
+// -reset-second-factors and -create-token manage them (accounts.go).
 package main
 
 import (
@@ -106,6 +108,7 @@ func run() error {
 		debugWeek      = flag.String("debug-week", "", "write the AI review of the calendar week (Monday to Sunday) that contains this day (YYYY-MM-DD) from the local history and print it (needs ANTHROPIC_API_KEY; AI_MODEL, AI_EFFORT)")
 		dryRun         = flag.Bool("dry-run", false, "with -debug-week: print the data that would be sent to Claude instead of sending it")
 		rewrite        = flag.Bool("rewrite-reviews", false, "write every stored weekly review again (English and German) into the history and exit; stop the server first (needs ANTHROPIC_API_KEY; AI_MODEL, AI_EFFORT)")
+		accounts       accountCommand
 		debugGoogleDay = flag.String("debug-google", "", "print the raw Google Health responses (workouts, GPS export, sleep, heart rate) for this day (YYYY-MM-DD) and exit")
 	)
 	flag.StringVar(&cfg.dataDir, "data", env("DATA_DIR", "data"), "folder for the history, photos, Google token, the app's database (app.db) and the published files (public/)")
@@ -118,6 +121,14 @@ func run() error {
 	flag.StringVar(&cfg.photoDir, "photos", "", "private cache of downloaded meal photos (default <data>/photos)")
 	flag.BoolVar(&cfg.demo, "demo", false, "write generated sample data instead of calling Yazio")
 	flag.StringVar(&cfg.googleToken, "google-token", "", "private Google Health refresh token, written by -google-auth (default <data>/google-token.json)")
+	flag.StringVar(&accounts.createUser, "create-user", "", "create an account with this name and exit (asks for the password; -role)")
+	flag.StringVar(&accounts.role, "role", "viewer", "with -create-user: admin or viewer")
+	flag.StringVar(&accounts.resetPassword, "reset-password", "", "set a new password for this account and end its sessions, then exit")
+	flag.StringVar(&accounts.resetFactors, "reset-second-factors", "", "remove every passkey, key, authenticator app and recovery code of this account (when all are lost) and end its sessions, then exit")
+	flag.StringVar(&accounts.createToken, "create-token", "", "make an API token for this account for scripts and exit (-token-name, -scopes, -expires)")
+	flag.StringVar(&accounts.tokenName, "token-name", "script", "with -create-token: what the token is for")
+	flag.StringVar(&accounts.scopes, "scopes", "sync", "with -create-token: read (the data) and/or sync, comma-separated")
+	flag.IntVar(&accounts.expiresDays, "expires", 365, "with -create-token: days until it expires, 0 for never")
 	flag.Parse()
 	cfg.inData()
 
@@ -141,6 +152,8 @@ func run() error {
 	}
 
 	switch {
+	case accounts.any():
+		return runAccountCommand(ctx, cfg, accounts)
 	case *googleAuthFlag:
 		gcfg, err := googleConfig()
 		if err != nil {
@@ -169,10 +182,9 @@ func run() error {
 		return debugDump(ctx, client, *debugDay)
 	case *addr != "":
 		return serve(ctx, cfg, serveOptions{
-			addr:       *addr,
-			interval:   *interval,
-			siteDir:    *siteDir,
-			adminToken: os.Getenv("ADMIN_TOKEN"),
+			addr:     *addr,
+			interval: *interval,
+			siteDir:  *siteDir,
 		})
 	default:
 		return syncOnce(ctx, cfg)

@@ -21,6 +21,7 @@ import { renderTraining } from './training.js';
 import { renderDevice, renderNotices } from './device.js';
 import { isSealed, unseal } from './lock.js';
 import { initAdmin } from './admin.js';
+import { initAccount, onUserChange, signedIn } from './account.js';
 import { renderTable } from './table.js';
 import { renderFoodQuality } from './foodquality.js';
 import { renderReview } from './weekly.js';
@@ -59,16 +60,29 @@ initStickyHeader();
 initSections();
 initSearch();
 initOffline();
-initAdmin({ onSynced: load, onIdle: renderUpdated });
-load();
-setInterval(load, REFRESH_MS);
+initAccount();
+onUserChange(() => initAdmin({ onSynced: load, onIdle: renderUpdated }));
+start();
 setInterval(renderUpdated, 60 * 1000);
+
+// The data comes only after signing in (when the server has accounts).
+async function start() {
+  await signedIn();
+  await load();
+  setInterval(load, REFRESH_MS);
+}
 
 async function load() {
   const main = $('#main');
   if (state.data) main.classList.add('dim');
   try {
     const res = await fetch('stats.json?t=' + Date.now(), { cache: 'no-store' });
+    // The session ended (expired, or signed out elsewhere): sign in again,
+    // then carry on where the page was.
+    if (res.status === 401) {
+      await signedIn();
+      return load();
+    }
     if (!res.ok) throw new Error(res.status);
     const raw = await res.json();
     const recent = isSealed(raw) ? await unseal(raw) : raw;

@@ -594,12 +594,12 @@ body.modal-open { overflow: hidden; }
 .foot p { margin: 0 0 4px; }
 
 /* Password lock (encrypted stats.json): replaces the page until unlocked */
-html[data-locked] main, html[data-locked] .top .controls, html[data-locked] #admin { display: none; }
+html[data-locked] main, html[data-locked] .top .controls, html[data-locked] .top .sections { display: none; }
 .lock { max-width: 360px; margin: 48px auto; display: grid; gap: 12px; justify-items: center; text-align: center; }
 .lock[hidden] { display: none; }
 .lock svg { color: var(--s1); }
 .lock h2 { font-size: 20px; }
-.lock input[type="password"] {
+.lock input[type="password"], .lock input[type="text"] {
   width: 100%; font: inherit; font-size: 16px; /* 16px keeps iOS from zooming in */
   color: var(--ink); background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 11px 14px;
 }
@@ -614,6 +614,27 @@ html[data-locked] main, html[data-locked] .top .controls, html[data-locked] #adm
 .lock-btn:disabled { opacity: .6; cursor: progress; }
 .lock-cancel { font: inherit; font-size: 14px; color: var(--ink-2); background: none; border: 0; padding: 4px 8px; cursor: pointer; }
 .lock-cancel:hover { color: var(--ink); }
+.lock img { border-radius: 10px; }
+.lock-alt {
+  width: 100%; font: inherit; font-size: 15px; font-weight: 600; color: var(--ink); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 12px; padding: 11px; cursor: pointer;
+}
+.lock-alt:hover { background: var(--wash); }
+.lock-alt[hidden], .lock-btn[hidden], .lock-cancel[hidden], .lock .muted[hidden], .lock input[hidden] { display: none; }
+#login-code { text-align: center; letter-spacing: .2em; font-variant-numeric: tabular-nums; }
+.notice-row { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.notice-row[hidden] { display: none; }
+.lock code {
+  font-size: 12.5px; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; max-width: 100%;
+  overflow-wrap: anywhere; text-align: left;
+}
+
+/* Account menu: the initial in a round button */
+.account { position: relative; display: inline-flex; }
+.account[hidden] { display: none; }
+.account-btn { font: inherit; font-size: 14px; font-weight: 650; color: #fff; background: #1d2740; }
+.account-btn:hover { background: #2a3858; }
+.menu-head { margin: 0; padding: 8px 10px 6px; font-size: 13px; display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--grid); margin-bottom: 2px; }
 
 /* Loading skeleton (first load only; refreshes keep the old render dimmed) */
 main.loading .card { color: transparent; }
@@ -1291,3 +1312,24 @@ a.q-badges:focus-visible { outline: none; }
   .share-preview { height: min(46vh, 520px); }
 }
 @media print { .share-btn { display: none; } }
+
+/* ---------- security settings (js/security.js) ---------- */
+
+.sec-panel { width: min(640px, 100%); }
+.sec-body > .notice:first-child { margin-top: 4px; }
+.sec-item { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+.sec-item .amt { font-size: 12.5px; color: var(--muted); }
+.sec-add { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.sec-add .field { flex: 1 1 200px; min-width: 0; }
+.wo-sec > .pill-btn { margin-top: 4px; }
+.wo-sec > p.muted { font-size: 13.5px; margin: 0 0 10px; }
+.sec-totp { display: flex; gap: 16px 20px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; }
+/* The QR code stays black on white in both themes, so every app can read it. */
+.sec-qr { background: #fff; border-radius: 12px; padding: 6px; image-rendering: pixelated; width: 180px; height: 180px; }
+.sec-steps { flex: 1 1 220px; min-width: 0; font-size: 14px; }
+.sec-steps p { margin: 0 0 8px; }
+.sec-secret { display: block; font-size: 13px; background: var(--surface-2); border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; overflow-wrap: anywhere; letter-spacing: .04em; }
+.sec-codes { margin-top: 14px; }
+.sec-code-list { columns: 2; column-gap: 24px; margin: 8px 0 12px; padding-left: 22px; font: 500 14px/1.9 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sec-row { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 420px) { .sec-code-list { columns: 1; } }

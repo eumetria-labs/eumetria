@@ -198,3 +198,45 @@ export function download(filename, type, bytes) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+
+// A button that opens a menu next to it: arrow keys move between the
+// items, Escape, Tab and a click elsewhere close it. onPick gets the item
+// chosen. The button and the menu share a positioned parent.
+export function popupMenu(button, menu, onPick) {
+  const items = () => [...menu.querySelectorAll('[role="menuitem"]')];
+  const open = (focus) => {
+    menu.hidden = false;
+    // Opens to the left of the button, unless it sits at the left edge
+    // (narrow phones), where it would leave the screen.
+    menu.classList.remove('from-left');
+    menu.classList.toggle('from-left', menu.getBoundingClientRect().left < 8);
+    button.setAttribute('aria-expanded', 'true');
+    if (focus) items()[0].focus();
+  };
+  const close = (refocus) => {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    if (refocus) button.focus();
+  };
+  button.addEventListener('click', () => (menu.hidden ? open(true) : close()));
+  menu.addEventListener('click', (e) => {
+    const b = e.target.closest('[role="menuitem"]');
+    if (!b) return;
+    close(true);
+    onPick(b);
+  });
+  menu.addEventListener('keydown', (e) => {
+    const list = items();
+    const i = list.indexOf(document.activeElement);
+    const next = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: list.length - 1 }[e.key];
+    if (next != null) {
+      e.preventDefault();
+      list[(next + list.length) % list.length].focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      close(true);
+    } else if (e.key === 'Tab') close();
+  });
+  document.addEventListener('click', (e) => { if (!button.parentElement.contains(e.target)) close(); });
+}

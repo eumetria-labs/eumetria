@@ -6,18 +6,19 @@
 // change under the same name, so they are served from the cache first.
 //
 // Two caches: CACHE holds the page and stats.json and is replaced with each
-// new version of the page; DATA holds the files stats.json points to and
+// new version of the page (stats.json only once it was loaded: it needs a
+// signed-in user, so it can't be precached); DATA holds the files stats.json points to and
 // outlives page updates. Year files and routes get new names when their
 // content changes, so the page tells the worker which files the current
 // data uses and the others are deleted.
 
-const CACHE = 'stats-v18';
+const CACHE = 'stats-v20';
 const DATA = 'stats-data-v1';
 const SHELL = [
-  './', 'index.html', 'style.css', 'manifest.webmanifest', 'stats.json',
+  './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/main.js', 'js/format.js', 'js/insights.js', 'js/state.js', 'js/dom.js', 'js/charts.js', 'js/sheet.js', 'js/lightbox.js', 'js/lock.js', 'js/admin.js',
   'js/health.js', 'js/workout.js', 'js/recovery.js', 'js/device.js', 'js/training.js', 'js/table.js', 'js/query.js', 'js/recipe.js', 'js/quality.js', 'js/foodquality.js', 'js/reviewtext.js', 'js/weekly.js', 'js/history.js',
-  'js/today.js', 'js/energy.js', 'js/weight.js', 'js/macros.js', 'js/movement.js', 'js/foods.js', 'js/dialog.js', 'js/sections.js', 'js/search.js', 'js/export.js', 'js/zip.js', 'js/report.js', 'js/snapshot.js', 'js/share.js', 'js/cards.js', 'js/sources.js', 'js/i18n.js', 'js/de.js',
+  'js/today.js', 'js/energy.js', 'js/weight.js', 'js/macros.js', 'js/movement.js', 'js/foods.js', 'js/dialog.js', 'js/sections.js', 'js/search.js', 'js/export.js', 'js/zip.js', 'js/report.js', 'js/snapshot.js', 'js/share.js', 'js/cards.js', 'js/account.js', 'js/security.js', 'js/webauthn.js', 'js/sources.js', 'js/i18n.js', 'js/de.js',
   'fonts/inter-latin-var.woff2', 'icons/icon-192.png', 'icons/mark.svg',
 ];
 const IMMUTABLE = /\/(photos|routes|days|fonts|icons|vendor)\//;

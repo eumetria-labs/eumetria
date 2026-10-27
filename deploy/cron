@@ -2,8 +2,10 @@
 SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# 03:30 nightly backup of history and photos, keeping 14 days.
-30 3 * * * root tar -czf /var/backups/eumetria/data-$(date +\%F).tar.gz -C /srv/eumetria data && find /var/backups/eumetria -name 'data-*.tar.gz' -mtime +14 -delete
+# 03:30 nightly backup of history, photos and accounts, keeping 14 days. The
+# live database (data/app.db*) is left out: the server writes a consistent
+# copy to data/backup/app.db at 03:20, and that one is in the archive.
+30 3 * * * root tar -czf /var/backups/eumetria/data-$(date +\%F).tar.gz -C /srv/eumetria --exclude='data/app.db*' data && find /var/backups/eumetria -name 'data-*.tar.gz' -mtime +14 -delete
 
 # 04:00 nightly update to the newest image (only restarts if it changed).
 0 4 * * * root cd /srv/eumetria && docker compose pull -q && docker compose up -d --remove-orphans >/dev/null 2>&1

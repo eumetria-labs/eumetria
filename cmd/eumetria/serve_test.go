@@ -3,28 +3,47 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"eumetria/internal/auth"
+	"eumetria/internal/db"
 	"eumetria/site"
 )
 
-const testToken = "s3cret-token"
+const (
+	adminPassword  = "three sweaty protein shakes"
+	viewerPassword = "a viewer with a long password"
+)
 
-// testServer serves a tiny site and public dir; syncs block until release
-// is closed.
-func testServer(t *testing.T, token string) (*httptest.Server, *runner, chan struct{}, chan config) {
+type testEnv struct {
+	srv     *httptest.Server
+	store   *auth.Store
+	release chan struct{}
+	calls   chan config
+	now     time.Time // the server's clock; codes work once, so it moves on
+	secret  string    // patrick's authenticator app
+}
+
+// newTestEnv serves a tiny site and public dir over TLS (the session cookie
+// is Secure) with an admin "patrick" (who has an authenticator app), an
+// admin "newbie" (who has none yet) and a viewer "anna"; syncs block until
+// release is closed.
+func newTestEnv(t *testing.T, withUsers bool) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
-	site, public := filepath.Join(dir, "site"), filepath.Join(dir, "public")
+	siteDir, public := filepath.Join(dir, "site"), filepath.Join(dir, "public")
 	for path, body := range map[string]string{
-		filepath.Join(site, "index.html"):          "<h1>hi</h1>",
-		filepath.Join(site, "fonts", "f.woff2"):    "font",
+		filepath.Join(siteDir, "index.html"):       "<h1>hi</h1>",
+		filepath.Join(siteDir, "fonts", "f.woff2"): "font",
 		filepath.Join(public, "stats.json"):        `{"days":[]}`,
 		filepath.Join(public, "photos", "abc.jpg"): "jpg",
 		filepath.Join(public, "routes", "r1.json"): "[]",
@@ -35,121 +54,407 @@ func testServer(t *testing.T, token string) (*httptest.Server, *runner, chan str
 			t.Fatal(err)
 		}
 	}
-	release, calls := make(chan struct{}), make(chan config, 10)
-	r := newRunner(config{outPath: filepath.Join(public, "stats.json")}, time.Hour)
-	r.sync = func(ctx context.Context, cfg config) error {
-		calls <- cfg
-		<-release
-		return nil
-	}
-	srv := httptest.NewServer(newHandler(r, os.DirFS(site), public, token))
-	t.Cleanup(srv.Close)
-	return srv, r, release, calls
-}
-
-func do(t *testing.T, method, url, token string) *http.Response {
-	t.Helper()
-	req, _ := http.NewRequest(method, url, nil)
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	res, err := http.DefaultClient.Do(req)
+	d, err := db.Open(context.Background(), filepath.Join(dir, "app.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { d.Close() })
+	e := &testEnv{release: make(chan struct{}), calls: make(chan config, 10), now: time.Now()}
+	store := auth.NewStore(d)
+	store.Now = func() time.Time { return e.now }
+	e.store = store
+	if withUsers {
+		ctx := context.Background()
+		u, _ := store.CreateUser(ctx, "patrick", adminPassword, auth.RoleAdmin)
+		store.CreateUser(ctx, "newbie", adminPassword+"!", auth.RoleAdmin)
+		store.CreateUser(ctx, "anna", viewerPassword, auth.RoleViewer)
+		e.secret, _ = auth.NewTOTPSecret()
+		store.SetTOTP(ctx, u, e.secret, 0)
+	}
+	r := newRunner(config{outPath: filepath.Join(public, "stats.json")}, time.Hour)
+	r.sync = func(ctx context.Context, cfg config) error {
+		e.calls <- cfg
+		<-e.release
+		return nil
+	}
+	e.srv = httptest.NewTLSServer(newHandler(r, os.DirFS(siteDir), public, store))
+	t.Cleanup(e.srv.Close)
+	t.Cleanup(func() {
+		select {
+		case <-e.release:
+		default:
+			close(e.release)
+		}
+	})
+	return e
+}
+
+// client is a browser: it keeps cookies and sends what browsers send with
+// the page's own fetch() calls.
+func (e *testEnv) client() *http.Client {
+	// srv.Client() is one shared client: copy it, so every browser has its
+	// own cookies.
+	c := *e.srv.Client()
+	c.Jar, _ = cookiejar.New(nil)
+	return &c
+}
+
+type reqOpt func(*http.Request)
+
+func bearer(token string) reqOpt {
+	return func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+token) }
+}
+
+func header(k, v string) reqOpt { return func(r *http.Request) { r.Header.Set(k, v) } }
+
+// sameSite marks a request as made by the site's own page.
+var sameSite = header("Sec-Fetch-Site", "same-origin")
+
+func (e *testEnv) do(t *testing.T, c *http.Client, method, path, body string, opts ...reqOpt) (*http.Response, string) {
+	t.Helper()
+	req, _ := http.NewRequest(method, e.srv.URL+path, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for _, o := range opts {
+		o(req)
+	}
+	res, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(res.Body)
 	res.Body.Close()
-	return res
+	return res, string(b)
+}
+
+// code is the next code of patrick's app: the clock moves on a step first,
+// since each code works only once.
+func (e *testEnv) code() string {
+	e.now = e.now.Add(30 * time.Second)
+	c, _ := auth.TOTPCode(e.secret, e.now)
+	return c
+}
+
+type loginAnswer struct {
+	Next    string   `json:"next"`
+	Ticket  string   `json:"ticket"`
+	Methods []string `json:"methods"`
+}
+
+// signIn signs in, with the app's code when the account asks for one.
+func (e *testEnv) signIn(t *testing.T, name, password string, remember bool) *http.Client {
+	t.Helper()
+	c := e.client()
+	body, _ := json.Marshal(loginRequest{Name: name, Password: password, Remember: remember})
+	res, text := e.do(t, c, "POST", "/api/login", string(body), sameSite)
+	if res.StatusCode != 200 {
+		t.Fatalf("sign-in as %s = %d %s", name, res.StatusCode, text)
+	}
+	var ans loginAnswer
+	json.Unmarshal([]byte(text), &ans)
+	if ans.Next == "second_factor" {
+		body, _ := json.Marshal(ticketRequest{Ticket: ans.Ticket, Kind: "totp", Code: e.code()})
+		if res, text := e.do(t, c, "POST", "/api/login/code", string(body), sameSite); res.StatusCode != 200 {
+			t.Fatalf("second factor for %s = %d %s", name, res.StatusCode, text)
+		}
+	}
+	return c
+}
+
+func TestEveryRouteNamesItsAccess(t *testing.T) {
+	e := newTestEnv(t, true)
+	a := &app{}
+	for _, rt := range a.routes() {
+		if rt.access == 0 || rt.handle == nil {
+			t.Errorf("%s %s has no access level or no handler", rt.method, rt.path)
+			continue
+		}
+		if rt.access == open {
+			continue
+		}
+		// Without a session every route that isn't open says so, before
+		// doing anything.
+		path := strings.ReplaceAll(strings.TrimSuffix(rt.path, "/")+"/x", "{id}", "1")
+		if !strings.HasSuffix(rt.path, "/") {
+			path = strings.ReplaceAll(rt.path, "{id}", "1")
+		}
+		var body string
+		if rt.method != "GET" {
+			body = "{}"
+		}
+		if res, _ := e.do(t, e.client(), rt.method, path, body, sameSite); res.StatusCode != 401 {
+			t.Errorf("%s %s without a session = %d, want 401", rt.method, path, res.StatusCode)
+		}
+	}
+	if len(e.calls) != 0 {
+		t.Error("a request without a session started a sync")
+	}
 }
 
 func TestServeFiles(t *testing.T) {
-	srv, _, _, _ := testServer(t, testToken)
-	for _, c := range []struct {
-		path  string
-		code  int
-		cache string
+	e := newTestEnv(t, true)
+	c := e.signIn(t, "anna", viewerPassword, true)
+	anon := e.client()
+	for _, x := range []struct {
+		path     string
+		anonCode int
+		code     int
+		cache    string
 	}{
-		{"/", 200, "no-cache"},
-		{"/stats.json", 200, "no-cache"},
-		{"/photos/abc.jpg", 200, "immutable"},
-		{"/routes/r1.json", 200, "immutable"},
-		{"/days/y1.json", 200, "immutable"},
-		{"/fonts/f.woff2", 200, "max-age=604800"},
-		{"/photos/", 404, ""},    // no directory listing
-		{"/fonts/", 404, ""},     // same for the site
-		{"/missing.js", 404, ""}, // and nothing outside the two folders
-		{"/../public/stats.json", 404, ""},
+		{"/", 200, 200, "no-cache"},
+		{"/fonts/f.woff2", 200, 200, "max-age=604800"},
+		{"/stats.json", 401, 200, "private, no-cache"},
+		{"/photos/abc.jpg", 401, 200, "private, max-age=31536000, immutable"},
+		{"/routes/r1.json", 401, 200, "immutable"},
+		{"/days/y1.json", 401, 200, "immutable"},
+		{"/photos/", 401, 404, ""}, // no directory listing
+		{"/fonts/", 404, 404, ""},  // same for the site
+		{"/missing.js", 404, 404, ""},
+		{"/../public/stats.json", 404, 404, ""},
 	} {
-		res := do(t, "GET", srv.URL+c.path, "")
-		if res.StatusCode != c.code {
-			t.Errorf("GET %s = %d, want %d", c.path, res.StatusCode, c.code)
+		if res, _ := e.do(t, anon, "GET", x.path, ""); res.StatusCode != x.anonCode {
+			t.Errorf("GET %s signed out = %d, want %d", x.path, res.StatusCode, x.anonCode)
 		}
-		if c.cache != "" && !strings.Contains(res.Header.Get("Cache-Control"), c.cache) {
-			t.Errorf("GET %s Cache-Control = %q, want %q", c.path, res.Header.Get("Cache-Control"), c.cache)
+		res, _ := e.do(t, c, "GET", x.path, "")
+		if res.StatusCode != x.code {
+			t.Errorf("GET %s = %d, want %d", x.path, res.StatusCode, x.code)
+		}
+		if x.cache != "" && !strings.Contains(res.Header.Get("Cache-Control"), x.cache) {
+			t.Errorf("GET %s Cache-Control = %q, want %q", x.path, res.Header.Get("Cache-Control"), x.cache)
 		}
 		if !strings.Contains(res.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
-			t.Errorf("GET %s has no CSP header", c.path)
+			t.Errorf("GET %s has no CSP header", x.path)
 		}
 	}
 }
 
-func TestServeAPIAuth(t *testing.T) {
-	srv, _, release, calls := testServer(t, testToken)
-	defer close(release)
+func TestSignInAndOut(t *testing.T) {
+	e := newTestEnv(t, true)
+	c := e.client()
+	if res, body := e.do(t, c, "POST", "/api/login", `{"name":"patrick","password":"wrong password!!"}`, sameSite); res.StatusCode != 401 || !strings.Contains(body, "invalid") {
+		t.Fatalf("wrong password = %d %s", res.StatusCode, body)
+	}
+	if res, body := e.do(t, c, "POST", "/api/login", `{"name":"nobody","password":"wrong password!!"}`, sameSite); res.StatusCode != 401 || !strings.Contains(body, "invalid") {
+		t.Fatalf("unknown name = %d %s, want the same answer as a wrong password", res.StatusCode, body)
+	}
 
-	if res := do(t, "GET", srv.URL+"/api/status", ""); res.StatusCode != 401 {
-		t.Errorf("status without token = %d, want 401", res.StatusCode)
+	res, body := e.do(t, c, "POST", "/api/login", `{"name":"Anna","password":"`+viewerPassword+`","remember":true}`, sameSite)
+	if res.StatusCode != 200 || !strings.Contains(body, `"name":"anna"`) || !strings.Contains(body, `"sync":false`) {
+		t.Fatalf("sign-in = %d %s", res.StatusCode, body)
 	}
-	if res := do(t, "POST", srv.URL+"/api/sync", "wrong"); res.StatusCode != 401 {
-		t.Errorf("sync with wrong token = %d, want 401", res.StatusCode)
+	var cookie *http.Cookie
+	for _, ck := range res.Cookies() {
+		if ck.Name == sessionCookie {
+			cookie = ck
+		}
 	}
-	if len(calls) != 0 {
-		t.Fatal("a rejected request started a sync")
+	if cookie == nil || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/" || cookie.Domain != "" || cookie.MaxAge != int(auth.SessionMax.Seconds()) {
+		t.Fatalf("session cookie %+v", cookie)
 	}
-	if res := do(t, "POST", srv.URL+"/api/sync?all=1", testToken); res.StatusCode != 202 {
-		t.Fatalf("sync = %d, want 202", res.StatusCode)
+	if res, body := e.do(t, c, "GET", "/api/me", ""); res.StatusCode != 200 || !strings.Contains(body, `"name":"anna"`) {
+		t.Errorf("me = %d %s", res.StatusCode, body)
 	}
-	if cfg := <-calls; !cfg.refreshAll {
+	if res, body := e.do(t, c, "GET", "/api/sessions", ""); res.StatusCode != 200 || !strings.Contains(body, `"current":true`) {
+		t.Errorf("sessions = %d %s", res.StatusCode, body)
+	}
+	if res, _ := e.do(t, c, "POST", "/api/logout", "{}", sameSite); res.StatusCode != 204 {
+		t.Fatalf("logout = %d", res.StatusCode)
+	}
+	if res, _ := e.do(t, c, "GET", "/api/me", ""); res.StatusCode != 401 {
+		t.Errorf("me after logout = %d, want 401", res.StatusCode)
+	}
+
+	// Without "Remember me" the cookie lives only as long as the browser.
+	res, _ = e.do(t, e.client(), "POST", "/api/login", `{"name":"anna","password":"`+viewerPassword+`"}`, sameSite)
+	for _, ck := range res.Cookies() {
+		if ck.Name == sessionCookie && ck.MaxAge != 0 {
+			t.Errorf("cookie without Remember me has MaxAge %d", ck.MaxAge)
+		}
+	}
+
+	// The audit log has the failures and the sign-ins, for admins only.
+	admin := e.signIn(t, "patrick", adminPassword, false)
+	if res, body := e.do(t, admin, "GET", "/api/audit", ""); res.StatusCode != 200 || !strings.Contains(body, "login_failed") || !strings.Contains(body, `"actor":"nobody"`) {
+		t.Errorf("audit = %d %s", res.StatusCode, body)
+	}
+	if res, _ := e.do(t, e.signIn(t, "anna", viewerPassword, false), "GET", "/api/audit", ""); res.StatusCode != 403 {
+		t.Errorf("audit as viewer = %d, want 403", res.StatusCode)
+	}
+}
+
+func TestCrossSiteRequestsAreRefused(t *testing.T) {
+	e := newTestEnv(t, true)
+	c := e.signIn(t, "patrick", adminPassword, false)
+	login := `{"name":"patrick","password":"` + adminPassword + `"}`
+	host := strings.TrimPrefix(e.srv.URL, "https://")
+	for name, x := range map[string]struct {
+		path, body string
+		opts       []reqOpt
+	}{
+		"sync from another site":        {"/api/sync", "{}", []reqOpt{header("Sec-Fetch-Site", "cross-site")}},
+		"sync from a sibling subdomain": {"/api/sync", "{}", []reqOpt{header("Sec-Fetch-Site", "same-site")}},
+		"sync as a form post":           {"/api/sync", "", []reqOpt{sameSite, header("Content-Type", "application/x-www-form-urlencoded")}},
+		"sync with another Origin":      {"/api/sync", "{}", []reqOpt{header("Origin", "https://evil.example")}},
+		"sync with neither header":      {"/api/sync", "{}", nil},
+		"logout from another site":      {"/api/logout", "{}", []reqOpt{header("Sec-Fetch-Site", "cross-site")}},
+		"login from another site":       {"/api/login", login, []reqOpt{header("Sec-Fetch-Site", "cross-site")}},
+		"login as text/plain (no CORS)": {"/api/login", login, []reqOpt{sameSite, header("Content-Type", "text/plain")}},
+	} {
+		if res, _ := e.do(t, c, "POST", x.path, x.body, x.opts...); res.StatusCode != 403 {
+			t.Errorf("%s = %d, want 403", name, res.StatusCode)
+		}
+	}
+	if len(e.calls) != 0 {
+		t.Fatal("a cross-site request started a sync")
+	}
+	// The page's own request: browsers without Sec-Fetch-Site still send Origin.
+	if res, _ := e.do(t, c, "POST", "/api/sync", "{}", header("Origin", "https://"+host)); res.StatusCode != 202 {
+		t.Errorf("sync with the site's Origin = %d, want 202", res.StatusCode)
+	}
+}
+
+func TestSignInLockout(t *testing.T) {
+	e := newTestEnv(t, true)
+	c := e.client()
+	for range 5 {
+		e.do(t, c, "POST", "/api/login", `{"name":"patrick","password":"guess guess guess"}`, sameSite)
+	}
+	res, body := e.do(t, c, "POST", "/api/login", `{"name":"patrick","password":"`+adminPassword+`"}`, sameSite)
+	if res.StatusCode != 429 || res.Header.Get("Retry-After") == "" || !strings.Contains(body, "retry_after") {
+		t.Errorf("after 5 wrong passwords = %d %s, want 429 even for the right one", res.StatusCode, body)
+	}
+	// Other accounts are not locked by guesses at this one (up to the
+	// address's own limit).
+	if res, _ := e.do(t, c, "POST", "/api/login", `{"name":"anna","password":"`+viewerPassword+`"}`, sameSite); res.StatusCode != 200 {
+		t.Errorf("another account = %d, want 200", res.StatusCode)
+	}
+	// Many names from one address lock the address.
+	for i := range 20 {
+		e.do(t, c, "POST", "/api/login", `{"name":"user`+string(rune('a'+i))+`","password":"guess guess guess"}`, sameSite)
+	}
+	if res, _ := e.do(t, c, "POST", "/api/login", `{"name":"anna","password":"`+viewerPassword+`"}`, sameSite); res.StatusCode != 429 {
+		t.Errorf("after 20 failures from one address = %d, want 429", res.StatusCode)
+	}
+}
+
+func TestSyncNeedsAnAdminOrASyncToken(t *testing.T) {
+	e := newTestEnv(t, true)
+	ctx := context.Background()
+	patrick, _ := e.store.UserByName(ctx, "patrick")
+	syncTok, _ := e.store.CreateAPIToken(ctx, patrick, "cron", []string{"sync"}, time.Time{})
+	readTok, _ := e.store.CreateAPIToken(ctx, patrick, "export", []string{"read"}, time.Time{})
+
+	viewer := e.signIn(t, "anna", viewerPassword, false)
+	if res, _ := e.do(t, viewer, "POST", "/api/sync", "{}", sameSite); res.StatusCode != 403 {
+		t.Errorf("sync as viewer = %d, want 403", res.StatusCode)
+	}
+	if res, _ := e.do(t, viewer, "GET", "/stats.json", ""); res.StatusCode != 200 {
+		t.Errorf("stats as viewer = %d", res.StatusCode)
+	}
+	plain := e.srv.Client()
+	if res, _ := e.do(t, plain, "POST", "/api/sync", "", bearer(readTok)); res.StatusCode != 403 {
+		t.Errorf("sync with a read token = %d, want 403", res.StatusCode)
+	}
+	if res, _ := e.do(t, plain, "GET", "/stats.json", "", bearer(readTok)); res.StatusCode != 200 {
+		t.Errorf("stats with a read token = %d", res.StatusCode)
+	}
+	if res, _ := e.do(t, plain, "GET", "/stats.json", "", bearer(syncTok)); res.StatusCode != 403 {
+		t.Errorf("stats with a sync-only token = %d, want 403", res.StatusCode)
+	}
+	if res, _ := e.do(t, plain, "GET", "/api/sessions", "", bearer(readTok)); res.StatusCode != 403 {
+		t.Errorf("sessions with a token = %d, want 403", res.StatusCode)
+	}
+	if res, _ := e.do(t, plain, "POST", "/api/sync", "", bearer("eum_wrong")); res.StatusCode != 401 {
+		t.Errorf("sync with a wrong token = %d, want 401", res.StatusCode)
+	}
+
+	// A token needs no Origin or JSON: it isn't sent by browsers on their own.
+	res, body := e.do(t, plain, "POST", "/api/sync?all=1", "", bearer(syncTok))
+	if res.StatusCode != 202 {
+		t.Fatalf("sync with a sync token = %d %s", res.StatusCode, body)
+	}
+	if cfg := <-e.calls; !cfg.refreshAll {
 		t.Error("?all=1 did not request a full refresh")
 	}
-	if res := do(t, "POST", srv.URL+"/api/sync", testToken); res.StatusCode != 409 {
+	admin := e.signIn(t, "patrick", adminPassword, false)
+	if res, _ := e.do(t, admin, "POST", "/api/sync", "{}", sameSite); res.StatusCode != 409 {
 		t.Errorf("second sync while running = %d, want 409", res.StatusCode)
 	}
-
-	req, _ := http.NewRequest("GET", srv.URL+"/api/status", nil)
-	req.Header.Set("Authorization", "Bearer "+testToken)
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer res.Body.Close()
+	res, body = e.do(t, admin, "GET", "/api/status", "")
 	var st syncStatus
-	if err := json.NewDecoder(res.Body).Decode(&st); err != nil || !st.Running || !st.All {
-		t.Errorf("status = %+v, %v; want a running full refresh", st, err)
+	if err := json.Unmarshal([]byte(body), &st); err != nil || res.StatusCode != 200 || !st.Running || !st.All {
+		t.Errorf("status = %d %+v %v; want a running full refresh", res.StatusCode, st, err)
 	}
 }
 
-func TestServeAPILockout(t *testing.T) {
-	srv, _, release, _ := testServer(t, testToken)
-	defer close(release)
-	for range maxFailures {
-		do(t, "GET", srv.URL+"/api/status", "guess")
+func TestSessionsBelongToTheirUser(t *testing.T) {
+	e := newTestEnv(t, true)
+	anna := e.signIn(t, "anna", viewerPassword, true)
+	patrick := e.signIn(t, "patrick", adminPassword, true)
+	var list []sessionInfo
+	_, body := e.do(t, anna, "GET", "/api/sessions", "")
+	json.Unmarshal([]byte(body), &list)
+	if len(list) != 1 {
+		t.Fatalf("anna's sessions: %s", body)
 	}
-	if res := do(t, "GET", srv.URL+"/api/status", testToken); res.StatusCode != 429 {
-		t.Errorf("after %d wrong tokens = %d, want 429 even for the right one", maxFailures, res.StatusCode)
+	if res, _ := e.do(t, patrick, "DELETE", "/api/sessions/"+itoa(list[0].ID), "", sameSite, header("Content-Type", "application/json")); res.StatusCode != 404 {
+		t.Errorf("deleting another user's session = %d, want 404", res.StatusCode)
+	}
+	if res, _ := e.do(t, anna, "GET", "/api/me", ""); res.StatusCode != 200 {
+		t.Error("anna was signed out by someone else")
+	}
+	other := e.signIn(t, "anna", viewerPassword, false)
+	if res, _ := e.do(t, other, "POST", "/api/logout-all", "{}", sameSite); res.StatusCode != 204 {
+		t.Fatalf("logout-all = %d", res.StatusCode)
+	}
+	if res, _ := e.do(t, anna, "GET", "/api/me", ""); res.StatusCode != 401 {
+		t.Error("a session survived sign out everywhere")
+	}
+	if res, _ := e.do(t, patrick, "GET", "/api/me", ""); res.StatusCode != 200 {
+		t.Error("sign out everywhere ended another user's session")
 	}
 }
 
-func TestServeAPIDisabledWithoutToken(t *testing.T) {
-	srv, _, release, calls := testServer(t, "")
-	defer close(release)
-	if res := do(t, "POST", srv.URL+"/api/sync", ""); res.StatusCode < 400 {
-		t.Errorf("sync without ADMIN_TOKEN = %d, want an error", res.StatusCode)
+func TestNoDataBeforeTheFirstAccount(t *testing.T) {
+	e := newTestEnv(t, false)
+	c := e.client()
+	if res, _ := e.do(t, c, "GET", "/", ""); res.StatusCode != 200 {
+		t.Errorf("page = %d", res.StatusCode)
 	}
-	if res := do(t, "GET", srv.URL+"/api/status", ""); res.StatusCode != 404 {
-		t.Errorf("status without ADMIN_TOKEN = %d, want 404", res.StatusCode)
+	for _, p := range []string{"/stats.json", "/api/me"} {
+		if res, body := e.do(t, c, "GET", p, ""); res.StatusCode != 503 || !strings.Contains(body, "setup") {
+			t.Errorf("GET %s = %d %s, want 503 setup", p, res.StatusCode, body)
+		}
 	}
-	if len(calls) != 0 {
-		t.Fatal("sync started without ADMIN_TOKEN")
+	if res, _ := e.do(t, c, "POST", "/api/login", `{"name":"x","password":"y"}`, sameSite); res.StatusCode != 503 {
+		t.Errorf("login = %d, want 503", res.StatusCode)
+	}
+}
+
+func TestClientIPTrustsOnlyTheLocalProxy(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Real-IP", "198.51.100.7")
+	req.RemoteAddr = "127.0.0.1:5000"
+	if ip := clientIP(req); ip != "198.51.100.7" {
+		t.Errorf("behind nginx: %s", ip)
+	}
+	req.RemoteAddr = "203.0.113.9:5000"
+	if ip := clientIP(req); ip != "203.0.113.9" {
+		t.Errorf("a direct client chose its own address: %s", ip)
+	}
+}
+
+func TestNextAt(t *testing.T) {
+	loc := time.FixedZone("CET", 3600)
+	for now, want := range map[time.Time]time.Time{
+		time.Date(2026, 10, 27, 1, 0, 0, 0, loc):  time.Date(2026, 10, 27, 3, 20, 0, 0, loc),
+		time.Date(2026, 10, 27, 3, 20, 0, 0, loc): time.Date(2026, 10, 28, 3, 20, 0, 0, loc),
+		time.Date(2026, 12, 31, 9, 0, 0, 0, loc):  time.Date(2027, 1, 1, 3, 20, 0, 0, loc),
+	} {
+		if got := nextAt(now, 3, 20); !got.Equal(want) {
+			t.Errorf("nextAt(%v) = %v, want %v", now, got, want)
+		}
 	}
 }
 
@@ -169,36 +474,42 @@ func TestHealthy(t *testing.T) {
 
 func TestServeCompiledInPages(t *testing.T) {
 	public := t.TempDir()
-	_ = os.WriteFile(filepath.Join(public, "stats.json"), []byte(`{"days":[]}`), 0o644)
+	d, _ := db.Open(context.Background(), filepath.Join(public, "app.db"))
+	defer d.Close()
 	r := newRunner(config{outPath: filepath.Join(public, "stats.json")}, time.Hour)
-	srv := httptest.NewServer(newHandler(r, site.Files, public, ""))
+	srv := httptest.NewServer(newHandler(r, site.Files, public, auth.NewStore(d)))
 	t.Cleanup(srv.Close)
-
-	for _, p := range []string{"/", "/js/main.js", "/stats.json"} {
-		if res := do(t, "GET", srv.URL+p, ""); res.StatusCode != 200 {
+	get := func(p string, opts ...reqOpt) *http.Response {
+		req, _ := http.NewRequest("GET", srv.URL+p, nil)
+		for _, o := range opts {
+			o(req)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+	for _, p := range []string{"/", "/js/main.js"} {
+		if res := get(p); res.StatusCode != 200 {
 			t.Errorf("GET %s = %d", p, res.StatusCode)
 		}
 	}
 	for _, p := range []string{"/embed.go", "/embed_test.go"} {
-		if res := do(t, "GET", srv.URL+p, ""); res.StatusCode != 404 {
+		if res := get(p); res.StatusCode != 404 {
 			t.Errorf("GET %s = %d, want 404", p, res.StatusCode)
 		}
 	}
 	// Compiled-in files have no modification time: an ETag lets browsers
 	// revalidate them.
-	res := do(t, "GET", srv.URL+"/style.css", "")
-	tag := res.Header.Get("ETag")
+	tag := get("/style.css").Header.Get("ETag")
 	if tag == "" {
 		t.Fatal("no ETag for a compiled-in file")
 	}
-	req, _ := http.NewRequest("GET", srv.URL+"/style.css", nil)
-	req.Header.Set("If-None-Match", tag)
-	res2, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res2.Body.Close()
-	if res2.StatusCode != http.StatusNotModified {
-		t.Errorf("revalidation = %d, want 304", res2.StatusCode)
+	if res := get("/style.css", header("If-None-Match", tag)); res.StatusCode != http.StatusNotModified {
+		t.Errorf("revalidation = %d, want 304", res.StatusCode)
 	}
 }
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
