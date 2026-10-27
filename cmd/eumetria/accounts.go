@@ -122,7 +122,7 @@ func runAccountCommand(ctx context.Context, cfg config, c accountCommand) error 
 		if err != nil {
 			return err
 		}
-		if err := store.SetPassword(ctx, u, pw); err != nil {
+		if err := store.SetPassword(ctx, u, pw, 0); err != nil {
 			return err
 		}
 		store.Audit(ctx, nil, "cli", "password_reset", u.Name, "")

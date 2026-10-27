@@ -215,11 +215,21 @@ func TestSessions(t *testing.T) {
 	if list, _ := s.Sessions(ctx, u); len(list) != 1 {
 		t.Errorf("Sessions: %d, want 1", len(list))
 	}
-	if err := s.SetPassword(ctx, u, "a brand new long password"); err != nil {
+	keep, kept, _ := s.CreateSession(ctx, u, true, "", "")
+	if err := s.SetPassword(ctx, u, "a brand new long password", kept.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.Session(ctx, tok); !errors.Is(err, ErrNotFound) {
 		t.Error("a session survived a password change")
+	}
+	if _, _, err := s.Session(ctx, keep); err != nil {
+		t.Errorf("the session that changed the password ended: %v", err)
+	}
+	if ok, _ := s.PasswordMatches(ctx, u, "a brand new long password"); !ok {
+		t.Error("PasswordMatches refuses the new password")
+	}
+	if ok, _ := s.PasswordMatches(ctx, u, goodPassword); ok {
+		t.Error("PasswordMatches takes the old password")
 	}
 	if _, err := s.Authenticate(ctx, "patrick", "a brand new long password"); err != nil {
 		t.Errorf("new password: %v", err)

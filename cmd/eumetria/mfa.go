@@ -473,6 +473,67 @@ func (a *app) security(w http.ResponseWriter, req *http.Request, p *principal) {
 	})
 }
 
+type passwordChange struct {
+	Current string `json:"current"`
+	New     string `json:"new"`
+}
+
+// Why a new password is refused, for the page's own texts.
+var passwordReasons = map[error]string{
+	auth.ErrPasswordShort:  "too_short",
+	auth.ErrPasswordLong:   "too_long",
+	auth.ErrPasswordCommon: "common",
+	auth.ErrPasswordIsName: "is_name",
+}
+
+// changePassword sets a new password. The current one proves who asks, so
+// no recent sign-in is needed; wrong ones count like failed sign-ins.
+// Every other session of the user ends; this one stays and counts as
+// freshly signed in.
+func (a *app) changePassword(w http.ResponseWriter, req *http.Request, p *principal) {
+	ctx := req.Context()
+	var in passwordChange
+	if !readJSON(w, req, &in) {
+		return
+	}
+	ip := clientIP(req)
+	nameKey := "name:" + strings.ToLower(p.user.Name)
+	if d := max(a.byIP.Blocked("ip:"+ip), a.byName.Blocked(nameKey)); d > 0 {
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "locked", "retry_after": int(d.Seconds()) + 1})
+		return
+	}
+	ok, err := a.store.PasswordMatches(ctx, p.user, in.Current)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server")
+		return
+	}
+	if !ok {
+		a.byIP.Fail("ip:" + ip)
+		a.byName.Fail(nameKey)
+		log.Printf("password change: wrong current password for %q from %s", p.user.Name, ip)
+		a.audit_(ctx, p.user, "", "password_change_failed", "", ip)
+		writeError(w, http.StatusForbidden, "wrong_password")
+		return
+	}
+	if in.New == in.Current {
+		writeError(w, http.StatusBadRequest, "same")
+		return
+	}
+	if err := a.store.SetPassword(ctx, p.user, in.New, p.session.ID); err != nil {
+		if why, ok := passwordReasons[err]; ok {
+			writeError(w, http.StatusBadRequest, why)
+			return
+		}
+		log.Printf("password change: %v", err)
+		writeError(w, http.StatusInternalServerError, "server")
+		return
+	}
+	a.store.SetAuthenticated(ctx, p.session)
+	a.byName.Reset(nameKey)
+	a.audit_(ctx, p.user, "", "password_changed", "", ip)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func regKey(p *principal) string  { return "reg:" + strconv.FormatInt(p.session.ID, 10) }
 func totpKey(p *principal) string { return "totp:" + strconv.FormatInt(p.session.ID, 10) }
 

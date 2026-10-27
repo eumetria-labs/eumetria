@@ -1332,4 +1332,9 @@ a.q-badges:focus-visible { outline: none; }
 .sec-codes { margin-top: 14px; }
 .sec-code-list { columns: 2; column-gap: 24px; margin: 8px 0 12px; padding-left: 22px; font: 500 14px/1.9 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .sec-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.sec-password { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: 8px; align-items: center; }
+.sec-password .field { min-width: 0; }
+.sec-password .sec-msg, .sec-password .pill-btn { grid-column: 1 / -1; justify-self: start; }
+.sec-msg { margin: 0; font-size: 14px; color: var(--good); font-weight: 550; }
+.sec-msg[hidden] { display: none; }
 @media (max-width: 420px) { .sec-code-list { columns: 1; } }

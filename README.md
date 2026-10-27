@@ -101,7 +101,7 @@ certbot certonly --webroot -w /var/www/letsencrypt -d eumetria.example.com \
 
 Everything but the sign-in page needs an account. Admins also see the sync button (its menu has **Full refresh**); viewers only read.
 
-- **Passwords:** at least 12 characters, no common ones, stored as argon2id hashes.
+- **Passwords:** at least 12 characters, no common ones, stored as argon2id hashes. Change yours under account menu → **Security**; that signs out your other devices.
 - **Sessions:** "Keep me signed in" lasts until a week without use, a month at most; without it, until the browser closes (12 hours at most). The account menu (your initial, top right) signs out here or everywhere.
 - **Wrong passwords:** five in 15 minutes lock that account for 15 minutes, doubling up to a day; twenty from one address lock the address. Wrong codes count the same.
 - **Second factors** (account menu → **Security**): passkeys (fingerprint, face or PIN, synced by your phone or password manager), security keys such as a YubiKey, an authenticator app, and ten recovery codes for when the others are lost. With one, the password is followed by a second step; a passkey alone signs in without a password, from the button or from the browser's suggestions in the name field. **Admins need one** before they can sync or open the admin tools. Changing them needs a sign-in within the last 10 minutes.

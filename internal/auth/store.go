@@ -183,8 +183,19 @@ func (s *Store) Authenticate(ctx context.Context, name, password string) (*User,
 	return u, nil
 }
 
-// SetPassword replaces a user's password and ends all their sessions.
-func (s *Store) SetPassword(ctx context.Context, u *User, password string) error {
+// PasswordMatches reports whether password is u's current one.
+func (s *Store) PasswordMatches(ctx context.Context, u *User, password string) (bool, error) {
+	var hash string
+	if err := s.DB.QueryRowContext(ctx, "SELECT password_hash FROM users WHERE id = ?", u.ID).Scan(&hash); err != nil {
+		return false, err
+	}
+	return CheckPassword(hash, password), nil
+}
+
+// SetPassword replaces a user's password and ends their sessions, all but
+// keep (0 keeps none): someone who had a session the old password got
+// them doesn't keep it.
+func (s *Store) SetPassword(ctx context.Context, u *User, password string, keep int64) error {
 	if err := ValidatePassword(password, u.Name); err != nil {
 		return err
 	}
@@ -200,7 +211,7 @@ func (s *Store) SetPassword(ctx context.Context, u *User, password string) error
 	if _, err := tx.ExecContext(ctx, "UPDATE users SET password_hash = ?, password_at = ? WHERE id = ?", hash, s.now(), u.ID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ?", u.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ? AND id != ?", u.ID, keep); err != nil {
 		return err
 	}
 	return tx.Commit()

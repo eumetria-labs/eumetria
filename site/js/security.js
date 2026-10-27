@@ -1,7 +1,8 @@
-// The security settings (account menu → Security): passkeys and security
-// keys, the authenticator app and recovery codes. Changing any of them
-// needs a sign-in within the last 10 minutes; the server says when it's
-// older, and the window offers to sign in again and come back here.
+// The security settings (account menu → Security): the password, passkeys
+// and security keys, the authenticator app and recovery codes. Changing a
+// second factor needs a sign-in within the last 10 minutes; the server says
+// when it's older, and the window offers to sign in again and come back
+// here. The password needs no such sign-in: the current one proves it.
 
 import { LOCALE } from './format.js';
 import { $, download, h, setHashParam } from './dom.js';
@@ -40,6 +41,7 @@ async function render(body) {
   if (s.required && !s.keys.length && !s.totp) {
     parts.push(h('p', { class: 'notice' }, t('As an admin you need a second factor before you can sync or use the admin tools. A passkey is the easiest.')));
   }
+  parts.push(passwordSection());
   if (!s.fresh) parts.push(reauthNote());
   parts.push(keysSection(s, body), totpSection(s, body), recoverySection(s, body));
   body.replaceChildren(...parts);
@@ -88,6 +90,62 @@ async function change(body, button, run, failText = t('That didn’t work. Try a
   } finally {
     button.disabled = false;
   }
+}
+
+/* ---------- password ---------- */
+
+// The server's reasons for refusing a new password, in the page's words.
+const PASSWORD_ERRORS = {
+  wrong_password: () => t('That isn’t your current password.'),
+  too_short: () => t('The new password needs at least 12 characters.'),
+  too_long: () => t('The new password is too long.'),
+  common: () => t('That password is one of the most used ones. Pick another.'),
+  is_name: () => t('The password can’t be your user name.'),
+  same: () => t('The new password is the same as the current one.'),
+};
+
+function passwordSection() {
+  const sec = section(t('Password'), t('At least 12 characters. Long beats complicated.'));
+  const form = h('form', { class: 'sec-password' });
+  // For password managers: whose password this is.
+  const user = h('input', { type: 'text', autocomplete: 'username', value: account.user?.name || '', hidden: '', 'aria-hidden': 'true', tabindex: '-1' });
+  const field = (placeholder, auto) => h('input', { class: 'field', type: 'password', autocomplete: auto, placeholder, 'aria-label': placeholder, required: '' });
+  const current = field(t('Current password'), 'current-password');
+  const next = field(t('New password'), 'new-password');
+  const again = field(t('New password again'), 'new-password');
+  const msg = h('p', { class: 'sec-msg', role: 'status', hidden: '' });
+  const save = h('button', { class: 'pill-btn', type: 'submit' }, t('Change password'));
+  const say = (text, bad) => {
+    msg.textContent = text;
+    msg.classList.toggle('lock-error', bad);
+    msg.hidden = false;
+  };
+  form.append(user, current, next, again, msg, save);
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    msg.hidden = true;
+    if (next.value !== again.value) return say(t('The two new passwords differ.'), true);
+    if ([...next.value].length < 12) return say(PASSWORD_ERRORS.too_short(), true);
+    save.disabled = true;
+    try {
+      const res = await api('security/password', 'POST', { current: current.value, new: next.value });
+      if (res.ok) {
+        form.reset();
+        user.value = account.user?.name || '';
+        return say(t('Password changed. Your other devices are signed out.'), false);
+      }
+      if (res.status === 429) return say(t('Too many wrong passwords. Try again later.'), true);
+      const why = await reason(res);
+      say(PASSWORD_ERRORS[why]?.() || t('That didn’t work. Try again.'), true);
+      if (why === 'wrong_password') current.select();
+    } catch {
+      say(t('Server not reachable.'), true);
+    } finally {
+      save.disabled = false;
+    }
+  };
+  sec.append(form);
+  return sec;
 }
 
 /* ---------- passkeys and security keys ---------- */

@@ -42,6 +42,7 @@ import (
 //	GET    /api/sessions      this user's sessions                                 session
 //	DELETE /api/sessions/{id} ends one of them                                     session
 //	GET    /api/security      this user's second factors                           session
+//	POST   /api/security/password  {current, new}: changes the password            session
 //	POST   /api/security/key/begin, …/finish   adds a passkey or security key       session, recent sign-in
 //	DELETE /api/security/key/{id}              removes one                          session, recent sign-in
 //	POST   /api/security/totp/begin, …/confirm  sets up the authenticator app       session, recent sign-in
@@ -144,6 +145,7 @@ func (a *app) routes() []route {
 		{"GET", "/api/sessions", ownSession, a.sessions},
 		{"DELETE", "/api/sessions/{id}", ownSession, a.deleteSession},
 		{"GET", "/api/security", ownSession, a.security},
+		{"POST", "/api/security/password", ownSession, a.changePassword},
 		{"POST", "/api/security/key/begin", ownSession, a.keyBegin},
 		{"POST", "/api/security/key/finish", ownSession, a.keyFinish},
 		{"DELETE", "/api/security/key/{id}", ownSession, a.keyDelete},
