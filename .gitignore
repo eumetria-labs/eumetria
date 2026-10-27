@@ -1,0 +1,11 @@
+data/
+site/stats.json
+site/photos/
+site/routes/
+site/days/
+*.tmp
+TODO.md
+PLAN.md
+/google/
+/eumetria
+/yazio-sync

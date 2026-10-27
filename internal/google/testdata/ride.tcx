@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Biking">
+      <Lap StartTime="2026-09-24T16:32:11.000+02:00">
+        <Track>
+          <Trackpoint><Time>2026-09-24T16:32:11.000+02:00</Time><Position><LatitudeDegrees>48.000000</LatitudeDegrees><LongitudeDegrees>11.000000</LongitudeDegrees></Position><AltitudeMeters>581.0</AltitudeMeters><DistanceMeters>0.0</DistanceMeters><HeartRateBpm><Value>84</Value></HeartRateBpm></Trackpoint>
+          <Trackpoint><Time>2026-09-24T16:32:12.000+02:00</Time><Position><LatitudeDegrees>48.000100</LatitudeDegrees><LongitudeDegrees>11.000000</LongitudeDegrees></Position><DistanceMeters>11.1</DistanceMeters></Trackpoint>
+          <Trackpoint><Time>2026-09-24T16:32:13.000+02:00</Time><Position><LatitudeDegrees>48.000200</LatitudeDegrees><LongitudeDegrees>11.000000</LongitudeDegrees></Position><DistanceMeters>22.2</DistanceMeters></Trackpoint>
+          <Trackpoint><Time>2026-09-24T16:32:14.000+02:00</Time><DistanceMeters>22.2</DistanceMeters></Trackpoint>
+          <Trackpoint><Time>2026-09-24T16:32:15.000+02:00</Time><Position><LatitudeDegrees>48.000200</LatitudeDegrees><LongitudeDegrees>11.000300</LongitudeDegrees></Position><DistanceMeters>44.5</DistanceMeters></Trackpoint>
+        </Track>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>

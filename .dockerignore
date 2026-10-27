@@ -1,0 +1,14 @@
+.git
+data
+deploy
+node_modules
+tests
+scripts
+site/stats.json
+site/photos
+site/routes
+site/days
+**/*.tmp
+/google
+/eumetria
+/yazio-sync

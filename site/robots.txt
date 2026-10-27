@@ -1,0 +1,21 @@
+# This is a personal stats page: keep it out of search engines and AI training sets.
+# The page itself stays crawlable so search engines can see its "noindex" tag;
+# photos, routes and the raw data file are never fetched.
+User-agent: *
+Disallow: /photos/
+Disallow: /routes/
+Disallow: /days/
+Disallow: /stats.json
+
+User-agent: GPTBot
+User-agent: ChatGPT-User
+User-agent: ClaudeBot
+User-agent: Claude-Web
+User-agent: anthropic-ai
+User-agent: Google-Extended
+User-agent: CCBot
+User-agent: PerplexityBot
+User-agent: Bytespider
+User-agent: Applebot-Extended
+User-agent: meta-externalagent
+Disallow: /

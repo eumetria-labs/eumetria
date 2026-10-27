@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Eumetria</title>
+  <meta name="description" content="Eumetria: your nutrition, training and sleep in one self-hosted dashboard.">
+  <meta name="robots" content="noindex, nofollow, noimageindex, noarchive">
+  <meta name="referrer" content="no-referrer">
+  <!-- Only this site's own files may load. data: covers the inline favicon and demo photos; map tiles come from OpenStreetMap. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="theme-color" content="#ebe9e3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#18191b" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="icons/mark.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="preload" href="fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="modulepreload" href="js/format.js">
+  <link rel="modulepreload" href="js/charts.js">
+  <link rel="modulepreload" href="js/lock.js">
+  <link rel="modulepreload" href="js/admin.js">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="top-sentinel" aria-hidden="true"></div>
+  <header class="top" id="top">
+    <div class="top-inner">
+      <div class="brand">
+        <h1 id="title-row"><img class="brand-mark" src="icons/mark.svg" alt="" width="30" height="30"><span id="title">Eumetria</span></h1>
+        <p class="sub" id="updated">Loading…</p>
+      </div>
+      <div class="controls">
+        <div class="seg" role="radiogroup" aria-label="Time range" id="range">
+          <span class="seg-thumb" aria-hidden="true"></span>
+          <button role="radio" data-range="7">7D</button>
+          <button role="radio" data-range="30">30D</button>
+          <button role="radio" data-range="90">90D</button>
+          <button role="radio" data-range="365">1Y</button>
+          <button role="radio" data-range="all">All</button>
+          <button role="radio" data-range="custom" class="seg-custom" title="Custom range"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 10h16M9 3v4M15 3v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="seg-label">Custom</span></button>
+        </div>
+        <button class="device-btn" id="device" type="button" hidden></button>
+        <div class="sync-group" id="sync-group" hidden>
+          <button class="icon-btn" id="sync" type="button" aria-label="Sync recent days with YAZIO" title="Sync recent days with YAZIO">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="sync-more" id="sync-more" type="button" aria-label="More sync options" title="More sync options" aria-haspopup="menu" aria-expanded="false" aria-controls="sync-menu">
+            <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="menu" id="sync-menu" role="menu" aria-label="Sync options" hidden>
+            <button role="menuitem" type="button" data-all="0"><b>Sync recent days</b><span id="sync-recent-note">Re-fetches the last few days. Takes seconds.</span></button>
+            <button role="menuitem" type="button" data-all="1"><b>Full refresh</b><span>Re-fetches the whole history, e.g. after editing old entries. Takes a few minutes.</span></button>
+          </div>
+        </div>
+        <button class="icon-btn" id="search" type="button" aria-label="Search foods, activities and days" aria-keyshortcuts="Control+K Meta+K" title="Search (Ctrl+K)" hidden>
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="icon-btn" id="theme" aria-label="Toggle dark mode" title="Toggle dark mode">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="custom-range" id="custom-range" role="group" aria-label="Custom range" hidden>
+        <label for="range-from">From</label>
+        <input class="field" type="date" id="range-from" required>
+        <label for="range-to">to</label>
+        <input class="field" type="date" id="range-to" required>
+        <span class="muted" id="range-days"></span>
+      </div>
+      <!-- Jumps to the parts of the page; js/sections.js marks the one in view. -->
+      <nav class="sections" id="sections" aria-label="Sections" hidden>
+        <a href="#today" data-cards="today review-card tiles">Today</a>
+        <a href="#energy-card" data-cards="energy-card heatmap-card macros-card">Nutrition</a>
+        <a href="#weight-card" data-cards="weight-card">Body</a>
+        <a href="#recovery-card" data-cards="recovery-card">Sleep</a>
+        <a href="#training-card" data-cards="training-card movement-card">Training</a>
+        <a href="#foods-card" data-cards="foods-card top-activities-card sources-card quality-card">Foods</a>
+        <a href="#data-card" data-cards="data-card">Data</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="page">
+    <p class="notice" id="sync-notice" role="status" hidden></p>
+    <form class="card lock" id="lock" hidden>
+      <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <h2>Members only</h2>
+      <p class="muted">Enter the password you were given.</p>
+      <input id="lock-password" type="password" autocomplete="current-password" aria-label="Password" placeholder="Password" required>
+      <label class="lock-remember"><input id="lock-remember" type="checkbox" checked> Remember me on this device</label>
+      <p class="lock-error" id="lock-error" role="alert" hidden>Wrong password. Try again.</p>
+      <button class="lock-btn" type="submit">Unlock</button>
+    </form>
+    <form class="card lock" id="admin" hidden>
+      <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h2>Enable sync button</h2>
+      <p class="muted">Enter the admin token (ADMIN_TOKEN on the server). It is stored on this device only.</p>
+      <input id="admin-token" type="password" autocomplete="off" aria-label="Admin token" placeholder="Admin token" required>
+      <p class="lock-error" id="admin-error" role="alert" hidden></p>
+      <button class="lock-btn" type="submit">Save</button>
+      <button class="lock-cancel" id="admin-cancel" type="button">Cancel</button>
+    </form>
+    <main id="main" class="loading" aria-busy="true">
+      <section class="card today" id="today" aria-labelledby="today-title">
+        <div class="ring-wrap" id="today-ring"></div>
+        <div class="today-body">
+          <header class="today-head">
+            <div>
+              <h2 id="today-title">Today</h2>
+              <p class="muted" id="today-sub"></p>
+            </div>
+            <button class="pill-btn" id="today-open" type="button">Day details <span aria-hidden="true">›</span></button>
+          </header>
+          <div class="today-macros" id="today-macros"></div>
+          <div class="today-meals" id="today-meals"></div>
+          <div class="highlights" id="today-highlights" role="list" aria-label="Highlights" hidden></div>
+        </div>
+      </section>
+
+      <section class="card review" id="review-card" aria-labelledby="review-title" hidden>
+        <svg class="coach-avatar" viewBox="0 0 48 48" aria-hidden="true">
+          <defs><clipPath id="coach-clip"><circle cx="24" cy="24" r="24"/></clipPath></defs>
+          <circle class="coach-bg" cx="24" cy="24" r="24"/>
+          <g clip-path="url(#coach-clip)">
+            <path class="coach-body" d="M8 50c1.5-10 8.5-15 16-15s14.5 5 16 15z"/>
+            <path class="coach-collar" d="M20 35l4 7 4-7"/>
+            <circle class="coach-accent" cx="27.5" cy="42.5" r="2.4"/>
+          </g>
+          <circle class="coach-body" cx="24" cy="21" r="8.5"/>
+          <path class="coach-accent" d="M15.3 19.5a8.7 8.7 0 0 1 17.4 0z"/>
+          <path class="coach-accent" d="M27 18.6h9.2a1.4 1.4 0 0 1 0 2.8H27z"/>
+        </svg>
+        <div class="coach-main">
+          <header class="coach-head">
+            <h2 id="review-title">Your coach <span class="muted" id="review-week"></span></h2>
+            <div class="review-nav">
+              <button class="icon-btn" id="review-prev" type="button" aria-label="Earlier week" title="Earlier week">‹</button>
+              <button class="icon-btn" id="review-next" type="button" aria-label="Later week" title="Later week">›</button>
+            </div>
+          </header>
+          <div class="coach-chat" id="review-body" aria-live="polite"></div>
+          <button class="coach-more" id="review-more" type="button" aria-expanded="false" aria-controls="review-body"></button>
+          <p class="note muted" id="review-note" hidden></p>
+        </div>
+      </section>
+
+      <section class="tiles" id="tiles" aria-label="Averages for the selected range">
+        <article class="card tile"></article><article class="card tile"></article>
+        <article class="card tile"></article><article class="card tile"></article>
+      </section>
+
+      <section class="grid">
+        <article class="card span-2" id="energy-card">
+          <header class="card-head">
+            <div><h2>Calories</h2><p class="muted" id="cal-sub"></p></div>
+            <ul class="legend">
+              <li><span class="key line s1"></span>Eaten</li>
+              <li id="leg-avg" hidden><span class="key line s1 thick"></span>7-day average</li>
+              <li><span class="key line ink"></span>Goal incl. activity</li>
+              <li id="leg-burned" hidden><span class="key line s2"></span>Burned (Fitbit)</li>
+              <li><span class="key dash"></span>Base goal</li>
+            </ul>
+          </header>
+          <div class="chart tall" id="chart-energy"></div>
+          <div class="meal-split" id="meals" aria-label="Average calories per meal"></div>
+          <h3 class="mini-title weekday-title">By weekday <span class="muted">average eaten on logged days · darker: above your overall average</span></h3>
+          <div class="weekday-split" id="weekdays" role="list" aria-label="Average calories per weekday"></div>
+        </article>
+
+        <article class="card span-2" id="heatmap-card">
+          <header class="card-head">
+            <div><h2>Calorie calendar</h2><p class="muted" id="heatmap-sub"></p></div>
+          </header>
+          <div class="heatmap" id="heatmap"></div>
+          <div class="scale" aria-hidden="true">
+            <span>Under</span><i class="d-n3"></i><i class="d-n1"></i><i class="d-0"></i><i class="d-p1"></i><i class="d-p3"></i><span>Over goal</span><i class="none"></i><span>Not logged</span>
+          </div>
+        </article>
+
+        <article class="card" id="macros-card">
+          <header class="card-head">
+            <div><h2>Macronutrients</h2><p class="muted" id="macro-sub"></p></div>
+          </header>
+          <ul class="legend macro-legend" id="macro-legend"></ul>
+          <div class="chart" id="chart-macros"></div>
+          <div class="stat-row" id="protein-kg" aria-label="Protein per kg of body weight" hidden></div>
+        </article>
+
+        <article class="card" id="weight-card">
+          <header class="card-head">
+            <div><h2>Weight</h2><p class="muted" id="weight-sub"></p></div>
+            <ul class="legend">
+              <li><span class="key dot s1-soft"></span>Weigh-in</li>
+              <li><span class="key line s1"></span>7-day average</li>
+            </ul>
+          </header>
+          <div class="chart" id="chart-weight"></div>
+          <div class="stat-row" id="weight-insights" aria-label="Maintenance calories and goal forecast"></div>
+        </article>
+
+        <article class="card span-2" id="recovery-card" hidden>
+          <header class="card-head">
+            <div><h2>Sleep &amp; Recovery</h2><p class="muted" id="recovery-sub"></p></div>
+            <ul class="legend">
+              <li><span class="key st-deep"></span>Deep</li>
+              <li><span class="key st-light"></span>Light</li>
+              <li><span class="key st-rem"></span>REM</li>
+              <li><span class="key st-awake"></span>Awake</li>
+            </ul>
+          </header>
+          <h3 class="mini-title">Sleep per night</h3>
+          <div class="chart" id="chart-sleep"></div>
+          <div class="recovery-split">
+            <div>
+              <h3 class="mini-title">Heart rate (bpm)</h3>
+              <ul class="legend mini-legend">
+                <li><span class="key line s1"></span>Resting</li>
+                <li id="leg-sleep-hr" hidden><span class="key line s2"></span>Sleeping (non-REM)</li>
+              </ul>
+              <div class="chart short" id="chart-rhr"></div>
+            </div>
+            <div>
+              <h3 class="mini-title">Heart rate variability (ms)</h3>
+              <ul class="legend mini-legend">
+                <li><span class="key line s1"></span>Whole night</li>
+                <li id="leg-hrv-deep" hidden><span class="key line s2"></span>Deep sleep</li>
+              </ul>
+              <div class="chart short" id="chart-hrv"></div>
+            </div>
+          </div>
+          <div id="nights-after" hidden>
+            <h3 class="mini-title">Food, training and the following night</h3>
+            <div class="table-wrap" id="nights-after-table"></div>
+            <p class="note muted">Averages of the measured values in the selected range. A pattern, not proof: stress, alcohol, illness and bedtime matter too.</p>
+          </div>
+        </article>
+
+        <article class="card span-2" id="training-card" hidden>
+          <header class="card-head">
+            <div><h2>Training</h2><p class="muted" id="training-sub"></p></div>
+          </header>
+          <div class="stat-row training-week" id="training-week" aria-label="Last 7 days compared with the 4-week average"></div>
+          <div class="training-split">
+            <div>
+              <h3 class="mini-title">Personal bests <span class="muted">all time</span></h3>
+              <div id="training-bests"></div>
+            </div>
+            <div id="training-routes" hidden>
+              <h3 class="mini-title">Routes <span class="muted" id="training-routes-sub"></span></h3>
+              <ul class="legend mini-legend" id="training-legend"></ul>
+              <div class="wo-map training-map" id="training-map" role="img" aria-label="Map of the GPS routes in the selected range"></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card span-2" id="movement-card">
+          <header class="card-head">
+            <div><h2>Movement</h2><p class="muted" id="steps-sub"></p></div>
+          </header>
+          <h3 class="mini-title">Steps</h3>
+          <div class="chart short" id="chart-steps"></div>
+          <div id="activity-part">
+            <h3 class="mini-title">Calories burned by activities</h3>
+            <div class="chart short" id="chart-activity"></div>
+          </div>
+          <div id="azm-part" hidden>
+            <div class="mini-head">
+              <h3 class="mini-title">Active zone minutes</h3>
+              <ul class="legend mini-legend">
+                <li><span class="key z2"></span>Fat burn</li>
+                <li><span class="key z3"></span>Cardio</li>
+                <li><span class="key z4"></span>Peak</li>
+              </ul>
+            </div>
+            <div class="chart short" id="chart-azm"></div>
+          </div>
+        </article>
+
+        <article class="card" id="foods-card">
+          <header class="card-head"><div><h2>Most logged foods</h2><p class="muted" id="foods-sub"></p></div></header>
+          <div class="tabs" role="tablist" aria-label="Meal" id="foods-tabs"></div>
+          <div class="list-tools">
+            <input class="field search" id="foods-q" type="search" placeholder="Search foods" aria-label="Search foods" autocomplete="off">
+            <select class="field" id="foods-sort" aria-label="Sort foods"></select>
+          </div>
+          <div class="hbars" id="foods" role="tabpanel"></div>
+          <button class="pill-btn more-btn" id="foods-more" type="button" aria-controls="foods" hidden></button>
+        </article>
+
+        <article class="card" id="top-activities-card">
+          <header class="card-head"><div><h2>Top activities</h2><p class="muted" id="top-activities-sub"></p></div></header>
+          <div class="hbars" id="top-activities"></div>
+          <div class="act-weeks" id="act-weeks-part" hidden>
+            <h3 class="mini-title">Sessions per week</h3>
+            <div class="chart short" id="chart-act-weeks"></div>
+          </div>
+        </article>
+
+        <article class="card span-2" id="sources-card" hidden>
+          <header class="card-head"><div><h2>Macro sources</h2><p class="muted" id="sources-sub"></p></div></header>
+          <div class="tabs" role="tablist" aria-label="Macro" id="sources-tabs"></div>
+          <div class="sources-lists" id="sources-lists" role="tabpanel">
+            <div>
+              <h3 class="mini-title">Biggest sources <span class="muted">share of the total · times eaten</span></h3>
+              <div class="hbars" id="sources-top"></div>
+            </div>
+            <div>
+              <h3 class="mini-title"><span id="sources-best-title"></span> <span class="muted" id="sources-best-note"></span></h3>
+              <div class="hbars" id="sources-best"></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card span-2" id="quality-card" hidden>
+          <header class="card-head">
+            <div><h2>Food quality</h2><p class="muted" id="quality-sub"></p></div>
+          </header>
+          <div class="q-split">
+            <div id="quality-nova"></div>
+            <div id="quality-nutri"></div>
+          </div>
+          <div class="q-split q-lists" id="quality-lists"></div>
+          <p class="note muted q-note">Nutri-Score, NOVA group and additives as listed on <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener noreferrer">Open Food Facts</a>, a crowd-sourced database: not every product is rated. Recipes count by their ingredients. Select a food in a day’s details for its product page.</p>
+        </article>
+
+        <details class="card span-2 table-card" id="data-card">
+          <summary><h2>Daily data</h2><span class="muted">Every value on this page as a table. Select a date for its details, a column to sort by it.</span></summary>
+          <div class="table-tools">
+            <div class="tool-group" role="search">
+              <input class="field search" id="table-q" type="search" placeholder="Search dates, foods, activities" aria-label="Search days" autocomplete="off">
+              <select class="field" id="table-filter" aria-label="Show days"></select>
+              <span class="muted tool-count" id="table-count" aria-live="polite"></span>
+            </div>
+            <form class="tool-group" id="export" aria-label="Export">
+              <span class="tool-label">Export</span>
+              <input class="field" type="date" id="export-from" aria-label="Export from" required>
+              <span class="muted">to</span>
+              <input class="field" type="date" id="export-to" aria-label="Export to" required>
+              <select class="field" id="export-format" aria-label="File format">
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+              </select>
+              <button class="pill-btn" type="submit">Download</button>
+              <button class="pill-btn" type="button" id="report-print" title="A report of these days to print or save as PDF">Print report</button>
+            </form>
+          </div>
+          <div class="table-wrap"><table id="table"></table></div>
+        </details>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p class="lang-switch" role="group" aria-label="Language">
+        <button type="button" data-lang="en" lang="en">English</button>
+        <span aria-hidden="true">·</span>
+        <button type="button" data-lang="de" lang="de">Deutsch</button>
+      </p>
+      <p id="foot-sync">Data from YAZIO, synced automatically.</p>
+      <p id="foot-off" hidden>Food ratings from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener noreferrer">Open Food Facts</a>, available under the <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">Open Database License</a>.</p>
+      <p>Unofficial personal project. Not affiliated with, endorsed by or supported by YAZIO.</p>
+      <!-- The GitHub mark (Simple Icons, CC0). -->
+      <p><a class="repo-link" href="https://github.com/eumetria-labs/eumetria" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>Source code on GitHub</a></p>
+    </footer>
+  </div>
+  <div class="tt" id="tt" role="tooltip" hidden></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

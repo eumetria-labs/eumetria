@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Only for the frontend tests; the site itself has no build step or dependencies.",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "smoke": "node scripts/smoke.js site"
+  }
+}

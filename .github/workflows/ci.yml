@@ -1,0 +1,67 @@
+# Tests for every push and pull request; on main, the container image the
+# server runs (README, "Setup on a server"), pushed to GitHub's registry as
+# :latest and :<short commit>. The server's nightly cron pulls :latest.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Berlin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: go vet ./...
+      - run: go test ./...
+      - run: node --test tests/*.test.js
+      # Sample data, then the page in headless Chrome (preinstalled on the runner).
+      - run: go run ./cmd/vitalytics -demo -out site/stats.json
+      - run: node scripts/smoke.js site
+        env:
+          CHROME_BIN: google-chrome
+
+  image:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    # One push at a time, so :latest always ends up on the newest commit.
+    concurrency:
+      group: image
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: tag
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          pull: true
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

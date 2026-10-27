@@ -1,0 +1,28 @@
+# /srv/eumetria/compose.yaml — see the README, "Setup on a server".
+# Replace UID:GID with the ids of the eumetria user (`id eumetria`).
+
+services:
+  eumetria:
+    image: ghcr.io/eumetria-labs/eumetria:latest
+    container_name: eumetria
+    restart: unless-stopped
+    user: "UID:GID"
+    env_file: eumetria.env
+    volumes:
+      - /srv/eumetria/data:/data
+    ports:
+      - "127.0.0.1:8090:8080" # only nginx on this host can reach it
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
