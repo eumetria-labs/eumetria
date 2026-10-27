@@ -17,8 +17,11 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eumetria ./cmd/eum
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/eumetria /eumetria
 VOLUME /data
+# Every command finds the data folder, also one-off ones that replace CMD
+# (docker compose run … -create-user …).
+ENV DATA_DIR=/data
 EXPOSE 8080
 HEALTHCHECK --interval=1m --timeout=10s --start-period=30s \
   CMD ["/eumetria", "-healthcheck", "http://127.0.0.1:8080/healthz"]
 ENTRYPOINT ["/eumetria"]
-CMD ["-serve", ":8080", "-data", "/data"]
+CMD ["-serve", ":8080"]

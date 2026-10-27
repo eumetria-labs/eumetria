@@ -124,21 +124,21 @@ func (s *pendingStore) failed(key string) {
 
 // relyingParty is the WebAuthn configuration for the site as the browser
 // sees it: its host is the relying party ID, its origin the only one
-// accepted. Behind nginx the scheme is what nginx says, trusted only from
-// a local peer. Browsers allow WebAuthn on https and on http://localhost,
-// not on an IP address.
+// accepted. Browsers allow WebAuthn only over https, or on plain
+// http://localhost, so that decides the scheme; behind a proxy that ends
+// TLS (nginx) the request itself is plain http and can't tell.
 func (a *app) relyingParty(req *http.Request) (*webauthn.WebAuthn, error) {
-	scheme := "http"
-	if req.TLS != nil || (fromLoopback(req) && req.Header.Get("X-Forwarded-Proto") == "https") {
-		scheme = "https"
+	host := req.Host
+	if h, _, err := net.SplitHostPort(req.Host); err == nil {
+		host = h
+	}
+	scheme := "https"
+	if req.TLS == nil && (host == "localhost" || strings.HasSuffix(host, ".localhost")) {
+		scheme = "http"
 	}
 	origin := scheme + "://" + req.Host
 	if rp, ok := a.relyingParties.Load(origin); ok {
 		return rp.(*webauthn.WebAuthn), nil
-	}
-	host := req.Host
-	if h, _, err := net.SplitHostPort(req.Host); err == nil {
-		host = h
 	}
 	rp, err := webauthn.New(&webauthn.Config{RPID: host, RPDisplayName: "Eumetria", RPOrigins: []string{origin}})
 	if err != nil {
@@ -632,12 +632,16 @@ func (a *app) recoveryCodes(w http.ResponseWriter, req *http.Request, p *princip
 	writeJSON(w, http.StatusOK, map[string]any{"codes": codes})
 }
 
-// fromLoopback reports whether the request came from this machine (nginx).
-func fromLoopback(req *http.Request) bool {
+// fromProxy reports whether the request came through the local reverse
+// proxy, whose X-Real-IP is then believed: from this machine, or from a
+// private address, which is how Docker's port forwarding delivers it
+// (the bridge's gateway, e.g. 172.17.0.1). The container's port is bound
+// to 127.0.0.1 on the host, so nothing else gets there.
+func fromProxy(req *http.Request) bool {
 	host, _, err := net.SplitHostPort(req.RemoteAddr)
 	if err != nil {
 		host = req.RemoteAddr
 	}
 	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
 }

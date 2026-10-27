@@ -532,10 +532,10 @@ func truncate(s string, n int) string {
 }
 
 // clientIP is the address a request came from. Behind nginx the peer is
-// always 127.0.0.1, so then the address nginx reports counts; from any
-// other peer that header could be made up and is ignored.
+// nginx (through Docker), so then the address nginx reports counts; from
+// a public peer that header could be made up and is ignored.
 func clientIP(req *http.Request) string {
-	if fromLoopback(req) {
+	if fromProxy(req) {
 		if real := req.Header.Get("X-Real-IP"); real != "" {
 			return real
 		}

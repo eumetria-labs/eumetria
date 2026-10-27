@@ -439,6 +439,11 @@ func TestClientIPTrustsOnlyTheLocalProxy(t *testing.T) {
 	if ip := clientIP(req); ip != "198.51.100.7" {
 		t.Errorf("behind nginx: %s", ip)
 	}
+	// Docker hands nginx's requests over from the bridge's gateway.
+	req.RemoteAddr = "172.17.0.1:41234"
+	if ip := clientIP(req); ip != "198.51.100.7" {
+		t.Errorf("behind nginx in Docker: %s", ip)
+	}
 	req.RemoteAddr = "203.0.113.9:5000"
 	if ip := clientIP(req); ip != "203.0.113.9" {
 		t.Errorf("a direct client chose its own address: %s", ip)

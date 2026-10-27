@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -236,5 +237,28 @@ func TestATicketEndsAfterFiveWrongTries(t *testing.T) {
 	s.get(id).tries = 99
 	if s.get(id).tries != 0 {
 		t.Error("get returned the ticket itself")
+	}
+}
+
+// The origin passkeys are checked against: https for the real site, even
+// though nginx hands the request over as plain http from the Docker bridge;
+// plain http only on localhost, the one place browsers allow it.
+func TestRelyingPartyOrigin(t *testing.T) {
+	a := &app{}
+	for _, x := range []struct{ host, remote, want string }{
+		{"eumetria.example.com", "172.17.0.1:5000", "https://eumetria.example.com"},
+		{"eumetria.example.com", "127.0.0.1:5000", "https://eumetria.example.com"},
+		{"localhost:8080", "127.0.0.1:5000", "http://localhost:8080"},
+		{"app.localhost:8080", "127.0.0.1:5000", "http://app.localhost:8080"},
+	} {
+		req := httptest.NewRequest("POST", "/api/login/passkey/begin", nil)
+		req.Host, req.RemoteAddr = x.host, x.remote
+		rp, err := a.relyingParty(req)
+		if err != nil {
+			t.Fatalf("%s: %v", x.host, err)
+		}
+		if got := rp.Config.RPOrigins; len(got) != 1 || got[0] != x.want {
+			t.Errorf("%s: origins %v, want %s", x.host, got, x.want)
+		}
 	}
 }
