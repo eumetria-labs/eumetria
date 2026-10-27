@@ -6,6 +6,8 @@
 //
 // Configuration comes from flags or environment variables:
 //
+//	DATA_DIR                     the data folder (-data, default "data"; /data in the
+//	                             container): history, photos, tokens, app.db, public/
 //	YAZIO_EMAIL, YAZIO_PASSWORD  account credentials (required unless -demo)
 //	YAZIO_CLIENT_ID,             OAuth client of the Yazio app (required unless
 //	YAZIO_CLIENT_SECRET          -demo; current values are in the README)
@@ -77,6 +79,8 @@ func main() {
 
 // config holds the settings shared by a one-off sync and serve mode.
 type config struct {
+	dataDir     string // the folder all of the following live in by default
+	dbPath      string // the app's own database (internal/db), serve mode only
 	historyPath string
 	outPath     string
 	photoDir    string
@@ -104,16 +108,18 @@ func run() error {
 		rewrite        = flag.Bool("rewrite-reviews", false, "write every stored weekly review again (English and German) into the history and exit; stop the server first (needs ANTHROPIC_API_KEY; AI_MODEL, AI_EFFORT)")
 		debugGoogleDay = flag.String("debug-google", "", "print the raw Google Health responses (workouts, GPS export, sleep, heart rate) for this day (YYYY-MM-DD) and exit")
 	)
-	flag.StringVar(&cfg.historyPath, "history", "data/history.json", "private history file (kept between runs)")
-	flag.StringVar(&cfg.outPath, "out", "data/public/stats.json", "stats file read by the page; photos/, routes/ and days/ are written next to it")
+	flag.StringVar(&cfg.dataDir, "data", env("DATA_DIR", "data"), "folder for the history, photos, Google token, the app's database (app.db) and the published files (public/)")
+	flag.StringVar(&cfg.historyPath, "history", "", "private history file (default <data>/history.json)")
+	flag.StringVar(&cfg.outPath, "out", "", "stats file read by the page; photos/, routes/ and days/ are written next to it (default <data>/public/stats.json)")
 	flag.StringVar(&cfg.since, "since", env("YAZIO_SINCE", ""), "first day to backfill, YYYY-MM-DD")
 	flag.IntVar(&cfg.refreshDays, "refresh-days", envInt("YAZIO_REFRESH_DAYS", 3), "always re-fetch this many most recent days")
 	flag.BoolVar(&cfg.refreshAll, "refresh-all", envBool("YAZIO_REFRESH_ALL", false), "re-fetch every day in the window, ignoring the history (serve mode: first sync only)")
 	flag.IntVar(&cfg.workers, "workers", 4, "parallel requests")
-	flag.StringVar(&cfg.photoDir, "photos", "data/photos", "private cache of downloaded meal photos")
+	flag.StringVar(&cfg.photoDir, "photos", "", "private cache of downloaded meal photos (default <data>/photos)")
 	flag.BoolVar(&cfg.demo, "demo", false, "write generated sample data instead of calling Yazio")
-	flag.StringVar(&cfg.googleToken, "google-token", "data/google-token.json", "private Google Health refresh token (written by -google-auth)")
+	flag.StringVar(&cfg.googleToken, "google-token", "", "private Google Health refresh token, written by -google-auth (default <data>/google-token.json)")
 	flag.Parse()
+	cfg.inData()
 
 	// Serve mode syncs every -interval (the footer shows it); a one-off sync
 	// has no schedule unless SYNC_INTERVAL names one.
@@ -171,6 +177,20 @@ func run() error {
 	default:
 		return syncOnce(ctx, cfg)
 	}
+}
+
+// inData puts the files not given by their own flag into the data folder.
+func (c *config) inData() {
+	def := func(p *string, name string) {
+		if *p == "" {
+			*p = filepath.Join(c.dataDir, name)
+		}
+	}
+	def(&c.historyPath, "history.json")
+	def(&c.photoDir, "photos")
+	def(&c.outPath, filepath.Join("public", "stats.json"))
+	def(&c.googleToken, "google-token.json")
+	c.dbPath = filepath.Join(c.dataDir, "app.db")
 }
 
 // checkYazioEnv reports missing Yazio credentials.

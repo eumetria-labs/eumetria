@@ -21,6 +21,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=1m --timeout=10s --start-period=30s \
   CMD ["/eumetria", "-healthcheck", "http://127.0.0.1:8080/healthz"]
 ENTRYPOINT ["/eumetria"]
-CMD ["-serve", ":8080", \
-     "-history", "/data/history.json", "-photos", "/data/photos", "-out", "/data/public/stats.json", \
-     "-google-token", "/data/google-token.json"]
+CMD ["-serve", ":8080", "-data", "/data"]

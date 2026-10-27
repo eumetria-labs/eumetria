@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"eumetria/internal/db"
 	"eumetria/site"
 )
 
@@ -66,6 +67,18 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	}
 	if o.adminToken == "" {
 		log.Printf("ADMIN_TOKEN is not set: the refresh button and /api are disabled")
+	}
+
+	if err := os.MkdirAll(cfg.dataDir, 0o700); err != nil {
+		return err
+	}
+	database, err := db.Open(ctx, cfg.dbPath)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+	if v, err := database.Version(ctx); err == nil {
+		log.Printf("database %s at schema version %d", cfg.dbPath, v)
 	}
 
 	r := newRunner(cfg, o.interval)
