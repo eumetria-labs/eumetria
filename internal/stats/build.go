@@ -258,14 +258,15 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 		if health != nil {
 			addHealth(&d, health, opt)
 		}
+		linked := map[string]bool{}
 		for _, a := range src.Activities {
 			act := Activity{
 				Name: a.Name, Energy: round(a.Energy, 0),
 				Duration: round(a.Duration, 0), Distance: round(a.Distance, 2),
 			}
-			for _, w := range d.Workouts {
-				if a.ExternalID != "" && w.ID == a.ExternalID {
-					act.Workout = w.ID
+			if health != nil {
+				if act.Workout = matchWorkout(a, health.Workouts, linked); act.Workout != "" {
+					linked[act.Workout] = true
 				}
 			}
 			d.Activities = append(d.Activities, act)
@@ -350,4 +351,43 @@ func roundPtr(v *float64, places int) *float64 {
 func round(v float64, places int) float64 {
 	p := math.Pow(10, float64(places))
 	return math.Round(v*p) / p
+}
+
+// matchStartSlack is how far the start of an activity Yazio imported through
+// Health Connect may be from its Fitbit workout's start.
+const matchStartSlack = 2 * time.Minute
+
+// matchWorkout returns the ID of the Fitbit workout an imported Yazio
+// activity came from: by ID when Yazio kept it (the direct Fitbit
+// connection), else by start time (Health Connect), skipping workouts already
+// linked. Manual activities match nothing.
+func matchWorkout(a store.Activity, workouts []store.Workout, linked map[string]bool) string {
+	if a.ExternalID != "" {
+		for _, w := range workouts {
+			if w.ID == a.ExternalID {
+				return w.ID
+			}
+		}
+		return ""
+	}
+	if a.Start == "" {
+		return ""
+	}
+	start, err := time.Parse("2006-01-02 15:04:05", a.Start)
+	if err != nil {
+		return ""
+	}
+	best, bestDiff := "", matchStartSlack+1
+	for _, w := range workouts {
+		if linked[w.ID] {
+			continue
+		}
+		// Both as local wall time, read as UTC.
+		local := w.Start.UTC().Add(time.Duration(w.UTCOffset) * time.Second)
+		diff := start.Sub(local).Abs()
+		if diff < bestDiff {
+			best, bestDiff = w.ID, diff
+		}
+	}
+	return best
 }

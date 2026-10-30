@@ -199,11 +199,13 @@ func (c *Client) Recipe(ctx context.Context, id string) (*Recipe, error) {
 type Exercise struct {
 	ID       string  `json:"id"`
 	Name     string  `json:"name"`
+	Date     string  `json:"date"` // local start, "2006-01-02 15:04:05"
 	Energy   float64 `json:"energy"`
 	Duration float64 `json:"duration"`
 	Distance float64 `json:"distance"`
 	// ExternalID is the ID at the source the activity was imported from;
-	// for Source "fitbit" it is the Google Health workout ID.
+	// for Source "fitbit" it is the Google Health workout ID, unless it came
+	// in through Health Connect, which leaves it empty.
 	ExternalID string `json:"external_id"`
 	Source     string `json:"source"`
 }

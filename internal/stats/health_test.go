@@ -73,6 +73,26 @@ func TestBuildHealth(t *testing.T) {
 	}
 }
 
+// Activities Yazio imports through Health Connect carry no workout ID and are
+// linked by start time; manual ones stay unlinked.
+func TestBuildHealthConnectLink(t *testing.T) {
+	start := time.Date(2026, 10, 29, 18, 1, 46, 0, time.UTC)
+	h := &store.History{
+		Days: map[string]*store.Day{"2026-10-29": {Date: "2026-10-29", Total: store.Macros{Energy: 2000}, Activities: []store.Activity{
+			{Name: "hiit", Energy: 823, Duration: 75, Start: "2026-10-29 19:01:46"},
+			{Name: "Europabad", Energy: 550, Duration: 240},             // logged in Yazio by hand
+			{Name: "walking", Energy: 90, Start: "2026-10-29 08:00:00"}, // no workout near it
+		}}},
+		Health: map[string]*store.HealthDay{"2026-10-29": {Date: "2026-10-29", Workouts: []store.Workout{
+			{ID: "3262930630979810696", Type: "CROSSFIT", Start: start, End: start.Add(75 * time.Minute), UTCOffset: 3600},
+		}}},
+	}
+	d := Build(h, Options{PublishHealth: true}, time.Now()).Days[0]
+	if got := []string{d.Activities[0].Workout, d.Activities[1].Workout, d.Activities[2].Workout}; got[0] != "3262930630979810696" || got[1] != "" || got[2] != "" {
+		t.Errorf("activity links = %q", got)
+	}
+}
+
 func TestBuildHealthSync(t *testing.T) {
 	ok := time.Date(2026, 10, 18, 8, 0, 0, 0, time.UTC)
 	h := &store.History{Days: map[string]*store.Day{}, HealthSync: &store.SyncState{LastSuccess: ok, Error: "secret API body", Auth: true}}

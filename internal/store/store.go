@@ -80,11 +80,15 @@ type Activity struct {
 	// ExternalID is the Google Health workout ID when Yazio imported the
 	// activity from Fitbit (Workout.ID).
 	ExternalID string `json:"external_id,omitempty"`
+	// Start is the local start time ("2006-01-02 15:04:05") of an activity
+	// imported from Fitbit; Health Connect imports have no ExternalID and
+	// are matched to their workout by it.
+	Start string `json:"start,omitempty"`
 }
 
 // DayVersion is bumped whenever Day gains fields that need a re-fetch; older
 // days are then fetched again on the next run.
-const DayVersion = 5 // 4: macros per entry, 5: sugar
+const DayVersion = 6 // 4: macros per entry, 5: sugar, 6: activity start
 
 type Day struct {
 	Version        int                `json:"version,omitempty"`

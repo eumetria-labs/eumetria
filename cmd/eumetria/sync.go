@@ -144,8 +144,9 @@ func (s *syncer) fetchDay(ctx context.Context, day time.Time) (*store.Day, error
 	}
 	for _, e := range append(ex.Training, ex.CustomTraining...) {
 		a := store.Activity{Name: e.Name, Energy: e.Energy, Duration: e.Duration, Distance: e.Distance}
+		// Manual entries (no source) stay calories only.
 		if e.Source == "fitbit" {
-			a.ExternalID = e.ExternalID
+			a.ExternalID, a.Start = e.ExternalID, e.Date
 		}
 		d.Activities = append(d.Activities, a)
 	}
