@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { actIcon, actName, compact, fitBlocks, fmt, fmtAmount, fmtAvgQty, fmtDistance, fmtDuration, hasDetail, mealThumb, recipeShare, recipeTotals, signed, syncEvery, todayISO } from '../site/js/format.js';
+import { actIcon, actName, compact, deviceName, fitBlocks, fmt, fmtAmount, fmtAvgQty, fmtDistance, fmtDuration, hasDetail, mealThumb, recipeShare, recipeTotals, signed, syncEvery, todayISO } from '../site/js/format.js';
 
 test('fmtDuration', () => {
   assert.equal(fmtDuration(19), '19 min');
@@ -99,4 +99,13 @@ test('fitBlocks lets blocks that can grow take the room to spare', () => {
   const fit = fitBlocks([{ h: 100 }, { h: 200, max: 400 }, { h: 100, max: 150 }], 600, 0);
   // 200 px to spare; the chart can take 200 and the list 50, so they share it 4:1.
   assert.deepEqual(fit.map((f) => f.h), [100, 360, 140]);
+});
+
+test('deviceName: browser and system of a session', () => {
+  assert.equal(deviceName('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'), 'Safari on iPhone');
+  assert.equal(deviceName('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'), 'Chrome on macOS');
+  assert.equal(deviceName('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0'), 'Edge on Windows');
+  assert.equal(deviceName('Mozilla/5.0 (Android 15; Mobile; rv:131.0) Gecko/131.0 Firefox/131.0'), 'Firefox on Android');
+  assert.equal(deviceName('curl/8.7.1'), 'curl/8.7.1');
+  assert.equal(deviceName(''), 'Unknown device');
 });

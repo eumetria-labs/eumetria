@@ -17,12 +17,14 @@ import (
 
 	"eumetria/internal/auth"
 	"eumetria/internal/db"
+	"eumetria/internal/store"
 	"eumetria/site"
 )
 
 // Serve mode: one process serves the site and keeps it up to date, so the
 // whole dashboard runs as a single container behind a reverse proxy. The
-// routes and who may use them are in api.go.
+// routes and who may use them are in api.go, the data each user gets in
+// data.go.
 
 type serveOptions struct {
 	addr     string
@@ -66,16 +68,27 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	if v, err := database.Version(ctx); err == nil {
 		log.Printf("database %s at schema version %d", cfg.dbPath, v)
 	}
-	store := auth.NewStore(database)
-	if err := setupAccounts(ctx, store, cfg.demo); err != nil {
+	accounts := auth.NewStore(database)
+	if err := setupAccounts(ctx, accounts, cfg.demo); err != nil {
 		return err
 	}
 	go snapshotLoop(ctx, database, filepath.Join(cfg.dataDir, "backup"))
 
-	r := newRunner(cfg, o.interval)
+	data := newPublished(baseOptions(cfg))
+	if !cfg.demo {
+		// The last sync's data, until the first sync here is done.
+		hist, err := store.Load(cfg.historyPath)
+		if err != nil {
+			return fmt.Errorf("loading history: %w", err)
+		}
+		if info, err := os.Stat(cfg.historyPath); err == nil {
+			data.set(hist, info.ModTime())
+		}
+	}
+	r := newRunner(cfg, o.interval, data)
 	srv := &http.Server{
 		Addr:              o.addr,
-		Handler:           newHandler(r, pages, filepath.Dir(cfg.outPath), store),
+		Handler:           newHandler(r, pages, data, cfg.photoDir, accounts),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
@@ -105,12 +118,14 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	return nil
 }
 
-// runner runs syncs one at a time, on a schedule or on request.
+// runner runs syncs one at a time, on a schedule or on request, and hands
+// each new history to data.
 type runner struct {
 	cfg      config
 	interval time.Duration
 	started  time.Time
-	sync     func(context.Context, config) error // syncOnce; replaced in tests
+	data     *published
+	sync     func(context.Context, config) (*store.History, error) // syncHistory; replaced in tests
 
 	mu          sync.Mutex
 	running     bool
@@ -121,8 +136,8 @@ type runner struct {
 	wg          sync.WaitGroup
 }
 
-func newRunner(cfg config, interval time.Duration) *runner {
-	return &runner{cfg: cfg, interval: interval, started: time.Now(), sync: syncOnce}
+func newRunner(cfg config, interval time.Duration, data *published) *runner {
+	return &runner{cfg: cfg, interval: interval, started: time.Now(), data: data, sync: syncHistory}
 }
 
 // schedule syncs right away and then every interval until ctx ends. A
@@ -158,8 +173,11 @@ func (r *runner) start(ctx context.Context, refreshAll bool) bool {
 		cfg := r.cfg
 		cfg.refreshAll = refreshAll
 		syncCtx, cancel := context.WithTimeout(ctx, syncTimeout)
-		err := r.sync(syncCtx, cfg)
+		hist, err := r.sync(syncCtx, cfg)
 		cancel()
+		if hist != nil {
+			r.data.set(hist, time.Now())
+		}
 
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -251,12 +269,17 @@ func etags(pages fs.FS) map[string]string {
 		if err != nil {
 			return err
 		}
-		sum := sha256.Sum256(data)
-		tags[p] = `"` + hex.EncodeToString(sum[:8]) + `"`
+		tags[p] = contentTag(data)
 		return nil
 	})
 	tags[""] = tags["index.html"] // "/" serves index.html
 	return tags
+}
+
+// contentTag is an ETag naming data by its hash.
+func contentTag(data []byte) string {
+	sum := sha256.Sum256(data)
+	return `"` + hex.EncodeToString(sum[:8]) + `"`
 }
 
 // noDirs hides directories (except the root, which serves index.html), so

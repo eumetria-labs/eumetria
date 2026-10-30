@@ -147,7 +147,7 @@ func TestReviewSource(t *testing.T) {
 	}}
 	var weeks []string
 	fail := review.ErrBilling
-	src := reviewSource{model: "m", effort: "medium", opts: stats.Options{PublishFoods: true}, write: func(ctx context.Context, model, effort string, w review.Week) (*review.Result, error) {
+	src := reviewSource{model: "m", effort: "medium", opts: stats.Options{}, write: func(ctx context.Context, model, effort string, w review.Week) (*review.Result, error) {
 		weeks = append(weeks, w.From+".."+w.To)
 		if fail != nil {
 			return nil, fmt.Errorf("%w (HTTP 400)", fail)

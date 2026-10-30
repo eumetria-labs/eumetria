@@ -84,7 +84,7 @@ func (r *recipes) link(it store.Item) string {
 	if rec.Portions <= 0 {
 		rec.Portions = 1
 	}
-	if r.opt.PublishPhotos {
+	if r.opt.Photos {
 		switch {
 		case strings.HasPrefix(f.Image, "data:"): // demo data
 			rec.Image = f.Image

@@ -30,7 +30,7 @@ func debugReview(ctx context.Context, cfg config, date string, dryRun bool) erro
 	}
 	now := time.Now()
 	// Everything the history holds: the review is printed here, not published.
-	out := stats.Build(hist, stats.Options{PublishFoods: true, PublishHealth: true}, now)
+	out := stats.Build(hist, stats.Options{}.Everything(), now)
 	week := review.BuildWeek(out, review.Monday(day), now.Format(time.DateOnly))
 	if len(week.Days) == 0 {
 		return fmt.Errorf("the week of %s hasn't started yet", date)
@@ -88,7 +88,7 @@ func rewriteReviews(ctx context.Context, cfg config) error {
 	sort.Strings(weeks)
 	now := time.Now()
 	today := now.Format(time.DateOnly)
-	out := stats.Build(hist, syncOptions(cfg), now)
+	out := stats.Build(hist, baseOptions(cfg).Everything(), now)
 	model, effort := env("AI_MODEL", review.DefaultModel), env("AI_EFFORT", "medium")
 	var total float64
 	for _, key := range weeks {

@@ -1,10 +1,10 @@
 // Smoke test: serves a site directory, loads it in headless Chrome for a few
 // views and fails if the page did not render or threw a JavaScript error.
 //
-//   node scripts/smoke.js site     (site/stats.json, site/routes/ and site/days/ must exist, e.g. from -demo)
+//   node scripts/smoke.js site     (site/stats.json, site/routes/ and site/days/ must exist, e.g. from -demo -out)
 //
-// With a password-protected stats.json (STATS_PASSWORD) it only checks that
-// the page shows the password prompt.
+// It serves plain files, as without -serve: the page finds no API (api/me and
+// api/stats answer 404), needs no sign-in and reads stats.json instead.
 //
 // The page marks <html data-rendered="true"> after rendering and
 // <html data-error="…"> on any uncaught error.
@@ -41,7 +41,6 @@ if (!chrome) {
 }
 
 const stats = JSON.parse(await readFile(join(root, 'stats.json'), 'utf8'));
-const sealed = stats.sealed === 1;
 const day = stats.days?.findLast((d) => d.foods?.length || d.activities?.length)?.date;
 // A Fitbit workout with heart rate, if the data has one (the demo does).
 const wday = stats.days?.findLast((d) => d.workouts?.some((w) => w.hr?.length));
@@ -61,7 +60,7 @@ const activity = stats.days?.some((d) => d.activities?.length)
   : null;
 // The first day of the oldest archive file (the older days live in days/).
 const oldDay = stats.archive?.length ? JSON.parse(await readFile(join(root, stats.archive[0]), 'utf8')).days?.find((d) => d.foods?.length)?.date : null;
-const views = sealed ? [{ hash: 'range=7', expect: ['data-locked="true"'] }] : [
+const views = [
   { hash: 'range=7', expect: ['id="today-ring"', 'class="card tile"', 'class="coach-bubble teaser"'] },
   { hash: 'range=all', expect: ['id="chart-energy"'] },
   // German (the footer's language switch), page and a day.
@@ -83,7 +82,7 @@ let failed = 0;
 for (const v of views) {
   const dom = await dump(base + 'index.html#' + v.hash);
   const problems = [];
-  if (!sealed && !dom.includes('data-rendered="true"')) problems.push('page did not finish rendering');
+  if (!dom.includes('data-rendered="true"')) problems.push('page did not finish rendering');
   const err = dom.match(/data-error="([^"]*)"/);
   if (err) problems.push('JavaScript error: ' + err[1]);
   for (const s of v.expect) if (!dom.includes(s)) problems.push('missing ' + s);

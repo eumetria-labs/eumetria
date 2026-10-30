@@ -1,4 +1,5 @@
-// Package stats turns the private history into the public stats.json the site reads.
+// Package stats turns the private history into the stats the page reads,
+// with only the parts the reader may see.
 package stats
 
 import (
@@ -11,16 +12,28 @@ import (
 )
 
 type Options struct {
-	Title         string
-	Timezone      string
-	PublishFoods  bool          // include per-day food names (meals) in the public file
-	PublishPhotos bool          // include meal photos
-	PublishHealth bool          // include Google Health data (sleep, heart rate, workouts)
-	PublishRoutes bool          // include the GPS track of workouts
-	PublishReview bool          // include the weekly reviews
-	CreditUSD     float64       // Anthropic credit bought, for the low-credit warning; 0 = no warning
-	PhotoPath     string        // URL prefix of published photo files, e.g. "photos/"
-	SyncInterval  time.Duration // how often syncs run, shown in the footer; 0 when unknown
+	Title    string
+	Timezone string
+	// The parts of the data to include, one per view scope (auth.View*).
+	Nutrition bool // calories, macros, meals, goals, weight, water
+	Foods     bool // food names and amounts, recipes, Open Food Facts data
+	Photos    bool // meal and recipe photos
+	Activity  bool // steps, Yazio activities
+	Health    bool // Google Health data (sleep, heart rate, workouts, the tracker)
+	Routes    bool // the GPS track of workouts (only with Health)
+	Review    bool // the weekly reviews
+	// CreditStatus includes the low-credit warning (for admins), with
+	// CreditUSD the Anthropic credit bought; 0 = no warning.
+	CreditStatus bool
+	CreditUSD    float64
+	PhotoPath    string        // URL prefix of photo files, e.g. "photos/"
+	SyncInterval time.Duration // how often syncs run, shown in the footer; 0 when unknown
+}
+
+// Everything returns o with every part of the data included.
+func (o Options) Everything() Options {
+	o.Nutrition, o.Foods, o.Photos, o.Activity, o.Health, o.Routes, o.Review, o.CreditStatus = true, true, true, true, true, true, true, true
+	return o
 }
 
 type Goals struct {
@@ -149,14 +162,21 @@ type Output struct {
 	// GoalChanges are the days a Yazio goal changed, oldest first.
 	GoalChanges []GoalChange `json:"goal_changes,omitempty"`
 	// Archive lists the files holding the older days, one per year, which
-	// the sync moves out of Days (see publishArchive in cmd/eumetria).
+	// the server moves out of Days (see splitFiles in cmd/eumetria).
 	Archive []string `json:"archive,omitempty"`
+	// Scopes are the view scopes the data was built for, so the page knows
+	// what it can show; empty when it holds everything (-out, -demo files).
+	Scopes []string `json:"scopes,omitempty"`
 }
 
 func Build(h *store.History, opt Options, now time.Time) Output {
 	out := Output{Title: opt.Title, GeneratedAt: now.UTC(), Timezone: opt.Timezone, Days: []Day{}}
 	out.SyncIntervalMinutes = int(opt.SyncInterval.Round(time.Minute) / time.Minute)
-	if opt.PublishHealth {
+	if !opt.Health {
+		opt.Routes = false
+	}
+	yazio := opt.Nutrition || opt.Foods || opt.Photos || opt.Activity
+	if opt.Health {
 		// The phone ("MobileTrack") is a TRACKER too, so take the one that
 		// synced last rather than the first in the list.
 		for _, dev := range h.Devices {
@@ -174,7 +194,7 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 	for d := range h.Days {
 		seen[d] = true
 	}
-	if opt.PublishHealth {
+	if opt.Health {
 		for d := range h.Health {
 			seen[d] = true
 		}
@@ -201,38 +221,34 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 			src = &store.Day{Date: date}
 		}
 		health := h.Health[date]
-		if !opt.PublishHealth {
+		if !opt.Health {
 			health = nil
 		}
-		if !yazioData(src) && health == nil {
+		if !(yazio && yazioData(src)) && health == nil {
 			continue
 		}
-		d := Day{
-			Date:        date,
-			Energy:      round(src.Total.Energy, 0),
-			Protein:     round(src.Total.Protein, 1),
-			Carb:        round(src.Total.Carb, 1),
-			Fat:         round(src.Total.Fat, 1),
-			EnergyGoal:  round(src.Goals["energy.energy"], 0),
-			EnergyBase:  round(baseGoal(src), 0),
-			ProteinGoal: round(src.Goals["nutrient.protein"], 1),
-			CarbGoal:    round(src.Goals["nutrient.carb"], 1),
-			FatGoal:     round(src.Goals["nutrient.fat"], 1),
-			Steps:       round(src.Steps, 0),
-			Water:       round(src.Water, 0),
-		}
-		if src.Weight != nil {
-			w := round(*src.Weight, 1)
-			d.Weight = &w
-		}
-		if len(src.Meals) > 0 {
-			d.Meals = map[string]float64{}
-			for k, m := range src.Meals {
-				d.Meals[k] = round(m.Energy, 0)
+		d := Day{Date: date}
+		if opt.Nutrition {
+			d.Energy, d.Protein, d.Carb, d.Fat = round(src.Total.Energy, 0), round(src.Total.Protein, 1), round(src.Total.Carb, 1), round(src.Total.Fat, 1)
+			d.EnergyGoal, d.EnergyBase = round(src.Goals["energy.energy"], 0), round(baseGoal(src), 0)
+			d.ProteinGoal, d.CarbGoal, d.FatGoal = round(src.Goals["nutrient.protein"], 1), round(src.Goals["nutrient.carb"], 1), round(src.Goals["nutrient.fat"], 1)
+			d.Water = round(src.Water, 0)
+			if src.Weight != nil {
+				w := round(*src.Weight, 1)
+				d.Weight = &w
+			}
+			if len(src.Meals) > 0 {
+				d.Meals = map[string]float64{}
+				for k, m := range src.Meals {
+					d.Meals[k] = round(m.Energy, 0)
+				}
 			}
 		}
-		d.ActivityEnergy = round(src.ActivityEnergy, 0)
-		if opt.PublishFoods {
+		if opt.Activity {
+			d.Steps = round(src.Steps, 0)
+			d.ActivityEnergy = round(src.ActivityEnergy, 0)
+		}
+		if opt.Foods {
 			for _, it := range src.Items {
 				d.Foods = append(d.Foods, Food{
 					Name: it.Name, Daytime: it.Daytime, Energy: round(it.Energy, 0),
@@ -245,7 +261,7 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 				})
 			}
 		}
-		if opt.PublishPhotos {
+		if opt.Photos {
 			for _, p := range src.Photos {
 				switch {
 				case strings.HasPrefix(p.URL, "data:"): // demo data
@@ -260,6 +276,9 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 		}
 		linked := map[string]bool{}
 		for _, a := range src.Activities {
+			if !opt.Activity {
+				break
+			}
 			act := Activity{
 				Name: a.Name, Energy: round(a.Energy, 0),
 				Duration: round(a.Duration, 0), Distance: round(a.Distance, 2),
@@ -280,6 +299,7 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 			}
 			for _, k := range []string{"energy", "weight", "steps", "water"} {
 				switch {
+				case !goalVisible(k, opt):
 				case lastGoals == nil:
 				case goals[k] == 0:
 					// Missing that day (or a base goal clamped to 0): keep
@@ -290,14 +310,19 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 				}
 			}
 			lastGoals = goals
-			out.Goals = Goals{
-				Energy:  round(baseGoal(src), 0),
-				Protein: round(src.Goals["nutrient.protein"], 0),
-				Carb:    round(src.Goals["nutrient.carb"], 0),
-				Fat:     round(src.Goals["nutrient.fat"], 0),
-				Steps:   round(src.Goals["activity.step"], 0),
-				Water:   round(src.Goals["water"], 0),
-				Weight:  round(src.Goals["bodyvalue.weight"], 1),
+			out.Goals = Goals{}
+			if opt.Nutrition {
+				out.Goals = Goals{
+					Energy:  round(baseGoal(src), 0),
+					Protein: round(src.Goals["nutrient.protein"], 0),
+					Carb:    round(src.Goals["nutrient.carb"], 0),
+					Fat:     round(src.Goals["nutrient.fat"], 0),
+					Water:   round(src.Goals["water"], 0),
+					Weight:  round(src.Goals["bodyvalue.weight"], 1),
+				}
+			}
+			if opt.Activity {
+				out.Goals.Steps = round(src.Goals["activity.step"], 0)
 			}
 		}
 		out.Days = append(out.Days, d)
@@ -308,11 +333,21 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 	if len(prods.out) > 0 {
 		out.Products = prods.out
 	}
-	if opt.PublishReview {
+	if opt.Review {
 		out.Reviews = reviews(h)
 	}
-	out.ReviewStatus = reviewStatus(h, opt.CreditUSD)
+	if opt.CreditStatus {
+		out.ReviewStatus = reviewStatus(h, opt.CreditUSD)
+	}
 	return out
+}
+
+// goalVisible reports whether a goal of GoalChange.Goal's kind is included.
+func goalVisible(goal string, opt Options) bool {
+	if goal == "steps" {
+		return opt.Activity
+	}
+	return opt.Nutrition
 }
 
 func yazioData(d *store.Day) bool {

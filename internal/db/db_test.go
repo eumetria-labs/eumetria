@@ -217,3 +217,54 @@ func TestWritersWaitForEachOther(t *testing.T) {
 		t.Errorf("%d rows, want 20", n)
 	}
 }
+
+// 0004 moves the two fixed roles into the roles table without losing the
+// users' sessions (dropping a column must not cascade).
+func TestRolesMigrationKeepsUsersAndSessions(t *testing.T) {
+	first := fstest.MapFS{}
+	for _, name := range []string{"0001_settings.sql", "0002_accounts.sql", "0003_second_factors.sql"} {
+		data, err := migrations.ReadFile("migrations/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first["migrations/"+name] = &fstest.MapFile{Data: data}
+	}
+	file := filepath.Join(t.TempDir(), "app.db")
+	d, err := open(ctx, file, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		"INSERT INTO users (id, name, password_hash, role, created_at, password_at) VALUES (1, 'patrick', 'h', 'admin', 0, 0), (2, 'anna', 'h', 'viewer', 0, 0)",
+		"INSERT INTO sessions (user_id, token_hash, remember, created_at, last_seen_at, expires_at) VALUES (1, 't1', 1, 0, 0, 0), (2, 't2', 1, 0, 0, 0)",
+	} {
+		if _, err := d.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d.Close()
+
+	d, err = Open(ctx, file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	got := map[string]string{}
+	rows, err := d.Query("SELECT u.name, r.name FROM users u JOIN roles r ON r.id = u.role_id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var u, r string
+		rows.Scan(&u, &r)
+		got[u] = r
+	}
+	rows.Close()
+	if got["patrick"] != "admin" || got["anna"] != "viewer" {
+		t.Errorf("roles after the migration = %v", got)
+	}
+	var n int
+	if d.QueryRow("SELECT count(*) FROM sessions").Scan(&n); n != 2 {
+		t.Errorf("%d sessions left, want 2", n)
+	}
+}

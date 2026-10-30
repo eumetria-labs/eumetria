@@ -1,6 +1,7 @@
-// Refresh button for admins: syncs the recent days now; its menu also
-// offers a full refresh of the whole history (POST api/sync?all=1). The
-// server lets only admins (and API tokens with the sync scope) start a sync.
+// Refresh button for users whose role may sync: syncs the recent days now;
+// its menu also offers a full refresh of the whole history (POST
+// api/sync?all=1). The server lets only those users (with a second factor)
+// and API tokens with the sync scope start a sync.
 
 import { $, popupMenu } from './dom.js';
 import { account, api, signedIn } from './account.js';
@@ -13,9 +14,9 @@ let reload = async () => {};
 let restore = () => {};
 let wired = false;
 
-// initAdmin shows the button when the signed-in user may sync (an admin
-// with a second factor), and runs again whenever that changes. onSynced
-// reloads stats.json; onIdle puts the header's "Updated …" line back after
+// initAdmin shows the button when the signed-in user may sync (the sync
+// scope and a second factor), and runs again whenever that changes.
+// onSynced reloads the data; onIdle puts the header's "Updated …" line back after
 // a message.
 export function initAdmin({ onSynced, onIdle }) {
   reload = onSynced;

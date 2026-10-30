@@ -3,12 +3,18 @@
 
 import { actLabel, actName, activityDetail, avgOf, compact, fmt, mean } from './format.js';
 import { $ } from './dom.js';
-import { state } from './state.js';
+import { can, state } from './state.js';
 import { barChart, bucketTitle, drawStacks, timeChart } from './charts.js';
 import { t } from './i18n.js';
 
 export function renderMovement(s) {
   const { buckets, weekly, complete } = s;
+  // Without view.activity only Fitbit's zone minutes remain (renderZoneMinutes).
+  const hasSteps = can('view.activity');
+  $('#steps-part').hidden = !hasSteps;
+  $('#movement-card').hidden = !hasSteps && !state.data.days.some((d) => d.azm);
+  $('#steps-sub').textContent = weekly ? t('weekly averages') : '';
+  if (!hasSteps) return void ($('#activity-part').hidden = true);
   const goal = state.data.goals?.steps;
   const steps = buckets.map((b) => avgOf(b.rows, 'steps'));
   const burned = buckets.map((b) => avgOf(b.rows, 'activity_energy'));
@@ -57,7 +63,8 @@ export function renderZoneMinutes(s) {
   });
   const days = complete.filter((r) => r.azm);
   const perWeek = days.length ? (days.reduce((a, r) => a + r.azm[0] + r.azm[1] + r.azm[2], 0) / days.length) * 7 : null;
-  if (perWeek != null) $('#steps-sub').textContent += ' · ' + t('{min} active zone min/week', { min: fmt(perWeek) });
+  const sub = $('#steps-sub');
+  if (perWeek != null) sub.textContent = [sub.textContent, t('{min} active zone min/week', { min: fmt(perWeek) })].filter(Boolean).join(' · ');
   const ref = 150 / 7;
   const max = Math.max(ref, ...vals.map((v) => (v ? v[0] + v[1] + v[2] : 0)));
   timeChart($('#chart-azm'), {

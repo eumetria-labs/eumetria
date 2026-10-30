@@ -1,24 +1,27 @@
 // Service worker: makes the page installable and usable offline.
 //
-// Page code and stats.json are fetched from the network first, so a new
-// deploy or sync shows up immediately; the cache is only a fallback when
-// offline. Photos, routes, the older days (days/), fonts and icons never
-// change under the same name, so they are served from the cache first.
+// Page code and the data (api/stats) are fetched from the network first, so
+// a new deploy or sync shows up immediately; the cache is only a fallback
+// when offline. Photos, routes, the older days (days/), fonts and icons
+// never change under the same name, so they are served from the cache
+// first.
 //
-// Two caches: CACHE holds the page and stats.json and is replaced with each
-// new version of the page (stats.json only once it was loaded: it needs a
-// signed-in user, so it can't be precached); DATA holds the files stats.json points to and
-// outlives page updates. Year files and routes get new names when their
-// content changes, so the page tells the worker which files the current
-// data uses and the others are deleted.
+// Two caches: CACHE holds the page and the data and is replaced with each
+// new version of the page (the data only once it was loaded: it needs a
+// signed-in user, so it can't be precached); DATA holds the files the data
+// points to and outlives page updates. Year files and routes get new names
+// when their content changes, so the page tells the worker which files the
+// current data uses and the others are deleted. Only answers that are OK
+// are kept, never a 401 or the sign-in; the page clears the data when the
+// user signs out, gets a 401 or another user signs in (account.js).
 
-const CACHE = 'stats-v20';
+const CACHE = 'stats-v22';
 const DATA = 'stats-data-v1';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
-  'js/main.js', 'js/format.js', 'js/insights.js', 'js/state.js', 'js/dom.js', 'js/charts.js', 'js/sheet.js', 'js/lightbox.js', 'js/lock.js', 'js/admin.js',
+  'js/main.js', 'js/format.js', 'js/insights.js', 'js/state.js', 'js/dom.js', 'js/charts.js', 'js/sheet.js', 'js/lightbox.js', 'js/admin.js',
   'js/health.js', 'js/workout.js', 'js/recovery.js', 'js/device.js', 'js/training.js', 'js/table.js', 'js/query.js', 'js/recipe.js', 'js/quality.js', 'js/foodquality.js', 'js/reviewtext.js', 'js/weekly.js', 'js/history.js',
-  'js/today.js', 'js/energy.js', 'js/weight.js', 'js/macros.js', 'js/movement.js', 'js/foods.js', 'js/dialog.js', 'js/sections.js', 'js/search.js', 'js/export.js', 'js/zip.js', 'js/report.js', 'js/snapshot.js', 'js/share.js', 'js/cards.js', 'js/account.js', 'js/security.js', 'js/webauthn.js', 'js/sources.js', 'js/i18n.js', 'js/de.js',
+  'js/today.js', 'js/energy.js', 'js/weight.js', 'js/macros.js', 'js/movement.js', 'js/foods.js', 'js/dialog.js', 'js/sections.js', 'js/search.js', 'js/export.js', 'js/zip.js', 'js/report.js', 'js/snapshot.js', 'js/share.js', 'js/cards.js', 'js/account.js', 'js/security.js', 'js/manage.js', 'js/webauthn.js', 'js/sources.js', 'js/i18n.js', 'js/de.js',
   'fonts/inter-latin-var.woff2', 'icons/icon-192.png', 'icons/mark.svg',
 ];
 const IMMUTABLE = /\/(photos|routes|days|fonts|icons|vendor)\//;
@@ -39,10 +42,11 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  // The sync API (self-hosted server only) must always hit the network.
-  if (url.pathname.includes('/api/')) return;
-  // stats.json is requested with a cache-busting query; store it under one key.
-  const key = url.pathname.endsWith('/stats.json') ? new Request(url.origin + url.pathname) : e.request;
+  // Of the API only the data is kept for offline use; sign-in, sync and the
+  // rest always hit the network.
+  if (url.pathname.includes('/api/') && !url.pathname.endsWith('/api/stats')) return;
+  // The data is stored under one key, whatever query it was asked with.
+  const key = url.pathname.endsWith('/api/stats') ? new Request(url.origin + url.pathname) : e.request;
   e.respondWith(IMMUTABLE.test(url.pathname) ? cacheFirst(e.request) : networkFirst(e.request, key));
 });
 
@@ -69,7 +73,7 @@ async function cacheFirst(request) {
 }
 
 // The page posts { keep: ['photos/…', 'routes/…', 'days/…'] } after loading
-// stats.json (never while it is still locked, as it has no list then).
+// the data.
 self.addEventListener('message', (e) => {
   if (Array.isArray(e.data?.keep)) e.waitUntil(prune(new Set(e.data.keep.map((p) => new URL(p, self.registration.scope).href))));
 });

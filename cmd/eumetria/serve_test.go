@@ -16,38 +16,61 @@ import (
 
 	"eumetria/internal/auth"
 	"eumetria/internal/db"
+	"eumetria/internal/stats"
+	"eumetria/internal/store"
 	"eumetria/site"
 )
 
 const (
 	adminPassword  = "three sweaty protein shakes"
 	viewerPassword = "a viewer with a long password"
+	coachPassword  = "the coach sees what we eat"
 )
+
+// tinyJPEG is the smallest file imgmeta takes for a JPEG.
+var tinyJPEG = []byte{0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x02, 0xFF, 0xD9}
+
+// testHistory has a day with food, a photo and a workout with a route, and
+// an old day that goes into a year file.
+func testHistory() *store.History {
+	start := time.Date(2026, 10, 20, 16, 0, 0, 0, time.UTC)
+	return &store.History{
+		Days: map[string]*store.Day{
+			"2025-01-10": {Date: "2025-01-10", Total: store.Macros{Energy: 1500}},
+			"2026-10-20": {Date: "2026-10-20", Total: store.Macros{Energy: 1800}, Steps: 9000,
+				Items:  []store.Item{{Name: "Skyr", Daytime: "breakfast", Energy: 66}},
+				Photos: []store.Photo{{Daytime: "lunch", File: "abc.jpg"}}},
+		},
+		Health: map[string]*store.HealthDay{"2026-10-20": {Date: "2026-10-20", Workouts: []store.Workout{
+			{ID: "w1", Type: "RUNNING", Start: start, End: start.Add(time.Hour), Route: []store.RoutePoint{{48, 11, 0, 500, 120}}},
+		}}},
+	}
+}
 
 type testEnv struct {
 	srv     *httptest.Server
 	store   *auth.Store
+	data    *published
 	release chan struct{}
 	calls   chan config
 	now     time.Time // the server's clock; codes work once, so it moves on
 	secret  string    // patrick's authenticator app
 }
 
-// newTestEnv serves a tiny site and public dir over TLS (the session cookie
-// is Secure) with an admin "patrick" (who has an authenticator app), an
-// admin "newbie" (who has none yet) and a viewer "anna"; syncs block until
-// release is closed.
+// newTestEnv serves a tiny site and testHistory over TLS (the session
+// cookie is Secure) with an admin "patrick" (who has an authenticator app),
+// an admin "newbie" (who has none yet), a viewer "anna" and "coach", whose
+// role sees only nutrition and foods; syncs block until release is closed.
 func newTestEnv(t *testing.T, withUsers bool) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
-	siteDir, public := filepath.Join(dir, "site"), filepath.Join(dir, "public")
+	siteDir, photos := filepath.Join(dir, "site"), filepath.Join(dir, "photos")
 	for path, body := range map[string]string{
 		filepath.Join(siteDir, "index.html"):       "<h1>hi</h1>",
 		filepath.Join(siteDir, "fonts", "f.woff2"): "font",
-		filepath.Join(public, "stats.json"):        `{"days":[]}`,
-		filepath.Join(public, "photos", "abc.jpg"): "jpg",
-		filepath.Join(public, "routes", "r1.json"): "[]",
-		filepath.Join(public, "days", "y1.json"):   `{"days":[]}`,
+		filepath.Join(siteDir, "stats.json"):       `{"days":[]}`, // as -out writes it locally
+		filepath.Join(photos, "abc.jpg"):           string(tinyJPEG),
+		filepath.Join(photos, "secret.jpg"):        string(tinyJPEG), // on disk, but on no page
 	} {
 		os.MkdirAll(filepath.Dir(path), 0o755)
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -60,24 +83,29 @@ func newTestEnv(t *testing.T, withUsers bool) *testEnv {
 	}
 	t.Cleanup(func() { d.Close() })
 	e := &testEnv{release: make(chan struct{}), calls: make(chan config, 10), now: time.Now()}
-	store := auth.NewStore(d)
-	store.Now = func() time.Time { return e.now }
-	e.store = store
+	accounts := auth.NewStore(d)
+	accounts.Now = func() time.Time { return e.now }
+	e.store = accounts
 	if withUsers {
 		ctx := context.Background()
-		u, _ := store.CreateUser(ctx, "patrick", adminPassword, auth.RoleAdmin)
-		store.CreateUser(ctx, "newbie", adminPassword+"!", auth.RoleAdmin)
-		store.CreateUser(ctx, "anna", viewerPassword, auth.RoleViewer)
+		u, _ := accounts.CreateUser(ctx, "patrick", adminPassword, auth.RoleAdmin)
+		accounts.CreateUser(ctx, "newbie", adminPassword+"!", auth.RoleAdmin)
+		accounts.CreateUser(ctx, "anna", viewerPassword, auth.RoleViewer)
+		accounts.SaveRole(ctx, "Coach", []string{auth.ViewNutrition, auth.ViewFoods})
+		accounts.CreateUser(ctx, "coach", coachPassword, "Coach")
 		e.secret, _ = auth.NewTOTPSecret()
-		store.SetTOTP(ctx, u, e.secret, 0)
+		accounts.SetTOTP(ctx, u, e.secret, 0)
 	}
-	r := newRunner(config{outPath: filepath.Join(public, "stats.json")}, time.Hour)
-	r.sync = func(ctx context.Context, cfg config) error {
+	data := newPublished(stats.Options{PhotoPath: "photos/"})
+	data.set(testHistory(), time.Now())
+	e.data = data
+	r := newRunner(config{}, time.Hour, data)
+	r.sync = func(ctx context.Context, cfg config) (*store.History, error) {
 		e.calls <- cfg
 		<-e.release
-		return nil
+		return nil, nil
 	}
-	e.srv = httptest.NewTLSServer(newHandler(r, os.DirFS(siteDir), public, store))
+	e.srv = httptest.NewTLSServer(newHandler(r, os.DirFS(siteDir), data, photos, accounts))
 	t.Cleanup(e.srv.Close)
 	t.Cleanup(func() {
 		select {
@@ -175,10 +203,7 @@ func TestEveryRouteNamesItsAccess(t *testing.T) {
 		}
 		// Without a session every route that isn't open says so, before
 		// doing anything.
-		path := strings.ReplaceAll(strings.TrimSuffix(rt.path, "/")+"/x", "{id}", "1")
-		if !strings.HasSuffix(rt.path, "/") {
-			path = strings.ReplaceAll(rt.path, "{id}", "1")
-		}
+		path := strings.NewReplacer("{id}", "1", "{name}", "x").Replace(rt.path)
 		var body string
 		if rt.method != "GET" {
 			body = "{}"
@@ -192,10 +217,25 @@ func TestEveryRouteNamesItsAccess(t *testing.T) {
 	}
 }
 
+// statsOf fetches and decodes the stats c gets.
+func (e *testEnv) statsOf(t *testing.T, c *http.Client, opts ...reqOpt) stats.Output {
+	t.Helper()
+	res, body := e.do(t, c, "GET", "/api/stats", "", opts...)
+	var out stats.Output
+	if err := json.Unmarshal([]byte(body), &out); res.StatusCode != 200 || err != nil {
+		t.Fatalf("stats = %d %s", res.StatusCode, body)
+	}
+	return out
+}
+
 func TestServeFiles(t *testing.T) {
 	e := newTestEnv(t, true)
 	c := e.signIn(t, "anna", viewerPassword, true)
 	anon := e.client()
+	out := e.statsOf(t, c)
+	if len(out.Days) != 1 || len(out.Archive) != 1 || len(out.Days[0].Photos) != 1 || out.Days[0].Workouts[0].RouteSrc == "" {
+		t.Fatalf("anna's stats = %+v", out)
+	}
 	for _, x := range []struct {
 		path     string
 		anonCode int
@@ -204,14 +244,17 @@ func TestServeFiles(t *testing.T) {
 	}{
 		{"/", 200, 200, "no-cache"},
 		{"/fonts/f.woff2", 200, 200, "max-age=604800"},
-		{"/stats.json", 401, 200, "private, no-cache"},
-		{"/photos/abc.jpg", 401, 200, "private, max-age=31536000, immutable"},
-		{"/routes/r1.json", 401, 200, "immutable"},
-		{"/days/y1.json", 401, 200, "immutable"},
-		{"/photos/", 401, 404, ""}, // no directory listing
+		{"/api/stats", 401, 200, "private, no-cache"},
+		{"/" + out.Days[0].Photos[0].Src, 401, 200, "private, max-age=31536000, immutable"},
+		{"/" + out.Days[0].Workouts[0].RouteSrc, 401, 200, "immutable"},
+		{"/" + out.Archive[0], 401, 200, "immutable"},
+		{"/photos/secret.jpg", 401, 404, ""}, // only photos the stats show
+		{"/days/0000000000000000.json", 401, 404, ""},
+		{"/photos/", 404, 404, ""}, // no directory listing
 		{"/fonts/", 404, 404, ""},  // same for the site
 		{"/missing.js", 404, 404, ""},
-		{"/../public/stats.json", 404, 404, ""},
+		{"/stats.json", 404, 404, ""}, // no public files any more
+		{"/photos/..%2Fapp.db", 401, 404, ""},
 	} {
 		if res, _ := e.do(t, anon, "GET", x.path, ""); res.StatusCode != x.anonCode {
 			t.Errorf("GET %s signed out = %d, want %d", x.path, res.StatusCode, x.anonCode)
@@ -349,17 +392,17 @@ func TestSyncNeedsAnAdminOrASyncToken(t *testing.T) {
 	if res, _ := e.do(t, viewer, "POST", "/api/sync", "{}", sameSite); res.StatusCode != 403 {
 		t.Errorf("sync as viewer = %d, want 403", res.StatusCode)
 	}
-	if res, _ := e.do(t, viewer, "GET", "/stats.json", ""); res.StatusCode != 200 {
+	if res, _ := e.do(t, viewer, "GET", "/api/stats", ""); res.StatusCode != 200 {
 		t.Errorf("stats as viewer = %d", res.StatusCode)
 	}
 	plain := e.srv.Client()
 	if res, _ := e.do(t, plain, "POST", "/api/sync", "", bearer(readTok)); res.StatusCode != 403 {
 		t.Errorf("sync with a read token = %d, want 403", res.StatusCode)
 	}
-	if res, _ := e.do(t, plain, "GET", "/stats.json", "", bearer(readTok)); res.StatusCode != 200 {
+	if res, _ := e.do(t, plain, "GET", "/api/stats", "", bearer(readTok)); res.StatusCode != 200 {
 		t.Errorf("stats with a read token = %d", res.StatusCode)
 	}
-	if res, _ := e.do(t, plain, "GET", "/stats.json", "", bearer(syncTok)); res.StatusCode != 403 {
+	if res, _ := e.do(t, plain, "GET", "/api/stats", "", bearer(syncTok)); res.StatusCode != 403 {
 		t.Errorf("stats with a sync-only token = %d, want 403", res.StatusCode)
 	}
 	if res, _ := e.do(t, plain, "GET", "/api/sessions", "", bearer(readTok)); res.StatusCode != 403 {
@@ -422,7 +465,7 @@ func TestNoDataBeforeTheFirstAccount(t *testing.T) {
 	if res, _ := e.do(t, c, "GET", "/", ""); res.StatusCode != 200 {
 		t.Errorf("page = %d", res.StatusCode)
 	}
-	for _, p := range []string{"/stats.json", "/api/me"} {
+	for _, p := range []string{"/api/stats", "/api/me"} {
 		if res, body := e.do(t, c, "GET", p, ""); res.StatusCode != 503 || !strings.Contains(body, "setup") {
 			t.Errorf("GET %s = %d %s, want 503 setup", p, res.StatusCode, body)
 		}
@@ -464,7 +507,7 @@ func TestNextAt(t *testing.T) {
 }
 
 func TestHealthy(t *testing.T) {
-	r := newRunner(config{}, 30*time.Minute)
+	r := newRunner(config{}, 30*time.Minute, newPublished(stats.Options{}))
 	if !r.healthy(r.started.Add(time.Hour)) {
 		t.Error("unhealthy while still catching up after start")
 	}
@@ -478,11 +521,12 @@ func TestHealthy(t *testing.T) {
 }
 
 func TestServeCompiledInPages(t *testing.T) {
-	public := t.TempDir()
-	d, _ := db.Open(context.Background(), filepath.Join(public, "app.db"))
+	dir := t.TempDir()
+	d, _ := db.Open(context.Background(), filepath.Join(dir, "app.db"))
 	defer d.Close()
-	r := newRunner(config{outPath: filepath.Join(public, "stats.json")}, time.Hour)
-	srv := httptest.NewServer(newHandler(r, site.Files, public, auth.NewStore(d)))
+	data := newPublished(stats.Options{})
+	r := newRunner(config{}, time.Hour, data)
+	srv := httptest.NewServer(newHandler(r, site.Files, data, dir, auth.NewStore(d)))
 	t.Cleanup(srv.Close)
 	get := func(p string, opts ...reqOpt) *http.Response {
 		req, _ := http.NewRequest("GET", srv.URL+p, nil)
@@ -518,3 +562,105 @@ func TestServeCompiledInPages(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// Each role gets only the data its scopes allow, also from files named in
+// someone else's stats, and a new role applies to the next request.
+func TestDataFollowsTheRole(t *testing.T) {
+	e := newTestEnv(t, true)
+	anna := e.signIn(t, "anna", viewerPassword, false)
+	coach := e.signIn(t, "coach", coachPassword, false)
+	full := e.statsOf(t, anna)
+	if full.Scopes == nil || full.ReviewStatus != nil {
+		t.Errorf("viewer: scopes %v, credit status %+v", full.Scopes, full.ReviewStatus)
+	}
+
+	out := e.statsOf(t, coach)
+	d := out.Days[len(out.Days)-1]
+	if d.Energy != 1800 || len(d.Foods) != 1 || d.Steps != 0 || d.Photos != nil || d.Workouts != nil {
+		t.Errorf("coach's day = %+v", d)
+	}
+	if strings.Join(out.Scopes, " ") != "view.nutrition view.foods" {
+		t.Errorf("coach's scopes = %v", out.Scopes)
+	}
+	for path, want := range map[string]int{
+		"/" + full.Days[0].Photos[0].Src:        403,
+		"/" + full.Days[0].Workouts[0].RouteSrc: 403,
+		"/" + out.Archive[0]:                    200,
+	} {
+		if res, _ := e.do(t, coach, "GET", path, ""); res.StatusCode != want {
+			t.Errorf("coach GET %s = %d, want %d", path, res.StatusCode, want)
+		}
+	}
+	// anna's year file holds her view of the old days: not the coach's.
+	if full.Archive[0] != out.Archive[0] {
+		if res, _ := e.do(t, coach, "GET", "/"+full.Archive[0], ""); res.StatusCode != 404 {
+			t.Errorf("coach got anna's year file: %d", res.StatusCode)
+		}
+	}
+	var who me
+	_, body := e.do(t, coach, "GET", "/api/me", "")
+	json.Unmarshal([]byte(body), &who)
+	if who.Role != "Coach" || who.Sync || strings.Join(who.Scopes, " ") != "view.nutrition view.foods" {
+		t.Errorf("coach's me = %+v", who)
+	}
+
+	ctx := context.Background()
+	u, _ := e.store.UserByName(ctx, "coach")
+	e.store.SetRole(ctx, u, auth.RoleViewer)
+	if out := e.statsOf(t, coach); out.Days[len(out.Days)-1].Workouts == nil {
+		t.Error("the new role didn't apply to the next request")
+	}
+
+	// Revalidation: the same stats are not sent again.
+	res, _ := e.do(t, anna, "GET", "/api/stats", "")
+	if res, _ := e.do(t, anna, "GET", "/api/stats", "", header("If-None-Match", res.Header.Get("ETag"))); res.StatusCode != 304 {
+		t.Errorf("revalidating the stats = %d, want 304", res.StatusCode)
+	}
+}
+
+// Admins get the Anthropic credit warning; the data comes from the last
+// sync and is replaced by the next.
+func TestStatsAfterASync(t *testing.T) {
+	e := newTestEnv(t, true)
+	h := testHistory()
+	h.ReviewState = &store.ReviewState{Billing: true}
+	admin := e.signIn(t, "patrick", adminPassword, false)
+	anna := e.signIn(t, "anna", viewerPassword, false)
+	if out := e.statsOf(t, admin); out.ReviewStatus != nil {
+		t.Errorf("credit status before the sync: %+v", out.ReviewStatus)
+	}
+	e.data.set(h, time.Now())
+	if out := e.statsOf(t, admin); out.ReviewStatus == nil || !out.ReviewStatus.Billing {
+		t.Errorf("admin's credit status = %+v", out.ReviewStatus)
+	}
+	if out := e.statsOf(t, anna); out.ReviewStatus != nil {
+		t.Errorf("viewer's credit status = %+v", out.ReviewStatus)
+	}
+}
+
+// A role that may sync needs a second factor for it, as admins do, but
+// nothing beyond its scopes: no audit log.
+func TestASyncRoleNeedsASecondFactor(t *testing.T) {
+	e := newTestEnv(t, true)
+	ctx := context.Background()
+	e.store.SaveRole(ctx, "Syncer", []string{auth.ViewNutrition, auth.ScopeSync})
+	u, _ := e.store.CreateUser(ctx, "syncer", coachPassword+"!", "Syncer")
+	c := e.signIn(t, "syncer", coachPassword+"!", false)
+	if res, body := e.do(t, c, "POST", "/api/sync", "{}", sameSite); res.StatusCode != 403 || !strings.Contains(body, "second_factor_required") {
+		t.Errorf("sync without a second factor = %d %s", res.StatusCode, body)
+	}
+	var who me
+	_, body := e.do(t, c, "GET", "/api/me", "")
+	json.Unmarshal([]byte(body), &who)
+	if !who.NeedsSecondFactor || who.Sync {
+		t.Errorf("me = %+v", who)
+	}
+	secret, _ := auth.NewTOTPSecret()
+	e.store.SetTOTP(ctx, u, secret, 0)
+	if res, _ := e.do(t, c, "POST", "/api/sync", "{}", sameSite); res.StatusCode != 202 {
+		t.Errorf("sync with a second factor = %d, want 202", res.StatusCode)
+	}
+	if res, _ := e.do(t, c, "GET", "/api/audit", ""); res.StatusCode != 403 {
+		t.Errorf("audit log for a sync role = %d, want 403", res.StatusCode)
+	}
+}

@@ -8,16 +8,21 @@
 // recovery code). A passkey that verifies its user signs in on its own,
 // from the button or from the browser's suggestions in the name field.
 //
-// The page also runs from plain files (local development, the smoke test):
-// there is no API then, and nobody needs to sign in.
+// The page also runs from plain files (local development with -out, the
+// smoke test): there is no API then, and nobody needs to sign in.
+//
+// What this device keeps for offline use belongs to the user who loaded
+// it: signing out, a 401 and another user signing in all clear it.
 
 import { $, hashParam, popupMenu, setHashParam } from './dom.js';
 import { autofillSupported, credentialJSON, requestOptions, supported } from './webauthn.js';
 import { openSecurity } from './security.js';
+import { openManage } from './manage.js';
+import { store } from './state.js';
 import { t } from './i18n.js';
 
-// Who is signed in: { name, role, sync, second_factor, needs_second_factor },
-// or null without accounts.
+// Who is signed in: { name, role, scopes, sync, second_factor,
+// needs_second_factor }, or null without accounts.
 export const account = { user: null };
 
 const changeListeners = [];
@@ -28,12 +33,13 @@ export function onUserChange(fn) {
 }
 
 // api calls the server's API. Anything that changes state is sent as JSON,
-// which the server requires so other sites can't trigger it.
+// which the server requires so other sites can't trigger it; a DELETE too,
+// though it has no body.
 export function api(path, method = 'GET', body) {
   const opts = { method, cache: 'no-store', credentials: 'same-origin' };
-  if (method !== 'GET' && method !== 'DELETE') {
+  if (method !== 'GET') {
     opts.headers = { 'Content-Type': 'application/json' };
-    opts.body = JSON.stringify(body ?? {});
+    if (method !== 'DELETE') opts.body = JSON.stringify(body ?? {});
   }
   return fetch('api/' + path, opts);
 }
@@ -57,7 +63,7 @@ export function signedIn() {
     if (res.ok) return welcome(await res.json());
     if (res.status === 503 && (await reason(res)) === 'setup') return setup();
     if (res.status !== 401) return; // no API: plain files
-    welcome(await askSignIn());
+    return welcome(await askSignIn());
   })().finally(() => { waiting = null; });
   return waiting;
 }
@@ -66,20 +72,35 @@ export function signedIn() {
 // factors changed.
 export async function refreshUser() {
   const res = await api('me').catch(() => null);
-  if (res?.ok) welcome(await res.json());
+  if (res?.ok) await welcome(await res.json());
 }
 
-function welcome(user) {
+async function welcome(user) {
+  if (store.get('user') !== user.name) {
+    await forgetData();
+    store.set('user', user.name);
+  }
   account.user = user;
   $('#account-initial').textContent = user.name.slice(0, 1).toUpperCase();
   $('#account-name').textContent = user.name;
   $('#account').hidden = false;
   $('#mfa-notice').hidden = !user.needs_second_factor;
+  // Not an admin: an admin asked this user for a second factor.
+  if (!user.scopes?.includes('admin') && !user.scopes?.includes('sync')) {
+    $('#mfa-text').textContent = t('Please set up a second factor, such as a passkey: until then the data stays hidden.');
+  }
+  $('#account-admin').hidden = !user.scopes?.includes('admin');
   for (const fn of changeListeners) fn(user);
   // "#security" opens the security settings, also after signing in again.
   if (hashParam('security') != null) {
     setHashParam('security', null);
     openSecurity($('#account-btn'));
+  }
+  // "#admin=roles" opens Users & roles on that tab, also after signing in again.
+  const admin = hashParam('admin');
+  if (admin != null && user.scopes?.includes('admin')) {
+    setHashParam('admin', null);
+    openManage($('#account-btn'), admin);
   }
 }
 
@@ -295,6 +316,7 @@ async function lockedText(res) {
 export function initAccount() {
   popupMenu($('#account-btn'), $('#account-menu'), async (item) => {
     if (item.dataset.action === 'security') return openSecurity($('#account-btn'));
+    if (item.dataset.action === 'admin') return openManage($('#account-btn'));
     await signOut(item.dataset.out === 'all');
   });
   $('#mfa-setup').onclick = () => openSecurity($('#mfa-setup'));
@@ -312,11 +334,13 @@ export async function signOut(everywhere) {
   location.reload();
 }
 
-async function forgetData() {
+// forgetData deletes the data this device kept for offline use: the
+// stats and the files they point to (sw.js). The page code stays.
+export async function forgetData() {
   try {
     for (const name of await caches.keys()) {
       if (name.startsWith('stats-data')) await caches.delete(name);
-      else await (await caches.open(name)).delete('stats.json', { ignoreSearch: true });
+      else await (await caches.open(name)).delete('api/stats', { ignoreSearch: true });
     }
   } catch { /* no cache storage */ }
 }

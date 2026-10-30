@@ -40,7 +40,7 @@ func TestThePasswordAloneIsNotEnough(t *testing.T) {
 	if code != 200 || ans.Next != "second_factor" || ans.Ticket == "" || strings.Join(ans.Methods, ",") != "totp" {
 		t.Fatalf("password step = %d %+v", code, ans)
 	}
-	if res, _ := e.do(t, e.client(), "GET", "/stats.json", ""); res.StatusCode != 401 {
+	if res, _ := e.do(t, e.client(), "GET", "/api/stats", ""); res.StatusCode != 401 {
 		t.Error("data without the second factor")
 	}
 	if code, _ := e.secondStep(t, ans.Ticket, "totp", "000000"); code != 401 {
@@ -106,7 +106,7 @@ func TestAnAdminNeedsASecondFactor(t *testing.T) {
 	if _, body := e.do(t, c, "GET", "/api/me", ""); !strings.Contains(body, `"needs_second_factor":true`) || !strings.Contains(body, `"sync":false`) {
 		t.Errorf("me = %s", body)
 	}
-	if res, _ := e.do(t, c, "GET", "/stats.json", ""); res.StatusCode != 200 {
+	if res, _ := e.do(t, c, "GET", "/api/stats", ""); res.StatusCode != 200 {
 		t.Error("an admin without a second factor can't read")
 	}
 	for _, x := range [][2]string{{"POST", "/api/sync"}, {"GET", "/api/audit"}, {"GET", "/api/status"}} {

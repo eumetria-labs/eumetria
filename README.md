@@ -50,10 +50,8 @@ Keep secret values in **single quotes**: unquoted, Compose expands `$` and cuts 
 | `YAZIO_EMAIL`, `YAZIO_PASSWORD` | – | Your Yazio login |
 | `YAZIO_CLIENT_ID`, `YAZIO_CLIENT_SECRET` | – | The Yazio app's OAuth client, see [🥗 Yazio](#-yazio) |
 | `SYNC_INTERVAL` | `30m` | Time between syncs, at least `5m` |
-| `STATS_PASSWORD` | – | Optional extra encryption of the data, see [🔒 Password protection](#-password-protection) |
 | `TZ` | `UTC` | Decides what "today" is, e.g. `Europe/Berlin` |
 | `STATS_TITLE` | `Eumetria` | Page heading |
-| `PUBLISH_FOODS`, `PUBLISH_PHOTOS`, `PUBLISH_HEALTH`, `PUBLISH_ROUTES`, `PUBLISH_REVIEW` | `true` | `false` keeps food names, meal photos, Fitbit data, GPS tracks or the weekly review off the page |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URL` | – | Fitbit data, see [⌚ Fitbit](#-fitbit--google-health) |
 | `ANTHROPIC_API_KEY`, `AI_MODEL`, `AI_EFFORT`, `AI_CREDIT_USD` | –, `claude-opus-5-5`, `medium`, – | Weekly review, see [🤖 Weekly review](#-weekly-review-with-claude) |
 | `OPENFOODFACTS` | `true` | `false` skips the Open Food Facts lookups (only barcodes are sent) |
@@ -97,20 +95,42 @@ certbot certonly --webroot -w /var/www/letsencrypt -d eumetria.example.com \
 
 **5. Backups and updates.** Copy [`deploy/cron`](deploy/cron) to `/etc/cron.d/eumetria` (mode 644). Every night it backs up `data/` to `/var/backups/eumetria` (14 days are kept) and pulls the newest image, so a push to `main` is live the next morning. The accounts database goes in as the copy the server writes at 03:20 (`data/backup/app.db`), not as the live file. Copy the backups off the server too: the history can be fetched from Yazio again, old photos and accounts can't.
 
-## 👥 Accounts
+## 👥 Accounts and roles
 
-Everything but the sign-in page needs an account. Admins also see the sync button (its menu has **Full refresh**); viewers only read.
+Everything but the sign-in page needs an account, and each account has one role. The server sends a user only the data their role allows; the page hides the rest.
+
+| Scope | Gives |
+|---|---|
+| `view.nutrition` | calories, macros, meals, goals, weight, water |
+| `view.foods` | food names and amounts, recipes, Open Food Facts data |
+| `view.photos` | meal and recipe photos |
+| `view.activity` | steps, Yazio activities |
+| `view.health` | Fitbit workouts, heart rate, sleep, recovery, the tracker |
+| `view.routes` | GPS tracks of workouts (needs `view.health`) |
+| `view.review` | the weekly review |
+| `view.notes`, `edit.notes` | workout notes (coming) |
+| `sync` | the sync button, with **Full refresh** in its menu |
+| `admin` | everything, including the audit log and the credit warning |
+
+Two roles are built in: **admin** (everything) and **viewer** (every `view.*` scope). Make your own for anyone who should see less, e.g. a coach who sees what you eat but not where you run.
+
+Admins manage all of this in the page: account menu → **Users & roles**. There you add people, give them a role, set a new password for someone who forgot theirs, require a second factor (until they set one up they see no data), disable an account, edit roles as checkboxes, end anyone's session and read the audit log. Changes need a sign-in within the last 10 minutes. You can't disable or demote your own account, and the site always keeps one admin. A changed role applies to the user's next request; they stay signed in.
 
 - **Passwords:** at least 12 characters, no common ones, stored as argon2id hashes. Change yours under account menu → **Security**; that signs out your other devices.
 - **Sessions:** "Keep me signed in" lasts until a week without use, a month at most; without it, until the browser closes (12 hours at most). The account menu (your initial, top right) signs out here or everywhere.
 - **Wrong passwords:** five in 15 minutes lock that account for 15 minutes, doubling up to a day; twenty from one address lock the address. Wrong codes count the same.
-- **Second factors** (account menu → **Security**): passkeys (fingerprint, face or PIN, synced by your phone or password manager), security keys such as a YubiKey, an authenticator app, and ten recovery codes for when the others are lost. With one, the password is followed by a second step; a passkey alone signs in without a password, from the button or from the browser's suggestions in the name field. **Admins need one** before they can sync or open the admin tools. Changing them needs a sign-in within the last 10 minutes.
+- **Second factors** (account menu → **Security**): passkeys (fingerprint, face or PIN, synced by your phone or password manager), security keys such as a YubiKey, an authenticator app, and ten recovery codes for when the others are lost. With one, the password is followed by a second step; a passkey alone signs in without a password, from the button or from the browser's suggestions in the name field. **Admins and roles with `sync` need one** before they can sync or open the admin tools. Changing them needs a sign-in within the last 10 minutes.
 - **Passkeys only work on the real domain over HTTPS** (and on `http://localhost` for development), not on an IP address.
-- **Scripts** use an API token instead of a password (see the table below). It carries scopes, `read` (the data) and/or `sync`, and an expiry, and is shown only once.
+- **Scripts** use an API token instead of a password (see the table below). It carries scopes, `read` (the data the account's role sees) and/or `sync` (if the role may sync), and an expiry, and is shown only once.
+
+The same from the command line, e.g. for the first admin or when nobody can sign in:
 
 | Task | Command (on the server, in `/srv/eumetria`) |
 |---|---|
-| Add someone | `docker compose run --rm -it eumetria -create-user <name>` (`-role admin` for an admin) |
+| Add someone | `docker compose run --rm -it eumetria -create-user <name>` (a viewer; `-role admin` or your own role) |
+| Another role | `docker compose run --rm eumetria -set-role <name> -role <role>` |
+| Roles, their scopes and users | `docker compose run --rm eumetria -list-roles` |
+| Change or delete a role | `-create-role <role> -scopes …` again with the new scopes; `-delete-role <role>` once nobody has it |
 | Forgotten password | `docker compose run --rm -it eumetria -reset-password <name>` (ends their sessions too) |
 | Every second factor lost (and the recovery codes too) | `docker compose run --rm eumetria -reset-second-factors <name>`, then sign in with the password and set up new ones |
 | Token for a script | `docker compose run --rm eumetria -create-token <name> -token-name cron -scopes sync -expires 365` |
@@ -142,15 +162,9 @@ Open the printed URL, allow every access, and paste the address you land on. The
 
 ## 🤖 Weekly review with Claude
 
-With `ANTHROPIC_API_KEY` set, the first sync after a calendar week has Claude write a short review of it: nutrition, training, sleep and recovery, compared with the week before, in English and German. It's written once per week and stored, about $0.10 per week with Claude Opus 5.5. Claude only sees what the page publishes.
+With `ANTHROPIC_API_KEY` set, the first sync after a calendar week has Claude write a short review of it: nutrition, training, sleep and recovery, compared with the week before, in English and German. It's written once per week and stored, about $0.10 per week with Claude Opus 5.5. Claude sees all of the data; who reads the review is up to the `view.review` scope.
 
 The Anthropic API is prepaid: buy credit at [console.anthropic.com](https://console.anthropic.com) and leave auto-reload off, so nothing more can be charged. Set `AI_CREDIT_USD` to what you bought; the page warns admins when it covers fewer than 4 more reviews.
-
-## 🔒 Password protection
-
-Optional, on top of the accounts, and on its way out (the accounts make it unnecessary). With `STATS_PASSWORD` set, the sync encrypts the data (AES-256-GCM, key from PBKDF2-SHA256 with 600,000 iterations) and the page asks for the password before decrypting it in the browser. "Remember me" keeps the derived key, never the password, on that device. Changing the password signs every device out.
-
-Use a long passphrase: the encrypted file can be downloaded by anyone and the password guessed offline. Meal photos aren't encrypted, but their names are only listed inside the encrypted data.
 
 ## 🧰 Maintenance
 
@@ -184,9 +198,13 @@ docker compose up -d
 ```sh
 # the page with generated sample data (Fitbit data included); sign in as demo / demo
 # at http://localhost:8080 (passkeys don't work on 127.0.0.1)
-go run ./cmd/eumetria -demo -serve :8080 -site site -data /tmp/eumetria-demo -out site/stats.json
+go run ./cmd/eumetria -demo -serve :8080 -site site -data /tmp/eumetria-demo
 # -site serves the page from the folder: edits show on reload. Its own -data
 # keeps the demo account out of your real data folder.
+
+# the page from plain files, without a server or sign-in: -out writes all of
+# the data next to it (any static file server works)
+go run ./cmd/eumetria -demo -out site/stats.json
 
 # real data (settings as in the server's env file)
 set -a; . path/to/eumetria.env; set +a

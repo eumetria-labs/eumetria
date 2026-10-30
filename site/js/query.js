@@ -239,7 +239,7 @@ export function activityHistory(days, key) {
 }
 
 // Every published file the data points to (photos, routes, the older days),
-// wherever it sits in stats.json. The service worker keeps these offline and
+// wherever it sits in the data. The service worker keeps these offline and
 // drops the cached files nothing points to any more.
 const FILE = /^(photos|routes|days)\//;
 export function referencedFiles(data) {

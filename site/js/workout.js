@@ -5,7 +5,6 @@
 import { actLabel, actName, dfLong, fmt, fmtDistance, fmtDuration, parse } from './format.js';
 import { ZONES, speedLabel, workoutIcon, workoutName, zoneOf, zoneRuns, zoneShares } from './health.js';
 import { $, h, svg, emoji, showTip, hideTip, setHashParam, textWidth } from './dom.js';
-import { isSealed, unseal } from './lock.js';
 import { openDialog } from './dialog.js';
 import { workoutShareButton } from './cards.js';
 import { t } from './i18n.js';
@@ -267,9 +266,9 @@ function hrChart(host, w) {
 let leaflet = null;
 const routes = new Map(); // route_src → Promise of the points
 
-// The workout's GPS track, which eumetria keeps in a file of its own
-// (encrypted like stats.json when that is). Resolves to null when it
-// cannot be loaded; once loaded it is kept on w.route.
+// The workout's GPS track, which the server keeps in a file of its own.
+// Resolves to null when it cannot be loaded; once loaded it is kept on
+// w.route.
 export function loadRoute(w) {
   if (w.route) return Promise.resolve(w.route);
   if (!w.route_src) return Promise.resolve(null);
@@ -277,8 +276,7 @@ export function loadRoute(w) {
     routes.set(w.route_src, (async () => {
       const res = await fetch(w.route_src);
       if (!res.ok) throw new Error(res.status);
-      const raw = await res.json();
-      return isSealed(raw) ? unseal(raw) : raw;
+      return res.json();
     })().catch((err) => {
       console.error('loading route failed', w.route_src, err);
       routes.delete(w.route_src); // try again next time

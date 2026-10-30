@@ -3,7 +3,7 @@
 
 import { MACROS, MEALS, MEAL_ICONS, MEAL_TABS, addDays, avgOf, compact, dfDay, dfShort, fmt, fmtDistance, fmtDuration, iso, logged, mealThumb, mean, parse, signed } from './format.js';
 import { $, h, emoji, meter, countUp, thumbImg } from './dom.js';
-import { state } from './state.js';
+import { can, state } from './state.js';
 import { ring, sparkline } from './charts.js';
 import { openDay } from './sheet.js';
 import { highlights, macroGoal } from './insights.js';
@@ -12,6 +12,11 @@ import { t, tn } from './i18n.js';
 export function renderToday() {
   const { data } = state;
   const day = data.days.at(-1);
+  // Without nutrition and steps there is nothing of the day to show here.
+  const food = can('view.nutrition'), steps = can('view.activity');
+  $('#today').hidden = !food && !steps;
+  $('#today').classList.toggle('no-ring', !food);
+  $('#today-ring').hidden = $('#today-meals').hidden = !food;
   const g = data.goals || {};
   const isYesterday = iso(addDays(parse(state.today), -1)) === day.date;
   $('#today-title').textContent = day.date === state.today ? t('Today') : isYesterday ? t('Yesterday') : dfShort.format(parse(day.date));
@@ -25,8 +30,8 @@ export function renderToday() {
 
   // Macro goals grow with the day's activity, like in the Yazio app.
   const stats = [
-    ...MACROS.map((m) => ({ label: m.label, v: day[m.key], goal: macroGoal(day, m.key, g), unit: 'g' })),
-    { label: t('Steps'), steps: true, v: day.steps, goal: g.steps, unit: '' },
+    ...(food ? MACROS.map((m) => ({ label: m.label, v: day[m.key], goal: macroGoal(day, m.key, g), unit: 'g' })) : []),
+    ...(steps ? [{ label: t('Steps'), steps: true, v: day.steps, goal: g.steps, unit: '' }] : []),
   ];
   $('#today-macros').replaceChildren(...stats.map((st) => {
     const el = h('div', { class: 'stat' });
@@ -110,26 +115,29 @@ export function renderTiles(s) {
   }
 
   const daily = (key, pred = (r) => r[key] > 0) => complete.map((r) => (pred(r) ? r[key] : null));
+  const food = can('view.nutrition');
   const tiles = [
-    {
+    food && {
       label: t('Weight'), value: latest?.weight, digits: 1, unit: 'kg', ctx: wCtx, good: wGood,
       chip: g.weight && latest ? t('{kg} kg to goal', { kg: fmt(Math.abs(latest.weight - g.weight), 1) }) : '',
       spark: rows.map((r) => r.weight ?? null),
     },
-    {
+    food && {
       label: t('Avg calories'), value: avgE, unit: 'kcal', ctx: avgE && avgGoal ? t('{kcal} kcal vs goal', { kcal: signed(avgE - avgGoal) }) : '',
       delta: vsPrev(avgE, avgOf(prevLogged, 'energy')), spark: daily('energy'),
     },
-    {
+    food && {
       label: t('Avg protein'), value: avgP, unit: 'g', ctx: avgP && avgPGoal ? t('{pct}% of {goal} g goal', { pct: fmt((avgP / avgPGoal) * 100), goal: fmt(avgPGoal) }) : '',
       delta: vsPrev(avgP, avgOf(prevLogged, 'protein')), spark: daily('protein'),
     },
-    {
+    can('view.activity') && {
       label: t('Avg steps'), value: avgSteps, unit: '', format: (v) => (v >= 10000 ? compact.format(v) : fmt(v)),
       ctx: avgSteps && g.steps ? t('{pct}% of {goal} goal', { pct: fmt((avgSteps / g.steps) * 100), goal: compact.format(g.steps) }) : '',
       delta: vsPrev(avgSteps, avgOf(prevRows, 'steps')), spark: daily('steps'),
     },
-  ];
+  ].filter(Boolean);
+  $('#tiles').hidden = !tiles.length;
+  $('#tiles').style.setProperty('--tiles', tiles.length);
 
   const prevLabel = state.range === 'all' ? '' : tn(rows.length, 'vs previous {n} day', 'vs previous {n} days');
   $('#tiles').replaceChildren(...tiles.map((tile) => {

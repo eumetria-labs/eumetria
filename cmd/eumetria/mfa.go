@@ -466,7 +466,7 @@ func (a *app) security(w http.ResponseWriter, req *http.Request, p *principal) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"fresh":         a.store.Now().Sub(p.session.AuthenticatedAt) <= freshFor,
-		"required":      p.user.Role == auth.RoleAdmin,
+		"required":      p.user.NeedsSecondFactor(),
 		"totp":          f.TOTP,
 		"recovery_left": f.RecoveryLeft,
 		"keys":          list,

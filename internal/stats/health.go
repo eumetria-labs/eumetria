@@ -147,7 +147,7 @@ func addHealth(d *Day, hd *store.HealthDay, opt Options) {
 		for _, p := range w.Pauses {
 			o.Pauses = append(o.Pauses, [2]float64{math.Round(p[0].Sub(w.Start).Seconds()), math.Round(p[1].Sub(w.Start).Seconds())})
 		}
-		if opt.PublishRoutes {
+		if opt.Routes {
 			o.Route = w.Route
 		}
 		for _, sp := range w.Splits {

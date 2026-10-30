@@ -209,3 +209,12 @@ export function fitBlocks(blocks, avail, gap) {
   }
   return list.map((x) => ({ block: x.block, h: Math.floor(x.h) }));
 }
+
+// A session's browser and system from its user agent, e.g. "Safari on
+// iPhone"; the raw string when neither is known.
+export function deviceName(ua = '') {
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /(Chrome|CriOS)\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
+  const system = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '';
+  if (browser && system) return t('{browser} on {system}', { browser, system });
+  return browser || system || ua || t('Unknown device');
+}

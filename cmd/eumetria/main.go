@@ -1,13 +1,13 @@
 // Command eumetria pulls your diary from Yazio (and Fitbit data from Google
-// Health), keeps a private history file up to date and writes the stats.json
-// the page reads. With -serve it serves the page itself and syncs on a
-// schedule (the Docker container); without it, it syncs once, which is handy
-// for local development together with the -debug-* commands.
+// Health) and keeps a private history file up to date. With -serve it serves
+// the page and the data, to each user only what their role allows, and syncs
+// on a schedule (the Docker container); without it, it syncs once, which is
+// handy for local development together with -out and the -debug-* commands.
 //
 // Configuration comes from flags or environment variables:
 //
 //	DATA_DIR                     the data folder (-data, default "data"; /data in the
-//	                             container): history, photos, tokens, app.db, public/
+//	                             container): history, photos, tokens, app.db
 //	YAZIO_EMAIL, YAZIO_PASSWORD  account credentials (required unless -demo)
 //	YAZIO_CLIENT_ID,             OAuth client of the Yazio app (required unless
 //	YAZIO_CLIENT_SECRET          -demo; current values are in the README)
@@ -17,21 +17,14 @@
 //	                             ignores the history; use it once after editing
 //	                             an old diary entry (a past weigh-in, say)
 //	YAZIO_API_BASE               API base URL (default https://yzapi.yazio.com/v22)
-//	STATS_TITLE                  page title written into stats.json
-//	PUBLISH_FOODS                "false" to keep food names out of the public file
-//	PUBLISH_PHOTOS               "false" to keep meal photos off the public site
-//	PUBLISH_HEALTH               "false" to keep Google Health data (sleep, heart
-//	                             rate, workouts) out of the public file
-//	PUBLISH_ROUTES               "false" to keep workout GPS tracks out of it
+//	STATS_TITLE                  the page's title
 //	OPENFOODFACTS                "false" to skip the Open Food Facts lookups
 //	                             (Nutri-Score, NOVA group, additives by barcode)
-//	STATS_PASSWORD               encrypt stats.json; the page asks for this password
 //	ANTHROPIC_API_KEY            Claude API key for the weekly review (-debug-week)
 //	AI_MODEL                     Claude model for it (default claude-opus-5-5)
 //	AI_EFFORT                    low, medium (default), high, xhigh or max
 //	AI_CREDIT_USD                the Anthropic credit bought, for a warning when
 //	                             it runs low (the cost of each review is counted)
-//	PUBLISH_REVIEW               "false" to keep the weekly reviews off the page
 //	TZ                           timezone that decides what "today" is
 //	GOOGLE_CLIENT_ID,            OAuth client for Google Health (Fitbit / Pixel
 //	GOOGLE_CLIENT_SECRET,        Watch workouts, sleep, heart rate); see google.go
@@ -41,8 +34,9 @@
 //
 //	SYNC_INTERVAL                time between syncs (default 30m)
 //
-// Accounts live in app.db; -create-user, -reset-password,
-// -reset-second-factors and -create-token manage them (accounts.go).
+// Accounts and roles live in app.db; -create-user, -set-role, -create-role,
+// -delete-role, -list-roles, -reset-password, -reset-second-factors and
+// -create-token manage them (accounts.go).
 package main
 
 import (
@@ -66,7 +60,6 @@ import (
 	"eumetria/internal/demo"
 	"eumetria/internal/google"
 	"eumetria/internal/imgmeta"
-	"eumetria/internal/seal"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
 	"eumetria/internal/yazio"
@@ -84,7 +77,7 @@ type config struct {
 	dataDir     string // the folder all of the following live in by default
 	dbPath      string // the app's own database (internal/db), serve mode only
 	historyPath string
-	outPath     string
+	outPath     string // -out: a local copy of everything for the page; "" writes none
 	photoDir    string
 	since       string
 	refreshDays int
@@ -111,9 +104,9 @@ func run() error {
 		accounts       accountCommand
 		debugGoogleDay = flag.String("debug-google", "", "print the raw Google Health responses (workouts, GPS export, sleep, heart rate) for this day (YYYY-MM-DD) and exit")
 	)
-	flag.StringVar(&cfg.dataDir, "data", env("DATA_DIR", "data"), "folder for the history, photos, Google token, the app's database (app.db) and the published files (public/)")
+	flag.StringVar(&cfg.dataDir, "data", env("DATA_DIR", "data"), "folder for the history, photos, Google token and the app's database (app.db)")
 	flag.StringVar(&cfg.historyPath, "history", "", "private history file (default <data>/history.json)")
-	flag.StringVar(&cfg.outPath, "out", "", "stats file read by the page; photos/, routes/ and days/ are written next to it (default <data>/public/stats.json)")
+	flag.StringVar(&cfg.outPath, "out", "", "without -serve: also write all of the data to this file (e.g. site/stats.json), with photos/, routes/ and days/ next to it, to work on the page from plain files")
 	flag.StringVar(&cfg.since, "since", env("YAZIO_SINCE", ""), "first day to backfill, YYYY-MM-DD")
 	flag.IntVar(&cfg.refreshDays, "refresh-days", envInt("YAZIO_REFRESH_DAYS", 3), "always re-fetch this many most recent days")
 	flag.BoolVar(&cfg.refreshAll, "refresh-all", envBool("YAZIO_REFRESH_ALL", false), "re-fetch every day in the window, ignoring the history (serve mode: first sync only)")
@@ -122,12 +115,16 @@ func run() error {
 	flag.BoolVar(&cfg.demo, "demo", false, "write generated sample data instead of calling Yazio")
 	flag.StringVar(&cfg.googleToken, "google-token", "", "private Google Health refresh token, written by -google-auth (default <data>/google-token.json)")
 	flag.StringVar(&accounts.createUser, "create-user", "", "create an account with this name and exit (asks for the password; -role)")
-	flag.StringVar(&accounts.role, "role", "viewer", "with -create-user: admin or viewer")
+	flag.StringVar(&accounts.role, "role", "viewer", "with -create-user and -set-role: the role (admin, viewer or one made with -create-role)")
+	flag.StringVar(&accounts.setRole, "set-role", "", "give this account the role named by -role and exit")
+	flag.StringVar(&accounts.createRole, "create-role", "", "create a role with this name, or change the scopes of one made before, from -scopes, and exit")
+	flag.StringVar(&accounts.deleteRole, "delete-role", "", "delete a role nobody has any more and exit")
+	flag.BoolVar(&accounts.listRoles, "list-roles", false, "list the roles with their scopes and users and exit")
 	flag.StringVar(&accounts.resetPassword, "reset-password", "", "set a new password for this account and end its sessions, then exit")
 	flag.StringVar(&accounts.resetFactors, "reset-second-factors", "", "remove every passkey, key, authenticator app and recovery code of this account (when all are lost) and end its sessions, then exit")
 	flag.StringVar(&accounts.createToken, "create-token", "", "make an API token for this account for scripts and exit (-token-name, -scopes, -expires)")
 	flag.StringVar(&accounts.tokenName, "token-name", "script", "with -create-token: what the token is for")
-	flag.StringVar(&accounts.scopes, "scopes", "sync", "with -create-token: read (the data) and/or sync, comma-separated")
+	flag.StringVar(&accounts.scopes, "scopes", "", "with -create-token: read (the data the account's role sees) and/or sync, comma-separated (default sync); with -create-role: the role's scopes (see -list-roles)")
 	flag.IntVar(&accounts.expiresDays, "expires", 365, "with -create-token: days until it expires, 0 for never")
 	flag.Parse()
 	cfg.inData()
@@ -200,7 +197,6 @@ func (c *config) inData() {
 	}
 	def(&c.historyPath, "history.json")
 	def(&c.photoDir, "photos")
-	def(&c.outPath, filepath.Join("public", "stats.json"))
 	def(&c.googleToken, "google-token.json")
 	c.dbPath = filepath.Join(c.dataDir, "app.db")
 }
@@ -231,156 +227,145 @@ func login(ctx context.Context) (*yazio.Client, error) {
 	return client, nil
 }
 
-// syncOptions is what the page publishes, from the environment.
-func syncOptions(cfg config) stats.Options {
+// baseOptions are the settings of the stats from the environment; which
+// parts of the data they include depends on who reads them.
+func baseOptions(cfg config) stats.Options {
 	return stats.Options{
-		Title:         env("STATS_TITLE", "Eumetria"),
-		Timezone:      env("TZ", "UTC"),
-		PublishFoods:  envBool("PUBLISH_FOODS", true),
-		PublishPhotos: envBool("PUBLISH_PHOTOS", true),
-		PublishHealth: envBool("PUBLISH_HEALTH", true),
-		PublishRoutes: envBool("PUBLISH_ROUTES", true),
-		PublishReview: envBool("PUBLISH_REVIEW", true),
-		CreditUSD:     envFloat("AI_CREDIT_USD", 0),
-		PhotoPath:     "photos/",
-		SyncInterval:  cfg.interval,
+		Title:        env("STATS_TITLE", "Eumetria"),
+		Timezone:     env("TZ", "UTC"),
+		CreditUSD:    envFloat("AI_CREDIT_USD", 0),
+		PhotoPath:    "photos/",
+		SyncInterval: cfg.interval,
 	}
 }
 
-// syncOnce fetches what changed from Yazio, saves the history and writes
-// stats.json and the published photos.
+// syncOnce fetches what changed and saves the history; with -out it also
+// writes all of the data for working on the page from plain files.
 func syncOnce(ctx context.Context, cfg config) error {
+	hist, err := syncHistory(ctx, cfg)
+	if hist == nil {
+		return err
+	}
+	if cfg.outPath != "" {
+		out := stats.Build(hist, baseOptions(cfg).Everything(), time.Now())
+		if err := exportStats(cfg.outPath, out, cfg.photoDir); err != nil {
+			return fmt.Errorf("writing %s: %w", cfg.outPath, err)
+		}
+		log.Printf("wrote %d days to %s", len(out.Days), cfg.outPath)
+	}
+	return err
+}
+
+// syncHistory fetches what changed from Yazio and the other sources and
+// saves the history (-demo generates one instead). The history comes back
+// even when a source failed, along with that error; nil means nothing
+// could be synced.
+func syncHistory(ctx context.Context, cfg config) (*store.History, error) {
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-	opts := syncOptions(cfg)
-	sitePhotos := filepath.Join(filepath.Dir(cfg.outPath), "photos")
 
 	if cfg.demo {
 		hist := demo.History(today, 400)
 		hist.Devices = demo.Devices(now)
 		log.Printf("demo: generated %d days", len(hist.Days))
-		return writeStats(cfg.outPath, stats.Build(hist, opts, now))
+		return hist, nil
 	}
 
 	start := today.AddDate(0, 0, -365)
 	if cfg.since != "" {
 		t, err := time.ParseInLocation(time.DateOnly, cfg.since, time.Local)
 		if err != nil {
-			return fmt.Errorf("invalid -since %q: %w", cfg.since, err)
+			return nil, fmt.Errorf("invalid -since %q: %w", cfg.since, err)
 		}
 		start = t
 	}
 
 	// Missing credentials are a setup error: stop before touching anything.
 	if err := checkYazioEnv(); err != nil {
-		return err
+		return nil, err
 	}
 	hist, err := store.Load(cfg.historyPath)
 	if err != nil {
-		return fmt.Errorf("loading history: %w", err)
+		return nil, fmt.Errorf("loading history: %w", err)
 	}
 
 	w := window{start: start, today: today, now: now, refreshDays: cfg.refreshDays, refreshAll: cfg.refreshAll, workers: cfg.workers}
-	failed, err := runSources(ctx, sources(cfg, opts), hist, w, func() error { return hist.Save(cfg.historyPath) })
+	failed, err := runSources(ctx, sources(cfg, baseOptions(cfg)), hist, w, func() error { return hist.Save(cfg.historyPath) })
 	if err != nil {
-		return fmt.Errorf("saving history: %w", err)
+		return nil, fmt.Errorf("saving history: %w", err)
 	}
-
-	out := stats.Build(hist, opts, now)
-	if err := publishPhotos(&out, cfg.photoDir, sitePhotos); err != nil {
-		return fmt.Errorf("copying photos: %w", err)
-	}
-	if err := writeStats(cfg.outPath, out); err != nil {
-		return fmt.Errorf("writing stats: %w", err)
-	}
-	log.Printf("done: published %d days", len(out.Days))
-	// The page is published even when a source failed, but the run still
+	log.Printf("done: %d days in the history", len(hist.Days))
+	// What was synced counts even when a source failed, but the run still
 	// reports it.
 	if failed != nil {
-		return failed
+		return hist, failed
 	}
-	return ctx.Err()
+	return hist, ctx.Err()
 }
 
-// writeStats writes stats.json and the workout routes next to it, encrypted
-// when STATS_PASSWORD is set.
-func writeStats(path string, out stats.Output) error {
-	var sealer *seal.Sealer
-	if password := os.Getenv("STATS_PASSWORD"); password != "" {
-		var err error
-		if sealer, err = seal.New(password); err != nil {
-			return fmt.Errorf("encrypting stats: %w", err)
+// exportStats writes out to path with the routes, older days and photos
+// next to it, as the server serves them.
+func exportStats(path string, out stats.Output, photoDir string) error {
+	dir := filepath.Dir(path)
+	if err := publishPhotos(&out, photoDir, filepath.Join(dir, "photos")); err != nil {
+		return fmt.Errorf("copying photos: %w", err)
+	}
+	files, err := splitFiles(&out)
+	if err != nil {
+		return err
+	}
+	keep := map[string]map[string]bool{"routes": {}, "days": {}}
+	for name, data := range files {
+		folder, file, _ := strings.Cut(name, "/")
+		keep[folder][file] = true
+		if err := writeOnce(filepath.Join(dir, folder, file), data); err != nil {
+			return err
 		}
 	}
-	if err := publishRoutes(&out, filepath.Join(filepath.Dir(path), "routes"), sealer); err != nil {
-		return fmt.Errorf("writing routes: %w", err)
+	for folder, names := range keep {
+		if err := removeUnlisted(filepath.Join(dir, folder), names); err != nil {
+			return err
+		}
 	}
-	if err := publishArchive(&out, filepath.Join(filepath.Dir(path), "days"), sealer); err != nil {
-		return fmt.Errorf("writing older days: %w", err)
-	}
-	if sealer == nil {
-		return store.WriteJSON(path, out, false)
-	}
-	e, err := sealer.SealJSON(out)
-	if err != nil {
-		return fmt.Errorf("encrypting stats: %w", err)
-	}
-	log.Printf("stats.json is password-protected")
-	return store.WriteJSON(path, e, false)
+	return store.WriteJSON(path, out, false)
 }
 
-// publishRoutes moves every workout route out of stats.json into
-// dir/<hash>.json and points the workout at it. A file is named after its
-// content, so an unchanged route is never written again and browsers may
-// cache it for good. Files no longer referenced are removed, so turning
-// PUBLISH_ROUTES off takes the tracks off the site.
-func publishRoutes(out *stats.Output, dir string, sealer *seal.Sealer) error {
-	keep := map[string]bool{}
+// splitFiles moves every workout route and the days before the recent
+// months out of out, into files named after their content: routes/<hash>.json
+// and days/<hash>.json, one per calendar year. Workouts point at their
+// route (RouteSrc) and out.Archive lists the year files. Names never change
+// for the same content, so browsers may keep the files cached for good, and
+// a refresh only downloads the recent days.
+func splitFiles(out *stats.Output) (map[string][]byte, error) {
+	files := map[string][]byte{}
+	add := func(folder string, v any) (string, error) {
+		plain, err := json.Marshal(v)
+		if err != nil {
+			return "", err
+		}
+		sum := sha256.Sum256(plain)
+		name := folder + "/" + hex.EncodeToString(sum[:8]) + ".json"
+		files[name] = plain
+		return name, nil
+	}
 	for i := range out.Days {
 		for j := range out.Days[i].Workouts {
 			w := &out.Days[i].Workouts[j]
 			if len(w.Route) == 0 {
 				continue
 			}
-			plain, err := json.Marshal(w.Route)
+			name, err := add("routes", w.Route)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			sum := sha256.Sum256(plain)
-			hash := sum[:]
-			if sealer != nil {
-				hash = sealer.Name(plain)
-			}
-			name := hex.EncodeToString(hash[:8]) + ".json"
-			if !keep[name] {
-				if err := writeOnce(filepath.Join(dir, name), plain, sealer); err != nil {
-					return err
-				}
-				keep[name] = true
-			}
-			w.Route, w.RouteSrc = nil, "routes/"+name
+			w.Route, w.RouteSrc = nil, name
 		}
 	}
-	return removeUnlisted(dir, keep)
-}
-
-// recentMonths is how many calendar months before the newest day's month
-// stay in stats.json; the days before go to the archive files.
-const recentMonths = 2
-
-// publishArchive moves the days before the recent months out of stats.json
-// into dir/<hash>.json, one file per calendar year, and lists them in
-// out.Archive. Those days hardly ever change, so the browser keeps their
-// files cached, and the page's refresh only downloads the recent days. As
-// with routes, a file is named after its content and unreferenced files are
-// removed.
-func publishArchive(out *stats.Output, dir string, sealer *seal.Sealer) error {
-	keep := map[string]bool{}
 	out.Archive = nil
 	if n := len(out.Days); n > 0 {
 		last, err := time.Parse(time.DateOnly, out.Days[n-1].Date)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		cutoff := time.Date(last.Year(), last.Month()-recentMonths, 1, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
 		i := 0
@@ -390,29 +375,23 @@ func publishArchive(out *stats.Output, dir string, sealer *seal.Sealer) error {
 			for j < n && out.Days[j].Date < cutoff && out.Days[j].Date[:4] == out.Days[i].Date[:4] {
 				j++
 			}
-			plain, err := json.Marshal(struct {
+			name, err := add("days", struct {
 				Days []stats.Day `json:"days"`
 			}{out.Days[i:j]})
 			if err != nil {
-				return err
+				return nil, err
 			}
-			sum := sha256.Sum256(plain)
-			hash := sum[:]
-			if sealer != nil {
-				hash = sealer.Name(plain)
-			}
-			name := hex.EncodeToString(hash[:8]) + ".json"
-			if err := writeOnce(filepath.Join(dir, name), plain, sealer); err != nil {
-				return err
-			}
-			keep[name] = true
-			out.Archive = append(out.Archive, "days/"+name)
+			out.Archive = append(out.Archive, name)
 			i = j
 		}
 		out.Days = out.Days[i:]
 	}
-	return removeUnlisted(dir, keep)
+	return files, nil
 }
+
+// recentMonths is how many calendar months before the newest day's month
+// stay in the stats; the days before go to the year files.
+const recentMonths = 2
 
 // removeUnlisted deletes the .json files in dir that keep doesn't name.
 func removeUnlisted(dir string, keep map[string]bool) error {
@@ -430,34 +409,25 @@ func removeUnlisted(dir string, keep map[string]bool) error {
 	return nil
 }
 
-// writeOnce writes a content-named file (plain, or sealed with a password)
-// unless it already exists.
-func writeOnce(path string, plain []byte, sealer *seal.Sealer) error {
+// writeOnce writes a content-named file unless it already exists.
+func writeOnce(path string, data []byte) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	}
-	if sealer == nil {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, plain, 0o644); err != nil {
-			return err
-		}
-		return os.Rename(tmp, path)
-	}
-	e, err := sealer.Seal(plain)
-	if err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return store.WriteJSON(path, e, false)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // publishPhotos copies the photos referenced by out (meals and recipes) from
-// the private cache into the site, so only photos of published days are
-// ever deployed. Every
-// copy is stripped of metadata (GPS, camera, timestamps); a photo that cannot
-// be stripped is left off the page instead.
+// the private cache next to an -out file. Every copy is stripped of
+// metadata (GPS, camera, timestamps); a photo that cannot be stripped is
+// left off the page instead.
 func publishPhotos(out *stats.Output, from, to string) error {
 	if err := os.MkdirAll(to, 0o755); err != nil {
 		return err
@@ -466,6 +436,10 @@ func publishPhotos(out *stats.Output, from, to string) error {
 		d := &out.Days[i]
 		kept := d.Photos[:0]
 		for _, p := range d.Photos {
+			if strings.HasPrefix(p.Src, "data:") { // demo data
+				kept = append(kept, p)
+				continue
+			}
 			name := filepath.Base(p.Src)
 			if err := publishPhoto(filepath.Join(from, name), filepath.Join(to, name)); err != nil {
 				log.Printf("day %s: not publishing photo %s: %v", d.Date, name, err)

@@ -76,18 +76,28 @@ func nextAt(now time.Time, hour, min int) time.Time {
 
 /* ---------- command line ---------- */
 
-// accountCommand runs -create-user, -reset-password or -create-token on the
-// database in the data folder, next to a running server if need be.
+// accountCommand runs one of the account and role commands (-create-user,
+// -set-role, -create-role, …) on the database in the data folder, next to
+// a running server if need be. Roles take effect with a user's next
+// request.
 type accountCommand struct {
 	createUser, resetPassword, createToken string
 	resetFactors                           string
+	setRole, createRole, deleteRole        string
+	listRoles                              bool
 	role                                   string
 	tokenName, scopes                      string
 	expiresDays                            int
 }
 
 func (c accountCommand) any() bool {
-	return c.createUser != "" || c.resetPassword != "" || c.createToken != "" || c.resetFactors != ""
+	return c.createUser != "" || c.resetPassword != "" || c.createToken != "" || c.resetFactors != "" ||
+		c.setRole != "" || c.createRole != "" || c.deleteRole != "" || c.listRoles
+}
+
+// scopeList splits a comma- or space-separated -scopes value.
+func scopeList(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' })
 }
 
 func runAccountCommand(ctx context.Context, cfg config, c accountCommand) error {
@@ -142,9 +152,12 @@ func runAccountCommand(ctx context.Context, cfg config, c accountCommand) error 
 		if err != nil {
 			return fmt.Errorf("user %q: %w", c.createToken, err)
 		}
-		scopes := strings.FieldsFunc(c.scopes, func(r rune) bool { return r == ',' || r == ' ' })
-		if contains(scopes, "sync") && u.Role != auth.RoleAdmin {
-			return fmt.Errorf("only an admin's token may sync")
+		scopes := scopeList(c.scopes)
+		if len(scopes) == 0 {
+			scopes = []string{"sync"}
+		}
+		if contains(scopes, "sync") && !u.Can(auth.ScopeSync) {
+			return fmt.Errorf("%s's role (%s) may not sync, so their token can't either", u.Name, u.Role)
 		}
 		var expires time.Time
 		if c.expiresDays > 0 {
@@ -161,7 +174,59 @@ func runAccountCommand(ctx context.Context, cfg config, c accountCommand) error 
 		}
 		fmt.Printf("Token %q for %s (%s, %s). It is shown only now:\n\n%s\n\n", c.tokenName, u.Name, strings.Join(scopes, " "), until, token)
 		fmt.Println(`Use it as "Authorization: Bearer <token>".`)
+	case c.setRole != "":
+		u, err := store.UserByName(ctx, c.setRole)
+		if err != nil {
+			return fmt.Errorf("user %q: %w", c.setRole, err)
+		}
+		if err := store.SetRole(ctx, u, auth.Role(c.role)); err != nil {
+			return err
+		}
+		store.Audit(ctx, nil, "cli", "role_set", u.Name+" ("+c.role+")", "")
+		fmt.Printf("%s has the role %s now.\n", u.Name, c.role)
+	case c.createRole != "":
+		if err := store.SaveRole(ctx, auth.Role(c.createRole), scopeList(c.scopes)); err != nil {
+			return err
+		}
+		store.Audit(ctx, nil, "cli", "role_saved", c.createRole+" ("+c.scopes+")", "")
+		fmt.Printf("Saved the role %s. Give it to someone with -set-role <name> -role %q.\n", c.createRole, c.createRole)
+	case c.deleteRole != "":
+		if err := store.DeleteRole(ctx, auth.Role(c.deleteRole)); err != nil {
+			return fmt.Errorf("role %q: %w", c.deleteRole, err)
+		}
+		store.Audit(ctx, nil, "cli", "role_deleted", c.deleteRole, "")
+		fmt.Printf("Deleted the role %s.\n", c.deleteRole)
+	case c.listRoles:
+		return printRoles(ctx, store)
 	}
+	return nil
+}
+
+// printRoles lists the roles with their scopes and users, and every scope
+// there is.
+func printRoles(ctx context.Context, store *auth.Store) error {
+	roles, err := store.Roles(ctx)
+	if err != nil {
+		return err
+	}
+	users, err := store.Users(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range roles {
+		kind := ""
+		if r.Builtin {
+			kind = " (built in)"
+		}
+		var names []string
+		for _, u := range users {
+			if u.Role == r.Name {
+				names = append(names, u.Name)
+			}
+		}
+		fmt.Printf("%s%s\n  scopes: %s\n  users:  %s\n", r.Name, kind, strings.Join(r.Scopes, " "), strings.Join(names, ", "))
+	}
+	fmt.Printf("\nScopes: %s (admin includes all others)\n", strings.Join(auth.AllScopes, " "))
 	return nil
 }
 

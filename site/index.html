@@ -67,6 +67,7 @@
           <div class="menu" id="account-menu" role="menu" aria-label="Account" hidden>
             <p class="menu-head"><span class="muted">Signed in as</span> <b id="account-name"></b></p>
             <button role="menuitem" type="button" data-action="security"><b>Security</b><span>Passkeys, authenticator app, recovery codes.</span></button>
+            <button role="menuitem" type="button" data-action="admin" id="account-admin" hidden><b>Users &amp; roles</b><span>Accounts, who may see what, sessions, audit log.</span></button>
             <button role="menuitem" type="button" data-out="this"><b>Sign out</b><span>On this device.</span></button>
             <button role="menuitem" type="button" data-out="all"><b>Sign out everywhere</b><span>Ends the sessions on all your devices.</span></button>
           </div>
@@ -95,18 +96,9 @@
   <div class="page">
     <p class="notice" id="sync-notice" role="status" hidden></p>
     <div class="notice notice-row" id="mfa-notice" role="status" hidden>
-      <span>Admins need a second factor: until you set one up, syncing and the admin tools stay locked.</span>
+      <span id="mfa-text">Admins need a second factor: until you set one up, syncing and the admin tools stay locked.</span>
       <button class="pill-btn" id="mfa-setup" type="button">Set up</button>
     </div>
-    <form class="card lock" id="lock" hidden>
-      <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      <h2>Members only</h2>
-      <p class="muted">Enter the password you were given.</p>
-      <input id="lock-password" type="password" autocomplete="current-password" aria-label="Password" placeholder="Password" required>
-      <label class="lock-remember"><input id="lock-remember" type="checkbox" checked> Remember me on this device</label>
-      <p class="lock-error" id="lock-error" role="alert" hidden>Wrong password. Try again.</p>
-      <button class="lock-btn" type="submit">Unlock</button>
-    </form>
     <form class="card lock" id="login" hidden>
       <img src="icons/mark.svg" alt="" width="44" height="44">
       <h2>Sign in</h2>
@@ -291,8 +283,10 @@
           <header class="card-head">
             <div><h2>Movement</h2><p class="muted" id="steps-sub"></p></div>
           </header>
-          <h3 class="mini-title">Steps</h3>
-          <div class="chart short" id="chart-steps"></div>
+          <div id="steps-part">
+            <h3 class="mini-title">Steps</h3>
+            <div class="chart short" id="chart-steps"></div>
+          </div>
           <div id="activity-part">
             <h3 class="mini-title">Calories burned by activities</h3>
             <div class="chart short" id="chart-activity"></div>

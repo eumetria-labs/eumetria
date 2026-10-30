@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"eumetria/internal/seal"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
 	"eumetria/internal/yazio"
@@ -222,7 +221,7 @@ func TestSyncAgainstFakeAPI(t *testing.T) {
 		t.Errorf("photos = %+v", d.Photos)
 	}
 
-	out := stats.Build(hist, stats.Options{PublishFoods: false}, time.Now())
+	out := stats.Build(hist, stats.Options{Nutrition: true}, time.Now())
 	if len(out.Days) != 3 || out.Goals.Weight != 75 {
 		t.Errorf("stats: %d days, goals %+v", len(out.Days), out.Goals)
 	}
@@ -231,9 +230,9 @@ func TestSyncAgainstFakeAPI(t *testing.T) {
 			out.Goals.Energy, out.Days[1].EnergyBase, out.Days[1].EnergyGoal)
 	}
 	if len(out.Days[0].Foods) != 0 || len(out.Days[1].Photos) != 0 {
-		t.Error("foods and photos must be omitted when not published")
+		t.Error("foods and photos must be omitted without their scopes")
 	}
-	out = stats.Build(hist, stats.Options{PublishFoods: true, PublishPhotos: true, PhotoPath: "photos/"}, time.Now())
+	out = stats.Build(hist, stats.Options{Nutrition: true, Foods: true, Photos: true, PhotoPath: "photos/"}, time.Now())
 	if p := out.Days[1].Photos; len(p) != 1 || p[0].Src != "photos/"+d.Photos[0].File {
 		t.Errorf("published photos = %+v", p)
 	}
@@ -251,7 +250,7 @@ func TestSyncAgainstFakeAPI(t *testing.T) {
 	for i := range d.Items {
 		d.Items[i].RecipeID, d.Items[i].RecipeVersion = "", ""
 	}
-	out = stats.Build(hist, stats.Options{PublishFoods: true}, time.Now())
+	out = stats.Build(hist, stats.Options{Nutrition: true, Foods: true}, time.Now())
 	for _, f := range out.Days[1].Foods {
 		if f.Name == "Curry" && (f.Recipe != "r1" || out.Recipes["r1"].Image != "") {
 			t.Errorf("old entry: recipe %q, image %q (photos not published)", f.Recipe, out.Recipes["r1"].Image)
@@ -285,58 +284,23 @@ func TestPublishPhotosStripsAndDropsBadFiles(t *testing.T) {
 	}
 }
 
-func TestPublishRoutes(t *testing.T) {
-	dir := t.TempDir()
+func TestSplitFilesRoutes(t *testing.T) {
 	route := []store.RoutePoint{{52.5, 13.4, 0, 34, 120}, {52.51, 13.41, 1200, 36, 131}}
-	build := func() stats.Output {
-		return stats.Output{Days: []stats.Day{
-			{Date: "2026-10-12", Workouts: []stats.Workout{{ID: "a", Route: route}, {ID: "b"}}},
-			{Date: "2026-10-13", Workouts: []stats.Workout{{ID: "c", Route: route}}},
-		}}
-	}
-	_ = os.WriteFile(filepath.Join(dir, "stale.json"), []byte("[]"), 0o644)
-
-	out := build()
-	if err := publishRoutes(&out, dir, nil); err != nil {
-		t.Fatal(err)
-	}
-	a, b, c := out.Days[0].Workouts[0], out.Days[0].Workouts[1], out.Days[1].Workouts[0]
-	if a.Route != nil || !strings.HasPrefix(a.RouteSrc, "routes/") || c.RouteSrc != a.RouteSrc || b.RouteSrc != "" {
-		t.Fatalf("route_src a=%q b=%q c=%q, route left in stats: %v", a.RouteSrc, b.RouteSrc, c.RouteSrc, a.Route != nil)
-	}
-	var back []store.RoutePoint
-	raw, _ := os.ReadFile(filepath.Join(dir, strings.TrimPrefix(a.RouteSrc, "routes/")))
-	if err := json.Unmarshal(raw, &back); err != nil || len(back) != 2 || back[1][2] != 1200 {
-		t.Errorf("route file = %s (%v)", raw, err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "stale.json")); err == nil {
-		t.Error("unreferenced route file was kept")
-	}
-
-	// With a password the file is sealed and gets a new name, and the plain
-	// one is removed.
-	sealer, err := seal.New("pw")
+	out := stats.Output{Days: []stats.Day{
+		{Date: "2026-10-12", Workouts: []stats.Workout{{ID: "a", Route: route}, {ID: "b"}}},
+		{Date: "2026-10-13", Workouts: []stats.Workout{{ID: "c", Route: route}}},
+	}}
+	files, err := splitFiles(&out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out = build()
-	if err := publishRoutes(&out, dir, sealer); err != nil {
-		t.Fatal(err)
+	a, b, c := out.Days[0].Workouts[0], out.Days[0].Workouts[1], out.Days[1].Workouts[0]
+	if a.Route != nil || !strings.HasPrefix(a.RouteSrc, "routes/") || c.RouteSrc != a.RouteSrc || b.RouteSrc != "" || len(files) != 1 {
+		t.Fatalf("route_src a=%q b=%q c=%q, route left in stats: %v, files %d", a.RouteSrc, b.RouteSrc, c.RouteSrc, a.Route != nil, len(files))
 	}
-	sealed := out.Days[0].Workouts[0].RouteSrc
-	if sealed == a.RouteSrc {
-		t.Error("sealed route kept the plain file's name")
-	}
-	var env seal.Envelope
-	raw, _ = os.ReadFile(filepath.Join(dir, strings.TrimPrefix(sealed, "routes/")))
-	if err := json.Unmarshal(raw, &env); err != nil {
-		t.Fatal(err)
-	}
-	if plain, err := seal.Open(&env, "pw"); err != nil || !strings.Contains(string(plain), "1200") {
-		t.Errorf("sealed route = %s (%v)", plain, err)
-	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
-		t.Errorf("%d files in routes/, want only the sealed one", len(entries))
+	var back []store.RoutePoint
+	if err := json.Unmarshal(files[a.RouteSrc], &back); err != nil || len(back) != 2 || back[1][2] != 1200 {
+		t.Errorf("route file = %s (%v)", files[a.RouteSrc], err)
 	}
 }
 
@@ -403,60 +367,67 @@ func TestPickRecipeVersions(t *testing.T) {
 	}
 }
 
-func TestPublishArchive(t *testing.T) {
-	dir := t.TempDir()
+func TestSplitFilesYears(t *testing.T) {
 	var days []stats.Day
 	for d := time.Date(2025, 11, 20, 0, 0, 0, 0, time.UTC); !d.After(time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC)); d = d.AddDate(0, 0, 1) {
 		days = append(days, stats.Day{Date: d.Format(time.DateOnly), Energy: 2000})
 	}
-	_ = os.WriteFile(filepath.Join(dir, "stale.json"), []byte("{}"), 0o644)
-
 	out := stats.Output{Days: append([]stats.Day(nil), days...)}
-	if err := publishArchive(&out, dir, nil); err != nil {
+	files, err := splitFiles(&out)
+	if err != nil {
 		t.Fatal(err)
 	}
 	// August, September and October stay; 2025 and January–July 2026 move out.
 	if out.Days[0].Date != "2026-08-01" || out.Days[len(out.Days)-1].Date != "2026-10-22" {
-		t.Fatalf("stats.json keeps %s to %s", out.Days[0].Date, out.Days[len(out.Days)-1].Date)
+		t.Fatalf("the stats keep %s to %s", out.Days[0].Date, out.Days[len(out.Days)-1].Date)
 	}
-	if len(out.Archive) != 2 {
+	if len(out.Archive) != 2 || len(files) != 2 {
 		t.Fatalf("archive = %v, want one file per year", out.Archive)
 	}
 	var got []string
 	for _, src := range out.Archive {
 		var f struct{ Days []stats.Day }
-		raw, _ := os.ReadFile(filepath.Join(dir, strings.TrimPrefix(src, "days/")))
-		if err := json.Unmarshal(raw, &f); err != nil {
+		if err := json.Unmarshal(files[src], &f); err != nil {
 			t.Fatal(err)
 		}
 		got = append(got, f.Days[0].Date, f.Days[len(f.Days)-1].Date)
 	}
 	if want := []string{"2025-11-20", "2025-12-31", "2026-01-01", "2026-07-31"}; !slices.Equal(got, want) {
-		t.Errorf("archive files span %v, want %v", got, want)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "stale.json")); err == nil {
-		t.Error("unreferenced archive file was kept")
+		t.Errorf("year files span %v, want %v", got, want)
 	}
 
-	// The next sync with the same days writes nothing new.
+	// The same days get the same names.
 	again := stats.Output{Days: append([]stats.Day(nil), days...)}
-	if err := publishArchive(&again, dir, nil); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(again.Archive, out.Archive) {
-		t.Errorf("unchanged days got new names: %v, then %v", out.Archive, again.Archive)
+	if _, err := splitFiles(&again); err != nil || !slices.Equal(again.Archive, out.Archive) {
+		t.Errorf("unchanged days got new names: %v, then %v (%v)", out.Archive, again.Archive, err)
 	}
 
-	// A short history stays in stats.json, and old files are removed.
+	// A short history stays whole.
 	short := stats.Output{Days: days[len(days)-10:]}
-	if err := publishArchive(&short, dir, nil); err != nil {
-		t.Fatal(err)
-	}
-	if short.Archive != nil || len(short.Days) != 10 {
+	if files, _ := splitFiles(&short); short.Archive != nil || len(short.Days) != 10 || len(files) != 0 {
 		t.Errorf("short history: archive %v, %d days", short.Archive, len(short.Days))
 	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
-		t.Errorf("%d files left in days/", len(entries))
+}
+
+// -out writes the files next to the stats and removes those no longer used.
+func TestExportStats(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "routes"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "routes", "stale.json"), []byte("[]"), 0o644)
+	out := stats.Output{Days: []stats.Day{{Date: "2026-10-12", Workouts: []stats.Workout{{ID: "a", Route: []store.RoutePoint{{52.5, 13.4, 0, 34, 120}}}}}}}
+	if err := exportStats(filepath.Join(dir, "stats.json"), out, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	var back stats.Output
+	raw, _ := os.ReadFile(filepath.Join(dir, "stats.json"))
+	if err := json.Unmarshal(raw, &back); err != nil || back.Days[0].Workouts[0].RouteSrc == "" {
+		t.Fatalf("stats.json = %s (%v)", raw, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, back.Days[0].Workouts[0].RouteSrc)); err != nil {
+		t.Error(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "routes", "stale.json")); err == nil {
+		t.Error("unreferenced route file was kept")
 	}
 }
 

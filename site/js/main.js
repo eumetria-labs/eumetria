@@ -1,9 +1,9 @@
-// Entry point: loads stats.json, keeps the range in sync and renders every card.
+// Entry point: loads the data (api/stats), keeps the range in sync and renders every card.
 
 import { addDays, iso, logged, parse, syncEvery, todayISO } from './format.js';
 import { $, emoji, hashParam, setHashParam } from './dom.js';
 import { DATE_LOCALE, LANG, setLang, t, tn, translatePage } from './i18n.js';
-import { state, store } from './state.js';
+import { can, state, store } from './state.js';
 import { heatmap } from './charts.js';
 import { openDay } from './sheet.js';
 import { openWorkoutFromHash } from './workout.js';
@@ -19,9 +19,8 @@ import { renderSources } from './sources.js';
 import { renderRecovery } from './recovery.js';
 import { renderTraining } from './training.js';
 import { renderDevice, renderNotices } from './device.js';
-import { isSealed, unseal } from './lock.js';
 import { initAdmin } from './admin.js';
-import { initAccount, onUserChange, signedIn } from './account.js';
+import { forgetData, initAccount, onUserChange, reason, signedIn } from './account.js';
 import { renderTable } from './table.js';
 import { renderFoodQuality } from './foodquality.js';
 import { renderReview } from './weekly.js';
@@ -76,16 +75,25 @@ async function load() {
   const main = $('#main');
   if (state.data) main.classList.add('dim');
   try {
-    const res = await fetch('stats.json?t=' + Date.now(), { cache: 'no-store' });
-    // The session ended (expired, or signed out elsewhere): sign in again,
-    // then carry on where the page was.
+    let res = await fetch('api/stats', { cache: 'no-cache' });
+    // Plain files (local development): the data eumetria -out wrote.
+    if (res.status === 404) res = await fetch('stats.json', { cache: 'no-cache' });
+    // The session ended (expired, or signed out elsewhere): this device
+    // forgets the data it kept, and the page goes on where it was once
+    // someone signed in again.
     if (res.status === 401) {
+      await forgetData();
       await signedIn();
       return load();
     }
+    // An admin asked for a second factor first: load once it is set up.
+    if (res.status === 403 && (await reason(res.clone())) === 'second_factor_required') {
+      $('#updated').textContent = t('Set up a second factor to see the data.');
+      await new Promise((ok) => onUserChange((u) => { if (!u.needs_second_factor) ok(); }));
+      return load();
+    }
     if (!res.ok) throw new Error(res.status);
-    const raw = await res.json();
-    const recent = isSealed(raw) ? await unseal(raw) : raw;
+    const recent = await res.json();
     if (state.data && recent.generated_at === state.data.generated_at) return;
     const next = await withArchive(recent);
     const first = !state.data;
@@ -118,15 +126,15 @@ async function load() {
   } catch (err) {
     if (!state.data) {
       main.classList.remove('loading');
-      $('#updated').textContent = t('No data yet: run eumetria to generate stats.json.');
+      $('#updated').textContent = t('No data yet: the first sync hasn’t finished.');
     }
-    console.error('loading stats.json failed', err);
+    console.error('loading the data failed', err);
   } finally {
     main.classList.remove('dim');
   }
 }
 
-// The older days come in files of their own, one per year (stats.json lists
+// The older days come in files of their own, one per year (the data lists
 // them). Their names change with their content, so the browser caches them
 // and a refresh usually only downloads the recent days.
 const archive = new Map(); // file → its days
@@ -136,8 +144,7 @@ async function withArchive(data) {
     if (!archive.has(src)) {
       const res = await fetch(src);
       if (!res.ok) throw new Error(`${src}: ${res.status}`);
-      const raw = await res.json();
-      archive.set(src, (isSealed(raw) ? await unseal(raw) : raw).days);
+      archive.set(src, (await res.json()).days);
     }
     return archive.get(src);
   }));
@@ -328,6 +335,7 @@ function render() {
   renderFoodQuality(s);
   renderRecovery(s);
   renderTraining(s);
+  hideOutOfScope();
   layoutCards();
   renderTable(s);
   syncSections();
@@ -352,12 +360,25 @@ function renderUpdated() {
   const mins = Math.round((Date.now() - new Date(data.generated_at)) / 60000);
   const rtf = new Intl.RelativeTimeFormat(DATE_LOCALE, { numeric: 'auto' });
   const ago = mins < 60 ? rtf.format(-mins, 'minute') : mins < 48 * 60 ? rtf.format(-Math.round(mins / 60), 'hour') : rtf.format(-Math.round(mins / 1440), 'day');
-  const text = t('Updated {ago}', { ago }) + ' · ' + tn(data.days.filter(logged).length, '{n} day logged', '{n} days logged');
-  const n = data.days.length ? streak() : 0;
+  // Logged days and the streak count food diary days.
+  const food = can('view.nutrition');
+  const text = t('Updated {ago}', { ago }) + (food ? ' · ' + tn(data.days.filter(logged).length, '{n} day logged', '{n} days logged') : '');
+  const n = food && data.days.length ? streak() : 0;
   if (n > 1) $('#updated').replaceChildren(text + ' · ', emoji('🔥'), tn(n, '{n}-day streak', '{n}-day streak'));
   else $('#updated').textContent = text;
   renderDevice(data.device);
   renderNotices(data);
+}
+
+// Cards of data the user's role doesn't include stay hidden: the server
+// sent none of it, so they would only show zeros.
+const SCOPED = [
+  ['view.nutrition', ['#energy-card', '#heatmap-card', '#macros-card', '#weight-card']],
+  ['view.foods', ['#foods-card', '#sources-card', '#quality-card']],
+  ['view.activity', ['#top-activities-card']],
+];
+function hideOutOfScope() {
+  for (const [scope, cards] of SCOPED) if (!can(scope)) for (const id of cards) $(id).hidden = true;
 }
 
 // The half-width cards come in pairs of similar height; a card whose

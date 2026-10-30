@@ -34,7 +34,7 @@ func TestBuildHealth(t *testing.T) {
 			}},
 		},
 	}
-	out := Build(h, Options{PublishHealth: true, PublishRoutes: true}, time.Now())
+	out := Build(h, Options{Nutrition: true, Activity: true, Health: true, Routes: true}, time.Now())
 	if len(out.Days) != 2 {
 		t.Fatalf("got %d days, want 2", len(out.Days))
 	}
@@ -59,17 +59,17 @@ func TestBuildHealth(t *testing.T) {
 
 	// Fitbit days before the first Yazio day are left out.
 	h.Health["2026-01-01"] = &store.HealthDay{Date: "2026-01-01", RestingHR: 70}
-	if out = Build(h, Options{PublishHealth: true}, time.Now()); out.Days[0].Date != "2026-09-24" {
+	if out = Build(h, Options{Health: true}, time.Now()); out.Days[0].Date != "2026-09-24" {
 		t.Errorf("page starts on %s, want the first Yazio day", out.Days[0].Date)
 	}
 
-	out = Build(h, Options{PublishHealth: true}, time.Now())
+	out = Build(h, Options{Health: true}, time.Now())
 	if out.Days[0].Workouts[0].Route != nil {
-		t.Error("route published with PublishRoutes off")
+		t.Error("route published with Routes off")
 	}
-	out = Build(h, Options{}, time.Now())
+	out = Build(h, Options{Nutrition: true, Activity: true}, time.Now())
 	if len(out.Days) != 1 || out.Days[0].Workouts != nil || out.Days[0].Activities[0].Workout != "" {
-		t.Error("health data published with PublishHealth off")
+		t.Error("health data published with Health off")
 	}
 }
 
@@ -87,7 +87,7 @@ func TestBuildHealthConnectLink(t *testing.T) {
 			{ID: "3262930630979810696", Type: "CROSSFIT", Start: start, End: start.Add(75 * time.Minute), UTCOffset: 3600},
 		}}},
 	}
-	d := Build(h, Options{PublishHealth: true}, time.Now()).Days[0]
+	d := Build(h, Options{Activity: true, Health: true}, time.Now()).Days[0]
 	if got := []string{d.Activities[0].Workout, d.Activities[1].Workout, d.Activities[2].Workout}; got[0] != "3262930630979810696" || got[1] != "" || got[2] != "" {
 		t.Errorf("activity links = %q", got)
 	}
@@ -96,12 +96,12 @@ func TestBuildHealthConnectLink(t *testing.T) {
 func TestBuildHealthSync(t *testing.T) {
 	ok := time.Date(2026, 10, 18, 8, 0, 0, 0, time.UTC)
 	h := &store.History{Days: map[string]*store.Day{}, HealthSync: &store.SyncState{LastSuccess: ok, Error: "secret API body", Auth: true}}
-	out := Build(h, Options{PublishHealth: true}, time.Now())
+	out := Build(h, Options{Health: true}, time.Now())
 	if s := out.HealthSync; s == nil || !s.Failing || !s.Auth || s.LastSuccess == nil || !s.LastSuccess.Equal(ok) {
 		t.Errorf("HealthSync = %+v", s)
 	}
 	h.HealthSync.Error = ""
-	if out := Build(h, Options{PublishHealth: true}, time.Now()); out.HealthSync != nil {
+	if out := Build(h, Options{Health: true}, time.Now()); out.HealthSync != nil {
 		t.Errorf("a working sync is not published: %+v", out.HealthSync)
 	}
 }

@@ -261,7 +261,7 @@ func (o offSource) Sync(ctx context.Context, h *store.History, w window) error {
 
 // reviewSource has Claude write the review of the last completed calendar
 // week, once: a review is never written again, so each costs only once. It
-// sees what the page publishes (opts) and never fails the run; a failure is
+// sees all of the data (opts) and never fails the run; a failure is
 // recorded and tried again on the next sync (refused requests cost nothing).
 type reviewSource struct {
 	opts          stats.Options
@@ -277,7 +277,7 @@ func (s reviewSource) Sync(ctx context.Context, h *store.History, w window) erro
 	if h.Reviews[key] != nil {
 		return nil
 	}
-	out := stats.Build(h, s.opts, w.now)
+	out := stats.Build(h, s.opts.Everything(), w.now)
 	week := review.BuildWeek(out, monday, w.today.Format(time.DateOnly))
 	if week.Summary.DaysLogged == 0 && week.Summary.Workouts == 0 {
 		return nil // nothing to write about

@@ -217,7 +217,7 @@ func (s *Store) WebAuthnHandle(ctx context.Context, u *User) ([]byte, error) {
 
 // UserByHandle finds the user a passkey belongs to.
 func (s *Store) UserByHandle(ctx context.Context, handle []byte) (*User, error) {
-	return scanUser(s.DB.QueryRowContext(ctx, "SELECT "+userCols+" FROM users WHERE webauthn_handle = ?", handle))
+	return scanUser(s.DB.QueryRowContext(ctx, "SELECT "+userCols+" FROM users u"+roleJoin+" WHERE u.webauthn_handle = ?", handle))
 }
 
 func (s *Store) Keys(ctx context.Context, u *User) ([]Key, error) {

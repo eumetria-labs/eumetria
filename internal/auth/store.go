@@ -13,20 +13,18 @@ import (
 	"eumetria/internal/db"
 )
 
-// Role is what a user may do. M5 replaces the two fixed ones with roles
-// made of permissions.
+// Role is the name of a role: a set of scopes (roles.go).
 type Role string
-
-const (
-	RoleAdmin  Role = "admin"  // everything, including sync and the audit log
-	RoleViewer Role = "viewer" // reads the data
-)
 
 type User struct {
 	ID       int64
 	Name     string
 	Role     Role
+	Scopes   []string // the role's
 	Disabled bool
+	// RequireSecondFactor: an admin asked this user to set one up; until
+	// then they get no data.
+	RequireSecondFactor bool
 }
 
 type Session struct {
@@ -109,9 +107,6 @@ func (s *Store) CreateUser(ctx context.Context, name, password string, role Role
 	if !validName.MatchString(name) {
 		return nil, ErrBadName
 	}
-	if role != RoleAdmin && role != RoleViewer {
-		return nil, fmt.Errorf("unknown role %q", role)
-	}
 	if err := ValidatePassword(password, name); err != nil {
 		return nil, err
 	}
@@ -128,9 +123,13 @@ func (s *Store) createUser(ctx context.Context, name, password string, role Role
 	if err != nil {
 		return nil, err
 	}
+	roleID, err := s.roleID(ctx, s.DB, role)
+	if err != nil {
+		return nil, err
+	}
 	now := s.now()
-	res, err := s.DB.ExecContext(ctx, "INSERT INTO users (name, password_hash, role, created_at, password_at) VALUES (?, ?, ?, ?, ?)",
-		name, hash, string(role), now, now)
+	res, err := s.DB.ExecContext(ctx, "INSERT INTO users (name, password_hash, role_id, created_at, password_at) VALUES (?, ?, ?, ?, ?)",
+		name, hash, roleID, now, now)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, ErrNameTaken
@@ -138,26 +137,51 @@ func (s *Store) createUser(ctx context.Context, name, password string, role Role
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
-	return &User{ID: id, Name: name, Role: role}, nil
+	return s.userByID(ctx, id)
 }
 
-const userCols = "id, name, role, disabled"
+// userCols are a user's columns with their role's, read FROM users u
+// together with roleJoin.
+const userCols = "u.id, u.name, u.disabled, u.require_second_factor, " + roleCols
 
-func scanUser(row interface{ Scan(...any) error }) (*User, error) {
+func scanUser(row interface{ Scan(...any) error }, extra ...any) (*User, error) {
 	u := &User{}
-	var role string
-	if err := row.Scan(&u.ID, &u.Name, &role, &u.Disabled); err != nil {
+	var role, scopes string
+	var builtin bool
+	if err := row.Scan(append([]any{&u.ID, &u.Name, &u.Disabled, &u.RequireSecondFactor, &role, &builtin, &scopes}, extra...)...); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
-	u.Role = Role(role)
+	u.setRole(role, builtin, scopes)
 	return u, nil
 }
 
 func (s *Store) UserByName(ctx context.Context, name string) (*User, error) {
-	return scanUser(s.DB.QueryRowContext(ctx, "SELECT "+userCols+" FROM users WHERE name = ?", name))
+	return scanUser(s.DB.QueryRowContext(ctx, "SELECT "+userCols+" FROM users u"+roleJoin+" WHERE u.name = ?", name))
+}
+
+// Users lists every account by name.
+func (s *Store) Users(ctx context.Context) ([]*User, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT "+userCols+" FROM users u"+roleJoin+" ORDER BY u.name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) userByID(ctx context.Context, id int64) (*User, error) {
+	return scanUser(s.DB.QueryRowContext(ctx, "SELECT "+userCols+" FROM users u"+roleJoin+" WHERE u.id = ?", id))
 }
 
 // Authenticate returns the user when name and password match an enabled
@@ -165,11 +189,8 @@ func (s *Store) UserByName(ctx context.Context, name string) (*User, error) {
 // exists or not.
 func (s *Store) Authenticate(ctx context.Context, name, password string) (*User, error) {
 	var hash string
-	u := &User{}
-	var role string
-	err := s.DB.QueryRowContext(ctx, "SELECT "+userCols+", password_hash FROM users WHERE name = ?", name).
-		Scan(&u.ID, &u.Name, &role, &u.Disabled, &hash)
-	if errors.Is(err, sql.ErrNoRows) {
+	u, err := scanUser(s.DB.QueryRowContext(ctx, "SELECT "+userCols+", u.password_hash FROM users u"+roleJoin+" WHERE u.name = ?", name), &hash)
+	if errors.Is(err, ErrNotFound) {
 		CheckNoUser(password)
 		return nil, ErrNotFound
 	}
@@ -179,7 +200,6 @@ func (s *Store) Authenticate(ctx context.Context, name, password string) (*User,
 	if !CheckPassword(hash, password) || u.Disabled {
 		return nil, ErrNotFound
 	}
-	u.Role = Role(role)
 	return u, nil
 }
 
@@ -250,20 +270,13 @@ func (s *Store) CreateSession(ctx context.Context, u *User, remember bool, ip, u
 // or orphaned one is deleted and reported as ErrNotFound.
 func (s *Store) Session(ctx context.Context, token string) (*Session, *User, error) {
 	sess := &Session{}
-	u := &User{}
-	var role string
 	var created, seen, expires, authed int64
-	err := s.DB.QueryRowContext(ctx, `SELECT s.id, s.user_id, s.remember, s.created_at, s.last_seen_at, s.expires_at, s.authenticated_at, s.ip, s.user_agent,
-			u.id, u.name, u.role, u.disabled
-		FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`, HashToken(token)).
-		Scan(&sess.ID, &sess.UserID, &sess.Remember, &created, &seen, &expires, &authed, &sess.IP, &sess.UserAgent, &u.ID, &u.Name, &role, &u.Disabled)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, ErrNotFound
-	}
+	u, err := scanUser(s.DB.QueryRowContext(ctx, `SELECT `+userCols+`, s.id, s.user_id, s.remember, s.created_at, s.last_seen_at, s.expires_at, s.authenticated_at, s.ip, s.user_agent
+		FROM sessions s JOIN users u ON u.id = s.user_id`+roleJoin+` WHERE s.token_hash = ?`, HashToken(token)),
+		&sess.ID, &sess.UserID, &sess.Remember, &created, &seen, &expires, &authed, &sess.IP, &sess.UserAgent)
 	if err != nil {
 		return nil, nil, err
 	}
-	u.Role = Role(role)
 	sess.CreatedAt, sess.LastSeen, sess.Expires, sess.AuthenticatedAt = time.Unix(created, 0), time.Unix(seen, 0), time.Unix(expires, 0), time.Unix(authed, 0)
 	now := s.Now()
 	idle := SessionShort
@@ -354,21 +367,15 @@ func (s *Store) APIToken(ctx context.Context, token string) (*APIToken, *User, e
 		return nil, nil, ErrNotFound
 	}
 	t := &APIToken{}
-	u := &User{}
-	var role, scopes string
+	var scopes string
 	var created int64
 	var expires, used sql.NullInt64
-	err := s.DB.QueryRowContext(ctx, `SELECT t.id, t.user_id, t.name, t.scopes, t.created_at, t.expires_at, t.last_used_at,
-			u.id, u.name, u.role, u.disabled
-		FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?`, HashToken(token)).
-		Scan(&t.ID, &t.UserID, &t.Name, &scopes, &created, &expires, &used, &u.ID, &u.Name, &role, &u.Disabled)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, ErrNotFound
-	}
+	u, err := scanUser(s.DB.QueryRowContext(ctx, `SELECT `+userCols+`, t.id, t.user_id, t.name, t.scopes, t.created_at, t.expires_at, t.last_used_at
+		FROM api_tokens t JOIN users u ON u.id = t.user_id`+roleJoin+` WHERE t.token_hash = ?`, HashToken(token)),
+		&t.ID, &t.UserID, &t.Name, &scopes, &created, &expires, &used)
 	if err != nil {
 		return nil, nil, err
 	}
-	u.Role = Role(role)
 	t.Scopes = strings.Fields(scopes)
 	t.CreatedAt = time.Unix(created, 0)
 	if expires.Valid {

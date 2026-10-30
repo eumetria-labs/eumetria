@@ -280,3 +280,64 @@ func TestAuditLog(t *testing.T) {
 		t.Errorf("newest first, actor from the user: %+v", log)
 	}
 }
+
+func TestRoles(t *testing.T) {
+	s, _ := newStore(t)
+	admin, _ := s.CreateUser(ctx, "patrick", goodPassword, RoleAdmin)
+	if !admin.Can(ViewRoutes) || !admin.Can(ScopeSync) || !admin.Elevated() {
+		t.Errorf("admin scopes %v don't imply the others", admin.Scopes)
+	}
+	viewer, _ := s.CreateUser(ctx, "anna", goodPassword+"!", RoleViewer)
+	if !viewer.Can(ViewHealth) || !viewer.Can(ViewReview) || viewer.Can(ScopeSync) || viewer.Can(EditNotes) || viewer.Elevated() {
+		t.Errorf("viewer scopes = %v", viewer.Scopes)
+	}
+
+	// An admin's own role; the name matches in any case.
+	if err := s.SaveRole(ctx, "Coach", []string{ViewNutrition, ViewHealth, ViewFoods, ViewHealth}); err != nil {
+		t.Fatal(err)
+	}
+	coach, err := s.CreateUser(ctx, "coach", goodPassword+"?", "coach")
+	if err != nil || coach.Role != "Coach" || strings.Join(coach.Scopes, " ") != "view.foods view.health view.nutrition" {
+		t.Fatalf("coach = %+v, %v", coach, err)
+	}
+	for scopes, want := range map[string]error{
+		"view.routes":             ErrBadScope, // needs the workouts
+		"view.routes view.health": nil,
+		"view.everything":         ErrBadScope,
+	} {
+		if err := s.SaveRole(ctx, "Coach", strings.Fields(scopes)); !errors.Is(err, want) {
+			t.Errorf("%q: %v, want %v", scopes, err, want)
+		}
+	}
+	// A changed role applies to the user's next request.
+	tok, _, _ := s.CreateSession(ctx, coach, false, "", "")
+	if _, u, _ := s.Session(ctx, tok); !u.Can(ViewRoutes) || u.Can(ViewNutrition) {
+		t.Errorf("session scopes after the change = %v", u.Scopes)
+	}
+
+	if err := s.SaveRole(ctx, "Admin", nil); !errors.Is(err, ErrRoleBuiltin) {
+		t.Errorf("changing a built-in role: %v", err)
+	}
+	if err := s.SaveRole(ctx, " spaced", nil); !errors.Is(err, ErrBadRoleName) {
+		t.Errorf("bad name: %v", err)
+	}
+	if _, err := s.CreateUser(ctx, "nobody", goodPassword+"#", "Trainer"); err == nil {
+		t.Error("created a user with an unknown role")
+	}
+	if err := s.DeleteRole(ctx, "Coach"); !errors.Is(err, ErrRoleInUse) {
+		t.Errorf("deleting a role in use: %v", err)
+	}
+	if err := s.SetRole(ctx, coach, RoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteRole(ctx, "coach"); err != nil {
+		t.Errorf("deleting an unused role: %v", err)
+	}
+	if err := s.DeleteRole(ctx, "viewer"); !errors.Is(err, ErrRoleBuiltin) {
+		t.Errorf("deleting a built-in role: %v", err)
+	}
+	roles, _ := s.Roles(ctx)
+	if len(roles) != 2 || roles[0].Name != RoleAdmin || !roles[1].Builtin {
+		t.Errorf("roles = %+v", roles)
+	}
+}
