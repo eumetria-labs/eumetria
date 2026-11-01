@@ -16,10 +16,10 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eumetria ./cmd/eum
 # (no shell). The time zone database is compiled into the binary.
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/eumetria /eumetria
-VOLUME /data
+VOLUME /data /backups
 # Every command finds the data folder, also one-off ones that replace CMD
 # (docker compose run … -create-user …).
-ENV DATA_DIR=/data
+ENV DATA_DIR=/data BACKUP_DIR=/backups
 EXPOSE 8080
 HEALTHCHECK --interval=1m --timeout=10s --start-period=30s \
   CMD ["/eumetria", "-healthcheck", "http://127.0.0.1:8080/healthz"]

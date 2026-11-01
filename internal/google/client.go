@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -64,6 +65,8 @@ type Config struct {
 	// Verifier turns on PKCE: the consent carries its hash, the exchange the
 	// verifier itself.
 	Verifier string
+	// Extra are scopes beyond the Health ones, e.g. DriveScope.
+	Extra []string
 }
 
 // AuthURL is the consent page. access_type=offline with prompt=consent makes
@@ -73,7 +76,7 @@ func (c Config) AuthURL(state string) string {
 		"client_id":              {c.ClientID},
 		"redirect_uri":           {c.RedirectURL},
 		"response_type":          {"code"},
-		"scope":                  {strings.Join(Scopes, " ")},
+		"scope":                  {strings.Join(append(slices.Clone(Scopes), c.Extra...), " ")},
 		"access_type":            {"offline"},
 		"prompt":                 {"consent"},
 		"include_granted_scopes": {"true"},

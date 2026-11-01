@@ -89,6 +89,7 @@ type config struct {
 	demo        bool
 	interval    time.Duration // written to stats.json for the footer; 0 if unknown
 	googleToken string        // Google Health token file
+	backupDir   string        // where archives go
 	values      settings.Values
 	flags       map[string]bool // the flags given: they win over the settings
 }
@@ -130,6 +131,7 @@ func run() error {
 
 		googleAuthFlag = flag.Bool("google-auth", false, "authorize access to Google Health (Fitbit / Pixel Watch) in the browser, save the refresh token and exit")
 		debugWeek      = flag.String("debug-week", "", "write the AI review of the calendar week (Monday to Sunday) that contains this day (YYYY-MM-DD) from the local history and print it (needs ANTHROPIC_API_KEY; AI_MODEL, AI_EFFORT)")
+		decrypt        = flag.String("decrypt-backup", "", "decrypt this backup archive next to it, asking for the passphrase, and exit")
 		dryRun         = flag.Bool("dry-run", false, "with -debug-week: print the data that would be sent to Claude instead of sending it")
 		rewrite        = flag.Bool("rewrite-reviews", false, "write every stored weekly review again (English and German) into the history and exit; stop the server first (needs ANTHROPIC_API_KEY; AI_MODEL, AI_EFFORT)")
 		accounts       accountCommand
@@ -144,6 +146,7 @@ func run() error {
 	flag.IntVar(&cfg.workers, "workers", 4, "parallel requests")
 	flag.StringVar(&cfg.photoDir, "photos", "", "private cache of downloaded meal photos (default <data>/photos)")
 	flag.BoolVar(&cfg.demo, "demo", false, "write generated sample data instead of calling Yazio")
+	flag.StringVar(&cfg.backupDir, "backups", os.Getenv("BACKUP_DIR"), "folder for backup archives (default <data>/backups)")
 	flag.StringVar(&cfg.googleToken, "google-token", "", "private Google Health refresh token, written by -google-auth (default <data>/google-token.json)")
 	flag.StringVar(&accounts.createUser, "create-user", "", "create an account with this name and exit (asks for the password; -role)")
 	flag.StringVar(&accounts.role, "role", "viewer", "with -create-user and -set-role: the role (admin, viewer or one made with -create-role)")
@@ -172,6 +175,11 @@ func run() error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Works on a file alone: no settings, no database.
+	if *decrypt != "" {
+		return decryptBackup(*decrypt)
+	}
 
 	cfg.flags = map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { cfg.flags[f.Name] = true })
@@ -240,6 +248,7 @@ func (c *config) inData() {
 	def(&c.historyPath, "history.json")
 	def(&c.photoDir, "photos")
 	def(&c.googleToken, "google-token.json")
+	def(&c.backupDir, "backups")
 	c.dbPath = filepath.Join(c.dataDir, "app.db")
 }
 

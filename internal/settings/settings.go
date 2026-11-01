@@ -50,6 +50,7 @@ func (e BadValue) Error() string { return "bad value for " + e.Key }
 type def struct {
 	key, env, fallback string
 	secret             bool
+	atLeast            int // a secret's shortest length
 	valid              func(string) bool
 }
 
@@ -72,6 +73,14 @@ var defs = []def{
 	{key: "ai_effort", env: "AI_EFFORT", fallback: "medium", valid: oneOf("low", "medium", "high", "xhigh", "max")},
 	{key: "ai_credit_usd", env: "AI_CREDIT_USD", valid: money},
 	{key: "openfoodfacts", env: "OPENFOODFACTS", fallback: "true", valid: boolean},
+	{key: "backups", fallback: "true", valid: boolean},
+	{key: "backup_time", fallback: "03:30", valid: clock},
+	{key: "backup_keep_days", fallback: "14", valid: number(1, 365)},
+	{key: "backup_passphrase", secret: true, atLeast: 12},
+	{key: "backup_passphrase_at", valid: never},
+	{key: "backup_drive", fallback: "false", valid: boolean},
+	{key: "backup_folder", fallback: "Eumetria backups", valid: text(100, false)},
+	{key: "backup_drive_keep_days", fallback: "30", valid: number(1, 3650)},
 }
 
 func find(key string) *def {
@@ -132,6 +141,14 @@ func boolean(s string) bool {
 	_, err := strconv.ParseBool(s)
 	return err == nil
 }
+
+func clock(s string) bool {
+	_, err := time.Parse("15:04", s)
+	return err == nil && len(s) == 5
+}
+
+// never is for what the server sets itself.
+func never(string) bool { return false }
 
 func money(s string) bool {
 	if s == "" {
@@ -298,7 +315,7 @@ func (s *Store) Save(ctx context.Context, values map[string]string, reset []stri
 			return fmt.Errorf("%w: %s", ErrUnknown, k)
 		}
 		if d.secret {
-			if v == "" || len(v) > 4096 {
+			if v == "" || len(v) > 4096 || len(v) < d.atLeast {
 				return BadValue{k}
 			}
 			sealed, err := s.seal(k, v)
@@ -306,6 +323,10 @@ func (s *Store) Save(ctx context.Context, values map[string]string, reset []stri
 				return err
 			}
 			rows = append(rows, row{k, sealed})
+			// Archives name the day their passphrase was set (internal/backup).
+			if k == "backup_passphrase" {
+				rows = append(rows, row{"backup_passphrase_at", time.Now().UTC().Format(time.DateOnly)})
+			}
 			continue
 		}
 		if d.valid != nil && !d.valid(v) {
@@ -361,6 +382,15 @@ type Values struct {
 	Model, Effort     string
 	CreditUSD         float64
 	OpenFoodFacts     bool
+
+	Backups             bool
+	BackupTime          string // "HH:MM" in the site's time zone
+	BackupKeepDays      int
+	BackupPassphrase    string
+	BackupPassphraseAt  string // the day it was set
+	BackupDrive         bool
+	BackupFolder        string
+	BackupDriveKeepDays int
 }
 
 // envZone is the zone the environment names, and its name; UTC without one
@@ -383,6 +413,8 @@ func resolve(get func(key string) string) Values {
 		YazioClientID: get("yazio_client_id"), YazioClientSecret: get("yazio_client_secret"),
 		GoogleClientID: get("google_client_id"), GoogleSecret: get("google_client_secret"),
 		AnthropicKey: get("anthropic_key"), Model: get("ai_model"), Effort: get("ai_effort"),
+		BackupTime: get("backup_time"), BackupPassphrase: get("backup_passphrase"), BackupPassphraseAt: get("backup_passphrase_at"),
+		BackupFolder: get("backup_folder"),
 	}
 	v.Zone, v.ZoneName = envZone()
 	if name := get("timezone"); name != "" {
@@ -404,6 +436,16 @@ func resolve(get func(key string) string) Values {
 		return err != nil || b
 	}
 	v.Review, v.OpenFoodFacts = onOff("review"), onOff("openfoodfacts")
+	v.Backups = onOff("backups")
+	v.BackupDrive, _ = strconv.ParseBool(get("backup_drive"))
+	v.BackupKeepDays, _ = strconv.Atoi(get("backup_keep_days"))
+	if v.BackupKeepDays < 1 {
+		v.BackupKeepDays = 14
+	}
+	v.BackupDriveKeepDays, _ = strconv.Atoi(get("backup_drive_keep_days"))
+	if v.BackupDriveKeepDays < 1 {
+		v.BackupDriveKeepDays = 30
+	}
 	return v
 }
 

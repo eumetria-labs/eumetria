@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"eumetria/internal/auth"
+	"eumetria/internal/backup"
 	"eumetria/internal/db"
 	"eumetria/internal/notes"
 	"eumetria/internal/settings"
@@ -92,7 +93,6 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	}
 	cfg.interval = o.interval
 	cfg = cfg.with(values)
-	go snapshotLoop(ctx, database, filepath.Join(cfg.dataDir, "backup"))
 	noteImages := filepath.Join(cfg.dataDir, "note-images")
 	go imageLoop(ctx, &notes.Store{DB: database, Now: time.Now}, noteImages)
 
@@ -120,6 +120,7 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	}
 
 	go r.schedule(ctx)
+	go r.backupLoop(ctx)
 
 	errc := make(chan error, 1)
 	go func() {
@@ -151,7 +152,8 @@ type runner struct {
 	settings *settings.Store                                       // nil in tests that don't need it
 	sync     func(context.Context, config) (*store.History, error) // syncHistory; replaced in tests
 	rewrite  func(context.Context, config, func(done, total int)) (*store.History, error)
-	retimed  chan struct{} // the interval changed
+	backup   func(context.Context, config, func(context.Context, string) error, *backup.Run) error // writeBackup; replaced in tests
+	retimed  chan struct{}                                                                         // the interval changed
 
 	mu          sync.Mutex
 	interval    time.Duration
@@ -168,7 +170,7 @@ type runner struct {
 }
 
 func newRunner(cfg config, interval time.Duration, data *published) *runner {
-	return &runner{cfg: cfg, interval: interval, started: time.Now(), data: data, sync: syncHistory, rewrite: rewriteServer, retimed: make(chan struct{}, 1)}
+	return &runner{cfg: cfg, interval: interval, started: time.Now(), data: data, sync: syncHistory, rewrite: rewriteServer, backup: writeBackup, retimed: make(chan struct{}, 1)}
 }
 
 func rewriteServer(ctx context.Context, cfg config, progress func(done, total int)) (*store.History, error) {
@@ -274,31 +276,40 @@ func (r *runner) start(ctx context.Context, refreshAll bool) bool {
 // startRewrite has every review written again in the background, and reports
 // false if a job is running. The history comes in as far as it got.
 func (r *runner) startRewrite(ctx context.Context) bool {
+	return r.startJob(ctx, "rewrite", rewriteTimeout, func(ctx context.Context, cfg config, progress func(done, total int)) error {
+		hist, err := r.rewrite(ctx, cfg, progress)
+		if hist != nil {
+			r.data.set(hist, time.Now())
+		}
+		return err
+	})
+}
+
+// startJob runs fn in the background unless something runs already, which it
+// reports with false. Nothing else writes the history meanwhile.
+func (r *runner) startJob(ctx context.Context, name string, timeout time.Duration, fn func(context.Context, config, func(done, total int)) error) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.running {
 		return false
 	}
-	r.running, r.job, r.jobDone, r.jobTotal, r.jobError = true, "rewrite", 0, 0, ""
+	r.running, r.job, r.jobDone, r.jobTotal, r.jobError = true, name, 0, 0, ""
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		jobCtx, cancel := context.WithTimeout(ctx, rewriteTimeout)
+		jobCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		hist, err := r.rewrite(jobCtx, r.current(ctx), func(done, total int) {
+		err := fn(jobCtx, r.current(ctx), func(done, total int) {
 			r.mu.Lock()
 			defer r.mu.Unlock()
 			r.jobDone, r.jobTotal = done, total
 		})
-		if hist != nil {
-			r.data.set(hist, time.Now())
-		}
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		r.running, r.job = false, ""
 		if err != nil {
 			r.jobError = err.Error()
-			log.Printf("rewriting the reviews: %v", err)
+			log.Printf("%s: %v", name, err)
 		}
 	}()
 	return true

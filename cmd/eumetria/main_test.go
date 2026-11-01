@@ -11,7 +11,7 @@ func TestFilesDefaultToTheDataFolder(t *testing.T) {
 	c.inData()
 	want := config{
 		dataDir: "/data", dbPath: "/data/app.db", historyPath: "/data/history.json",
-		photoDir: "/data/photos", googleToken: "/data/google-token.json",
+		photoDir: "/data/photos", googleToken: "/data/google-token.json", backupDir: "/data/backups",
 	}
 	if !reflect.DeepEqual(c, want) {
 		t.Errorf("got %+v\nwant %+v", c, want)

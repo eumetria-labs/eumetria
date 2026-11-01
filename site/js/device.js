@@ -4,7 +4,6 @@
 
 import { LOCALE, reviewNotices, syncAgo, syncNotices } from './format.js';
 import { $, svg, showTip, hideTip } from './dom.js';
-import { store } from './state.js';
 import { t } from './i18n.js';
 
 const dtf = new Intl.DateTimeFormat(LOCALE, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
@@ -12,7 +11,8 @@ const dtf = new Intl.DateTimeFormat(LOCALE, { weekday: 'short', hour: '2-digit',
 export function renderNotices(data) {
   const el = $('#sync-notice');
   // Credit warnings only for the site owner (devices with the admin token).
-  const notes = [...syncNotices(data), ...(store.get('admin-token') ? reviewNotices(data) : [])];
+  // The server sends what reviewNotices reads to admins only.
+  const notes = [...syncNotices(data), ...reviewNotices(data)];
   el.hidden = !notes.length;
   el.textContent = notes.join(' ');
 }

@@ -110,6 +110,8 @@ func newTestEnv(t *testing.T, withUsers bool) *testEnv {
 		return nil, nil
 	}
 	r.cfg.googleToken = filepath.Join(dir, "google-token.json")
+	r.cfg.dataDir, r.cfg.backupDir = dir, filepath.Join(dir, "backups")
+	r.cfg.historyPath, r.cfg.photoDir = filepath.Join(dir, "history.json"), photos
 	if r.settings, err = settings.New(d, testSettingsKey); err != nil {
 		t.Fatal(err)
 	}

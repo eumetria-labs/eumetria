@@ -13,7 +13,7 @@ import { t } from './i18n.js';
 
 const dfTime = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-const TABS = [['general', () => t('General')], ['sync', () => t('Sync')], ['yazio', () => 'Yazio'], ['google', () => 'Google'], ['review', () => t('Weekly review')]];
+const TABS = [['general', () => t('General')], ['sync', () => t('Sync')], ['yazio', () => 'Yazio'], ['google', () => 'Google'], ['review', () => t('Weekly review')], ['backups', () => t('Backups')]];
 const POLL_MS = 2000;
 
 let win = null;
@@ -66,7 +66,12 @@ async function load(body, tab, result) {
     return;
   }
   const data = await res.json();
-  body.replaceChildren(...{ general: generalTab, sync: syncTab, yazio: yazioTab, google: googleTab, review: reviewTab }[tab](body, data, result));
+  if (tab === 'backups') {
+    const runs = await api('admin/backups').catch(() => null);
+    data.backups = runs?.ok ? await runs.json() : { runs: [] };
+    if (body.dataset.tab !== tab) return;
+  }
+  body.replaceChildren(...{ general: generalTab, sync: syncTab, yazio: yazioTab, google: googleTab, review: reviewTab, backups: backupsTab }[tab](body, data, result));
 }
 
 function section(title, note) {
@@ -104,7 +109,7 @@ async function send(body, button, run, words) {
     const why = await (async () => { try { return await res.clone().json(); } catch { return {}; } })();
     if (why.error === 'reauth') return body.prepend(reauthNote(body.dataset.tab));
     if (why.error === 'no_key') return showError(body, t('Secrets can’t be stored: SETTINGS_KEY isn’t set on the server.'));
-    showError(body, words?.(why) || t('That didn’t work. Try again.'));
+    showError(body, words?.(why) || (why.error === 'no_passphrase' && t('Set a passphrase first: nothing leaves the server unencrypted.')) || t('That didn’t work. Try again.'));
   } catch {
     showError(body, t('Server not reachable.'));
   } finally {
@@ -138,7 +143,7 @@ function form(body, data, fields) {
       input.value = item.value ?? '';
     } else if (f.type === 'checkbox') {
       input = h('input', { type: 'checkbox' });
-      input.checked = item.value !== 'false';
+      input.checked = /^(1|t|true)$/i.test(item.value);
       label.classList.add('set-check');
     } else {
       input = h('input', { class: 'field', type: f.type || 'text', value: item.value ?? '' });
@@ -169,7 +174,8 @@ function form(body, data, fields) {
     const values = {};
     for (const { f, item, input } of inputs) {
       const value = f.type === 'checkbox' ? String(input.checked) : input.value.trim();
-      if (item.secret ? value : value !== (f.type === 'checkbox' ? String(item.value !== 'false') : item.value ?? '')) values[f.key] = item.secret ? input.value : value;
+      const was = f.type === 'checkbox' ? String(/^(1|t|true)$/i.test(item.value)) : item.value ?? '';
+      if (item.secret ? value : value !== was) values[f.key] = item.secret ? input.value : value;
     }
     if (!Object.keys(values).length) return;
     send(body, save, () => api('admin/settings', 'PUT', { values }), (why) => why.error === 'bad_value' && t('Check this: {name}', { name: names[why.key] || why.key }));
@@ -207,7 +213,7 @@ function generalTab(body, data) {
 function statusLine(s) {
   const when = (d) => (d ? dfTime.format(new Date(d)) : t('never'));
   const parts = [t('Last success: {when}', { when: when(s.last_success) })];
-  if (s.running) parts.unshift(s.job ? t('Writing reviews…') : t('Syncing…'));
+  if (s.running) parts.unshift(s.job === 'backup' ? t('Backing up…') : s.job ? t('Writing reviews…') : t('Syncing…'));
   return parts.join(' · ');
 }
 
@@ -369,4 +375,129 @@ function reviewTab(body, data) {
   if (data.status.running) poll(body, line, () => load(body, 'review'));
   again.append(line, run);
   return [...noKeyNote(data), sec, again];
+}
+
+/* ---------- backups ---------- */
+
+const size = (n) => `${(n / 1e6).toLocaleString(LOCALE, { maximumFractionDigits: 1 })} MB`;
+
+// A long passphrase, easy to copy and to read aloud: no 0/O or 1/l.
+function newPassphrase() {
+  const letters = 'abcdefghjkmnpqrstuvwxyz23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(30));
+  const out = [...bytes].map((b) => letters[b % letters.length]).join('');
+  return out.match(/.{6}/g).join('-');
+}
+
+function passphraseSection(body, data) {
+  const item = data.settings.backup_passphrase;
+  const on = item.state === 'set';
+  const at = data.settings.backup_passphrase_at.value;
+  const sec = section(t('Passphrase'), on ? t('Set on {date}', { date: at }) : t('Not set: local archives aren’t encrypted'));
+  sec.append(h('p', { class: 'notice' }, t('Keep a copy in your password manager. If the server is lost, its copy is too, and without the passphrase the backups can’t be opened.')));
+  const form = h('form', { class: 'set-form' });
+  const field = (label) => {
+    const input = h('input', { class: 'field', type: 'password', autocomplete: 'new-password', 'aria-label': label, placeholder: label });
+    input.disabled = !data.can_encrypt;
+    form.append(input);
+    return input;
+  };
+  const one = field(t('New passphrase (12+ characters)'));
+  const two = field(t('The same again'));
+  const row = h('div', { class: 'sec-row' });
+  const make = h('button', { class: 'pill-btn', type: 'button' }, t('Make one'));
+  make.disabled = !data.can_encrypt;
+  make.onclick = () => {
+    one.value = two.value = newPassphrase();
+    one.type = 'text'; // to copy it
+    one.select();
+  };
+  const save = h('button', { class: 'pill-btn', type: 'submit' }, t('Save'));
+  save.disabled = !data.can_encrypt;
+  row.append(save, make);
+  if (on && data.settings.backup_drive.value !== 'true') {
+    const remove = h('button', { class: 'pill-btn', type: 'button' }, t('Remove'));
+    remove.onclick = () => {
+      if (confirm(t('Remove the passphrase? New local archives won’t be encrypted.'))) send(body, remove, () => api('admin/settings', 'PUT', { reset: ['backup_passphrase'] }));
+    };
+    row.append(remove);
+  }
+  form.append(row);
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    if (one.value !== two.value) return showError(body, t('The two passphrases differ.'));
+    if (!one.value) return;
+    send(body, save, () => api('admin/settings', 'PUT', { values: { backup_passphrase: one.value } }), (why) => why.error === 'bad_value' && t('The passphrase needs at least 12 characters.'));
+  };
+  sec.append(form, h('p', { class: 'muted set-hint' }, t('A new one applies to new backups only: each archive says which one it needs.')));
+  return sec;
+}
+
+function runRow(r) {
+  const row = h('div', { class: 'day-item sec-item set-run' });
+  const name = h('span', { class: 'name' });
+  name.append(h('span', { class: 'txt' }, dfTime.format(new Date(r.started_at))));
+  const note = r.error ? [] : [r.size ? size(r.size) : '', r.encrypted ? t('encrypted') : t('not encrypted')];
+  if (r.drive) note.push(r.drive === 'ok' ? t('on Drive') : t('not on Drive'));
+  row.append(name, h('span', { class: 'amt' }, note.filter(Boolean).join(' · ')));
+  const problem = r.error || (r.drive && r.drive !== 'ok' ? r.drive : '');
+  if (problem) row.append(h('span', { class: 'lock-error set-why' }, problem));
+  return row;
+}
+
+function backupsTab(body, data) {
+  const runs = data.backups.runs;
+  const when = section(t('Schedule'), t('On this server, in {dir}', { dir: data.backups.dir || '' }));
+  when.append(form(body, data, [
+    { key: 'backups', label: t('Back up every day'), type: 'checkbox' },
+    { key: 'backup_time', label: t('Time of day'), hint: t('In the site’s time zone.'), type: 'time' },
+    { key: 'backup_keep_days', label: t('Keep local backups (days)'), type: 'number' },
+  ]));
+
+  const drive = section(t('Google Drive'), t('Encrypted, and only files the app made itself.'));
+  drive.append(form(body, data, [
+    { key: 'backup_drive', label: t('Also upload to Google Drive'), type: 'checkbox' },
+    { key: 'backup_folder', label: t('Folder') },
+    { key: 'backup_drive_keep_days', label: t('Keep on Drive (days)'), type: 'number' },
+  ]));
+  const on = data.settings.backup_drive.value === 'true';
+  if (on && !data.google.drive) {
+    const box = h('div', { class: 'notice notice-row' });
+    const go = h('button', { class: 'pill-btn', type: 'button' }, t('To Google'));
+    go.onclick = () => body.closest('.adm-panel').querySelector('[data-tab="google"]').click();
+    box.append(h('span', {}, t('Google hasn’t allowed Drive yet: use Connect again there.')), go);
+    drive.append(box);
+  }
+  const msg = h('p', { class: 'sec-msg', role: 'status', hidden: '' });
+  const test = h('button', { class: 'pill-btn set-back', type: 'button' }, t('Test connection'));
+  test.onclick = async () => {
+    test.disabled = true;
+    msg.hidden = true;
+    const res = await api('admin/backups/test-drive', 'POST').catch(() => null);
+    const ans = res?.ok ? await res.json() : null;
+    test.disabled = false;
+    msg.textContent = !ans ? t('Server not reachable.') : ans.ok ? t('Uploaded and deleted a small file.') : t('That didn’t work: {why}', { why: ans.error });
+    msg.classList.toggle('lock-error', !ans?.ok);
+    msg.hidden = false;
+  };
+  drive.append(msg, test);
+
+  const state = section(t('Last backups'), runs.length ? '' : t('None yet'));
+  for (const r of runs) state.append(runRow(r));
+  const line = h('p', { class: 'muted' }, data.status.running ? statusLine(data.status) : '');
+  const now = h('button', { class: 'pill-btn set-back', type: 'button' }, t('Back up now'));
+  now.disabled = data.status.running;
+  now.onclick = async () => {
+    now.disabled = true;
+    body.querySelector('.adm-error')?.remove();
+    const res = await api('admin/backups', 'POST').catch(() => null);
+    if (res?.status === 409) {
+      now.disabled = false;
+      return showError(body, t('A sync is running. Try again when it’s done.'));
+    }
+    poll(body, line, () => load(body, 'backups'));
+  };
+  if (data.status.running) poll(body, line, () => load(body, 'backups'));
+  state.append(line, now);
+  return [...noKeyNote(data), when, passphraseSection(body, data), drive, state];
 }

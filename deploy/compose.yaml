@@ -10,6 +10,7 @@ services:
     env_file: eumetria.env
     volumes:
       - /srv/eumetria/data:/data
+      - /var/backups/eumetria:/backups
     ports:
       - "127.0.0.1:8090:8080" # only nginx on this host can reach it
     read_only: true

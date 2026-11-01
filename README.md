@@ -28,7 +28,7 @@ You need a Linux server with Docker Compose v2, nginx, certbot and a domain poin
 adduser --system --group --no-create-home --home /nonexistent --shell /usr/sbin/nologin eumetria
 install -d -o root -g root -m 755 /srv/eumetria
 install -d -o eumetria -g eumetria -m 700 /srv/eumetria/data
-install -d -o root -g root -m 700 /var/backups/eumetria
+install -d -o eumetria -g eumetria -m 700 /var/backups/eumetria
 ```
 
 Don't add `eumetria` to the `docker` group (members are effectively root).
@@ -88,7 +88,7 @@ certbot certonly --webroot -w /var/www/letsencrypt -d eumetria.example.com \
   --cert-name eumetria.example.com --force-renewal --deploy-hook "systemctl reload nginx"
 ```
 
-**5. Backups and updates.** Copy [`deploy/cron`](deploy/cron) to `/etc/cron.d/eumetria` (mode 644). Every night it backs up `data/` to `/var/backups/eumetria` (14 days are kept) and pulls the newest image, so a push to `main` is live the next morning. The accounts database goes in as the copy the server writes at 03:20 (`data/backup/app.db`), not as the live file. Copy the backups off the server too: the history can be fetched from Yazio again, old photos and accounts can't.
+**5. Updates.** Copy [`deploy/cron`](deploy/cron) to `/etc/cron.d/eumetria` (mode 644). Every night it pulls the newest image. Backups run inside the app, see [💾 Backups](#-backups).
 
 ## 👥 Accounts and roles
 
@@ -160,6 +160,27 @@ With an API key in **Settings → Weekly review**, the first sync after a calend
 
 The Anthropic API is prepaid: buy credit at [console.anthropic.com](https://console.anthropic.com) and leave auto-reload off, so nothing more can be charged. Enter what you bought under **Credit bought**; the page warns admins when it covers fewer than 4 more reviews.
 
+## 💾 Backups
+
+Every night at 03:30 the app writes an archive to `/var/backups/eumetria`, keeping 14 days: the synced history, photos, pictures, images in notes, the Google token and the database. **Settings → Backups** changes the time and how long they are kept, shows the last runs and has **Back up now**. It doesn't run during a sync.
+
+**With a passphrase** (set it in the same tab, and keep a copy in your password manager) archives are encrypted. Then they can also go to **Google Drive**: turn it on, use **Connect again** under Settings → Google to allow it, and **Test connection**. The app can only see and delete the files it made there. Without a passphrase nothing is uploaded, and local archives are readable by root on the server.
+
+`SETTINGS_KEY` isn't in the archives. Keep it with the passphrase: a restored server needs it to read its secrets, or they have to be typed in again.
+
+**Restore** (`<name>` is the archive, from the server or downloaded from Drive into `/var/backups/eumetria`). An archive ending in `.enc` is decrypted first; it asks for the passphrase and tells you which one:
+
+```sh
+cd /srv/eumetria
+docker compose run --rm -it eumetria -decrypt-backup /backups/<name>.tar.gz.enc
+docker compose down
+mv data data.old
+tar -xzf /var/backups/eumetria/<name>.tar.gz
+chown -R eumetria:eumetria data && chmod 700 data
+docker compose up -d
+rm /var/backups/eumetria/<name>.tar.gz    # the decrypted copy
+```
+
 ## 🧰 Maintenance
 
 All commands run on the server in `/srv/eumetria`.
@@ -175,7 +196,6 @@ All commands run on the server in `/srv/eumetria`.
 | Roll back | `image: …:<commit>` in `compose.yaml`, then `docker compose up -d` |
 | Authorize Fitbit again | **Settings → Google → Connect again** |
 | Raw Yazio / Fitbit answers for a day | `docker compose run --rm eumetria -debug-day 2026-10-13` / `… -debug-google 2026-10-13 -google-token /data/google-token.json` |
-| Restore a backup | `docker compose down`, `rm -rf data`, `tar -xzf /var/backups/eumetria/data-<date>.tar.gz`, `cp data/backup/app.db data/app.db`, `chown -R eumetria:eumetria data && chmod 700 data`, `docker compose up -d`. Secrets need the same `SETTINGS_KEY` |
 
 **Write all weekly reviews again** (e.g. after a prompt change): **Settings → Weekly review**. It runs between syncs and shows how far it got.
 

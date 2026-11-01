@@ -60,6 +60,7 @@ type googleStatus struct {
 	Connected bool       `json:"connected"`
 	IssuedAt  *time.Time `json:"issued_at,omitempty"`
 	Missing   []string   `json:"missing,omitempty"` // scopes not granted
+	Drive     bool       `json:"drive"`             // backups may go to Drive
 	Callback  string     `json:"callback"`
 }
 
@@ -73,6 +74,7 @@ func (a *app) settingsGet(w http.ResponseWriter, req *http.Request, _ *principal
 	gs := googleStatus{Callback: googleCallback(req)}
 	if tok, err := google.LoadToken(a.runner.cfg.googleToken); err == nil {
 		gs.Connected, gs.Missing = true, missingScopes(tok.Scope)
+		gs.Drive = slices.Contains(strings.Fields(tok.Scope), google.DriveScope)
 		if !tok.IssuedAt.IsZero() {
 			gs.IssuedAt = &tok.IssuedAt
 		}
@@ -100,6 +102,10 @@ func (a *app) settingsSave(w http.ResponseWriter, req *http.Request, p *principa
 		return
 	}
 	ctx := req.Context()
+	if v, err := a.runner.settings.Values(ctx); err == nil && driveNeedsPassphrase(v, in.Values, in.Reset) {
+		writeError(w, http.StatusConflict, "no_passphrase")
+		return
+	}
 	err := a.runner.settings.Save(ctx, in.Values, in.Reset)
 	var bad settings.BadValue
 	switch {
@@ -198,6 +204,10 @@ func (a *app) googleConnect(w http.ResponseWriter, req *http.Request, p *princip
 	verifier := base64.RawURLEncoding.EncodeToString(b)
 	state := a.pending.put("", &pending{user: p.user, secret: verifier, name: googleCallback(req)})
 	cfg := google.Config{ClientID: v.GoogleClientID, ClientSecret: v.GoogleSecret, RedirectURL: googleCallback(req), Verifier: verifier}
+	// Backups to Drive add their scope, and only then.
+	if v.BackupDrive {
+		cfg.Extra = []string{google.DriveScope}
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"url": cfg.AuthURL(state)})
 }
 

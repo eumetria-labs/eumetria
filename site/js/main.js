@@ -20,7 +20,8 @@ import { renderRecovery } from './recovery.js';
 import { renderTraining } from './training.js';
 import { renderDevice, renderNotices } from './device.js';
 import { initAdmin } from './admin.js';
-import { forgetData, initAccount, onUserChange, reason, signedIn } from './account.js';
+import { account, forgetData, initAccount, onUserChange, reason, signedIn } from './account.js';
+import { openSettings } from './settings.js';
 import { loadNotes } from './notes.js';
 import { renderTable } from './table.js';
 import { renderFoodQuality } from './foodquality.js';
@@ -61,6 +62,7 @@ initSections();
 initSearch();
 initOffline();
 initAccount(toggleTheme);
+$('#empty-settings').onclick = () => openSettings($('#empty-settings'), 'yazio');
 onUserChange(() => initAdmin({ onSynced: load, onIdle: renderUpdated }));
 start();
 setInterval(renderUpdated, 60 * 1000);
@@ -327,8 +329,14 @@ function render() {
   $('#foot-off').hidden = !Object.keys(data.products || {}).length;
   renderUpdated();
 
+  // A new site has nothing to show yet: an admin learns where to go on.
+  const admin = account.user?.scopes?.includes('admin');
+  document.documentElement.toggleAttribute('data-empty', !data.days.length);
+  $('#empty-notice').hidden = data.days.length > 0;
+  $('#empty-settings').hidden = !admin;
   if (!data.days.length) {
     $('#updated').textContent = t('No days synced yet.');
+    if (admin) $('#empty-text').textContent = t('Nothing synced yet. Add your Yazio account in the settings, then sync.');
     return;
   }
   const s = slice();

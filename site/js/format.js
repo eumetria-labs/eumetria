@@ -161,13 +161,14 @@ export function syncAgo(iso, now = Date.now()) {
 export function syncNotices(data, now = Date.now()) {
   const limit = data.sync_interval_minutes ? 3 * data.sync_interval_minutes * 60000 : 864e5;
   const out = [];
-  if (data.generated_at && now - new Date(data.generated_at) > limit) {
+  // Nothing synced yet is no late sync: the data has no date then.
+  if (data.days?.length !== 0 && data.generated_at && now - new Date(data.generated_at) > limit) {
     out.push(t('The last sync was {ago}, longer than expected. Syncing may be failing.', { ago: syncAgo(data.generated_at, now) }));
   }
   const hs = data.health_sync;
   if (hs?.failing) {
     const last = hs.last_success ? ' ' + t('Last Fitbit sync {ago}.', { ago: syncAgo(hs.last_success, now) }) : '';
-    if (hs.auth) out.push(t("Fitbit data isn't syncing: Google access has to be renewed (eumetria -google-auth).") + last);
+    if (hs.auth) out.push(t("Fitbit data isn't syncing: Google access has to be renewed (Settings → Google → Connect again).") + last);
     else if (!hs.last_success || now - new Date(hs.last_success) > limit) out.push(t("Fitbit data isn't syncing.") + last);
   }
   return out;

@@ -14,8 +14,13 @@ test('syncNotices warns after three sync intervals, or a day when unknown', () =
 
 test('syncNotices: Fitbit auth failures always show, other errors only when lasting', () => {
   const base = { generated_at: hoursAgo(0), sync_interval_minutes: 30 };
-  assert.match(syncNotices({ ...base, health_sync: { failing: true, auth: true, last_success: hoursAgo(0.5) } }, now)[0], /google-auth/);
+  assert.match(syncNotices({ ...base, health_sync: { failing: true, auth: true, last_success: hoursAgo(0.5) } }, now)[0], /Connect again/);
   assert.deepEqual(syncNotices({ ...base, health_sync: { failing: true, last_success: hoursAgo(0.5) } }, now), []);
   assert.match(syncNotices({ ...base, health_sync: { failing: true, last_success: hoursAgo(5) } }, now)[0], /isn't syncing/);
   assert.equal(syncNotices({ ...base, health_sync: { failing: true } }, now).length, 1);
+});
+
+test('a site with nothing synced isn\'t late', () => {
+  assert.deepEqual(syncNotices({ days: [], generated_at: '0001-01-01T00:00:00Z', sync_interval_minutes: 30 }, now), []);
+  assert.equal(syncNotices({ days: [{}], generated_at: hoursAgo(5), sync_interval_minutes: 30 }, now).length, 1);
 });

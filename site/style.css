@@ -601,6 +601,7 @@ html:not([data-locked]) .foot .lang-switch { display: none; }
 
 /* Password lock (encrypted stats.json): replaces the page until unlocked */
 html[data-locked] main, html[data-locked] .top .controls, html[data-locked] .top .sections { display: none; }
+html[data-empty] main, html[data-empty] .top .sections { display: none; }
 .lock { max-width: 360px; margin: 48px auto; display: grid; gap: 12px; justify-items: center; text-align: center; }
 .lock[hidden] { display: none; }
 .lock svg { color: var(--s1); }
@@ -1352,7 +1353,7 @@ a.q-badges:focus-visible { outline: none; }
 
 /* Users & roles (manage.js) */
 .adm-tabs { margin: 0 0 4px; padding: 0 20px; }
-.adm-tabs { overflow-x: auto; scrollbar-width: none; }
+.adm-tabs { flex: none; overflow-x: auto; scrollbar-width: none; }
 .adm-tabs button { flex: 1 0 auto; padding-left: 12px; padding-right: 12px; }
 .adm-user { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 8px 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--grid); font-size: 14px; }
 .adm-user.off .adm-info b { color: var(--muted); }
@@ -1470,3 +1471,4 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .set-hint { font-size: 12.5px; line-height: 1.35; }
 .set-back { margin-top: 12px; }
 .wo-sec > .set-hint { display: block; margin: 12px 0 6px; }
+.set-run .set-why { grid-column: 1 / -1; font-size: 12.5px; font-weight: 500; overflow-wrap: anywhere; }

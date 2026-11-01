@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,35 +33,6 @@ func setupAccounts(ctx context.Context, store *auth.Store, demo bool) error {
 	}
 	log.Printf("no account yet: create the first with -create-user <name> -role admin (README, \"Setup on a server\")")
 	return nil
-}
-
-// snapshotLoop writes a consistent copy of the database to dir/app.db at
-// start and every night at 03:20, before the host's backup at 03:30 (which
-// leaves the live app.db out: copying it mid-write can give a broken copy).
-func snapshotLoop(ctx context.Context, d *db.DB, dir string) {
-	for {
-		if err := writeSnapshot(ctx, d, dir); err != nil {
-			log.Printf("database snapshot: %v", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Until(nextAt(time.Now(), 3, 20))):
-		}
-	}
-}
-
-// writeSnapshot replaces dir/app.db only once the new copy is complete.
-func writeSnapshot(ctx context.Context, d *db.DB, dir string) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp := filepath.Join(dir, "app.db.tmp")
-	os.Remove(tmp)
-	if err := d.Snapshot(ctx, tmp); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(dir, "app.db"))
 }
 
 // nextAt is the next hh:mm local time after now.
@@ -228,6 +198,23 @@ func printRoles(ctx context.Context, store *auth.Store) error {
 	}
 	fmt.Printf("\nScopes: %s (admin includes all others)\n", strings.Join(auth.AllScopes, " "))
 	return nil
+}
+
+// readSecret asks for a secret without echo on a terminal. Piped in, it is
+// read from one line.
+func readSecret(in *bufio.Reader, prompt string) (string, error) {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		line, err := in.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", err
+		}
+		return strings.TrimRight(line, "\r\n"), nil
+	}
+	fmt.Fprint(os.Stderr, prompt)
+	b, err := term.ReadPassword(fd)
+	fmt.Fprintln(os.Stderr)
+	return string(b), err
 }
 
 // newPassword asks for a password twice (without echo on a terminal) and

@@ -84,6 +84,9 @@ import (
 //	POST   /api/admin/settings/test/yazio  tries the saved login                   admin
 //	POST   /api/admin/reviews/rewrite  writes every review again, in the background  admin, recent sign-in
 //	POST   /api/google/connect  starts Connect Google, answers where to go         admin, recent sign-in
+//	GET    /api/admin/backups  the last backups (backup.go)                        admin
+//	POST   /api/admin/backups  backs up now, in the background                     admin
+//	POST   /api/admin/backups/test-drive  uploads and deletes a small file         admin
 //	GET    /api/google/callback  where Google sends the browser back               admin
 //	DELETE /api/google        disconnects                                          admin, recent sign-in
 //	GET    /api/status        sync state                                           sync
@@ -252,6 +255,9 @@ func (a *app) routes() []route {
 		{"PUT", "/api/admin/settings", adminOnly, a.settingsSave},
 		{"POST", "/api/admin/settings/test/yazio", adminOnly, a.settingsTestYazio},
 		{"POST", "/api/admin/reviews/rewrite", adminOnly, a.reviewsRewrite},
+		{"GET", "/api/admin/backups", adminOnly, a.backups},
+		{"POST", "/api/admin/backups", adminOnly, a.backupNow},
+		{"POST", "/api/admin/backups/test-drive", adminOnly, a.backupTestDrive},
 		{"POST", "/api/google/connect", adminOnly, a.googleConnect},
 		{"GET", "/api/google/callback", adminOnly, a.googleCallbackRoute},
 		{"DELETE", "/api/google", adminOnly, a.googleDisconnect},

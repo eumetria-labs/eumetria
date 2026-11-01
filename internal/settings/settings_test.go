@@ -224,3 +224,30 @@ func TestSaveChecks(t *testing.T) {
 		t.Errorf("title = %q", v.Title)
 	}
 }
+
+func TestBackupPassphrase(t *testing.T) {
+	ctx := context.Background()
+	s := open(t, testKey)
+	var bad BadValue
+	if err := s.Save(ctx, map[string]string{"backup_passphrase": "too short"}, nil); !errors.As(err, &bad) {
+		t.Errorf("a short passphrase: %v", err)
+	}
+	if err := s.Save(ctx, map[string]string{"backup_passphrase_at": "2020-01-01"}, nil); !errors.As(err, &bad) {
+		t.Errorf("setting the date by hand: %v", err)
+	}
+	if err := s.Save(ctx, map[string]string{"backup_passphrase": "long enough to pass"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	v, _ := s.Values(ctx)
+	if v.BackupPassphrase != "long enough to pass" || v.BackupPassphraseAt != time.Now().UTC().Format(time.DateOnly) {
+		t.Errorf("values = %q, %q", v.BackupPassphrase, v.BackupPassphraseAt)
+	}
+	if v.BackupTime != "03:30" || v.BackupKeepDays != 14 || v.BackupDriveKeepDays != 30 || v.BackupFolder == "" || v.BackupDrive || !v.Backups {
+		t.Errorf("defaults = %+v", v)
+	}
+	for _, c := range []string{"3:30", "24:00", "nope"} {
+		if err := s.Save(ctx, map[string]string{"backup_time": c}, nil); !errors.As(err, &bad) {
+			t.Errorf("time %q: %v", c, err)
+		}
+	}
+}
