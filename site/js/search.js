@@ -1,15 +1,17 @@
 // Search over the whole history (Ctrl/⌘+K or the magnifier in the header):
-// foods, activities and days in one list. Arrow keys move, Enter opens the
-// food's or activity's history window or the day. The input and list follow
-// the WAI-ARIA combobox pattern.
+// foods, activities, workout notes and days in one list. Arrow keys move,
+// Enter opens the food's or activity's history window, the workout or the
+// day. The input and list follow the WAI-ARIA combobox pattern.
 
 import { actIcon, actLabel, dfLong, fmt, logged, parse } from './format.js';
+import { workoutIcon, workoutName } from './health.js';
 import { $, h, emoji } from './dom.js';
 import { state } from './state.js';
 import { openDialog } from './dialog.js';
 import { openDay } from './sheet.js';
 import { openActivity, openFood } from './history.js';
-import { dayActivities, matchRank, searchAll } from './query.js';
+import { openWorkout } from './workout.js';
+import { dayActivities, matchRank, noteSnippet, searchAll, searchNotes } from './query.js';
 import { t, tn } from './i18n.js';
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -69,6 +71,7 @@ function openSearch() {
     const groups = [
       ['foods', t('Foods'), r.foods.map((f) => ({ icon: '🍽️', label: f.name, note: `${fmt(f.n)}×`, open: () => openFood(f.name, document.activeElement) }))],
       ['activities', t('Activities'), r.activities.map((a) => ({ icon: actIcon(a.name), label: actLabel(a.name), note: `${fmt(a.n)}×`, open: () => openActivity(a.name, document.activeElement) }))],
+      ['notes', t('Notes'), noteResults(q)],
       ['days', t('Days'), r.days.map((d) => ({ icon: '📅', label: dfLong.format(parse(d.date)), note: dayNote(d, q), open: () => openDay(d.date) }))],
     ];
     list.replaceChildren();
@@ -112,6 +115,22 @@ function openSearch() {
   });
   draw();
   input.focus();
+}
+
+// The workouts whose notes fit the query.
+function noteResults(q) {
+  return searchNotes([...state.notes.values()], q).flatMap((n) => {
+    const day = state.byDate.get(n.date);
+    const w = day?.workouts?.find((x) => x.id === n.workout_id);
+    if (!w) return [];
+    return [{
+      icon: workoutIcon(w.type), label: `${actLabel(workoutName(w.type))} · ${dfLong.format(parse(n.date))}`, note: noteSnippet(n.text, q),
+      open: () => {
+        openDay(n.date, 'activities');
+        openWorkout(day, w.id, $('#modal .sheet-close'));
+      },
+    }];
+  });
 }
 
 // What the day has that fits the query (foods, activities), or its calories.

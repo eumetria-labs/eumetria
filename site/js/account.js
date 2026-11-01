@@ -335,12 +335,16 @@ export async function signOut(everywhere) {
 }
 
 // forgetData deletes the data this device kept for offline use: the
-// stats and the files they point to (sw.js). The page code stays.
+// stats, the notes and the files the stats point to (sw.js). The page code
+// stays.
 export async function forgetData() {
   try {
     for (const name of await caches.keys()) {
       if (name.startsWith('stats-data')) await caches.delete(name);
-      else await (await caches.open(name)).delete('api/stats', { ignoreSearch: true });
+      else {
+        const cache = await caches.open(name);
+        for (const path of ['api/stats', 'api/notes']) await cache.delete(path, { ignoreSearch: true });
+      }
     }
   } catch { /* no cache storage */ }
 }

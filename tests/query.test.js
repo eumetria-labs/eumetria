@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MACRO_TABS, activityHistory, dayActivities, macroSources, rankSources, referencedFiles, sessionsPerWeek, filterDays, foodHistory, matchRank, matchesQuery, rangeDays, searchAll, sortBy, sortFoods } from '../site/js/query.js';
+import { MACRO_TABS, activityHistory, dayActivities, macroSources, rankSources, referencedFiles, sessionsPerWeek, filterDays, foodHistory, matchRank, matchesQuery, noteSnippet, rangeDays, searchAll, searchNotes, sortBy, sortFoods } from '../site/js/query.js';
 
 const days = [
   { date: '2026-10-11', energy: 2300, energy_goal: 2100, foods: [{ n: 'Pizza Margherita', m: 'dinner', e: 800 }] },
@@ -210,4 +210,25 @@ test('macro sources: biggest and best per calorie, partial fibre counted fairly'
   assert.deepEqual(tab('f').best.map(([n]) => n), ['Oats', 'Pizza']); // lowest saturated share first
   assert.deepEqual(tab('su').best.map(([n]) => n), ['Skyr', 'Pizza']); // 5,6 and 1 g per 100 kcal; Oats has no sugar data
   assert.equal(totals.suE, 126 * 3 + 800 * 2);
+});
+
+test('searching notes', () => {
+  const notes = [
+    { date: '2026-10-01', text: 'Rowing intervals\nEasy pace' },
+    { date: '2026-10-20', text: 'Row 500 m\nMüsli danach' },
+    { date: '2026-09-12', text: 'Just squats' },
+  ];
+  assert.deepEqual(searchNotes(notes, 'row').map((n) => n.date), ['2026-10-20', '2026-10-01']);
+  assert.deepEqual(searchNotes(notes, 'rowing easy').map((n) => n.date), ['2026-10-01']);
+  assert.deepEqual(searchNotes(notes, 'muesli').map((n) => n.date), ['2026-10-20']);
+  assert.deepEqual(searchNotes(notes, 'pushups'), []);
+  assert.deepEqual(searchNotes(notes, '  '), []);
+  assert.equal(searchNotes(notes, 'row', 1).length, 1);
+});
+
+test('a note\'s snippet shows where it matched', () => {
+  const text = 'Warm-Up\n3 Rounds\n1:00 Erg\n6 Scapular Pull-Ups\nSkill Accumulation\nRowing Intervals';
+  assert.equal(noteSnippet(text, 'warm'), 'Warm-Up 3 Rounds 1:00 Erg 6 Scapular Pull-Ups Skill Accumulation Rowing Intervals');
+  assert.match(noteSnippet(text, 'rowing'), /^…Skill.*Rowing Intervals$|^…[^…]*Rowing Intervals$/);
+  assert.ok(!noteSnippet('Müsli danach', 'muesli').startsWith('…'));
 });

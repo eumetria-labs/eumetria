@@ -6,13 +6,15 @@ import { MACROS, MEALS, MEAL_ICONS, actIcon, actLabel, actName, activityDetail, 
 import { RESTLESS, STAGES, ZONES, dayActivities, fmtSleep, speedLabel, workoutDetail, workoutIcon, workoutName, zoneOf, zoneShares } from './health.js';
 import { svg } from './dom.js';
 import { state } from './state.js';
+import { noteLines } from './markdown.js';
+import { noteOf } from './notes.js';
 import { niceTicks } from './charts.js';
 import { drawWeight, forecastFor, weightRows } from './weight.js';
 import { weightGoalAt, weightGoalLine, weightTrendAt } from './insights.js';
 import { drawHeartRate, loadRoute } from './workout.js';
 import { drawHypnogram } from './recovery.js';
 import { recipeOf } from './recipe.js';
-import { chart, legendRow, list, meterBlock, openShare, photo, photoData, photoStrip, shareButton, splitBar, textW, tiles } from './share.js';
+import { chart, legendRow, list, meterBlock, openShare, photo, photoData, photoStrip, shareButton, splitBar, textLines, textW, tiles } from './share.js';
 import { t } from './i18n.js';
 
 const sum = (items, k) => items.reduce((a, it) => a + (it[k] || 0), 0);
@@ -97,7 +99,7 @@ export async function dayCard(day) {
 
 /* ---------- workout ---------- */
 
-export async function workoutCard(day, w, { route: withRoute } = {}) {
+export async function workoutCard(day, w, { route: withRoute, note: withNote } = {}) {
   const items = [
     [t('Duration'), w.dur ? fmtDuration(w.dur / 60) : '–', ''],
     w.dist && [t('Distance'), fmtDistance(w.dist), ''],
@@ -112,10 +114,12 @@ export async function workoutCard(day, w, { route: withRoute } = {}) {
   const sub = [dfLong.format(parse(day.date)), t('started {time}', { time: w.start })];
   if (w.name && actName(w.name) !== workoutName(w.type)) sub.unshift(w.name);
   const shares = w.zones?.some((z) => z > 0) ? zoneShares(w.zones) : null;
+  const note = withNote ? noteOf(w.id) : null;
   return {
     icon: workoutIcon(w.type), title: actLabel(workoutName(w.type)), sub: sub.join(' · '), accent: 'z3',
     blocks: [
       tiles(items),
+      note && textLines(noteLines(note.markdown), t('Note')),
       w.hr?.length > 1 && chart((g, box) => drawHeartRate(g, w, box.w, box.h), { h: 170, min: 100, max: 240, title: t('Heart rate') }),
       shares && splitBar(ZONES.map((z, i) => ({ cls: z.cls, label: z.label, value: `${shares[i].min} min`, share: shares[i].pct / 100 })).reverse(), t('Heart rate zones')),
       route?.length > 1 && chart((g, box) => drawRoute(g, route, w, box), { h: 220, min: 110, max: 340, title: t('Route'), note: fmtDistance(w.dist || 0) }),
@@ -256,7 +260,7 @@ export function dayShareButton(day, currentTab) {
       }
     }
     for (const w of day.workouts || []) {
-      options.push({ key: 'w:' + w.id, label: actLabel(workoutName(w.type)), name: `workout-${day.date}`, route: hasRoute(w), build: (o) => workoutCard(day, w, o) });
+      options.push({ key: 'w:' + w.id, label: actLabel(workoutName(w.type)), name: `workout-${day.date}`, route: hasRoute(w), note: !!noteOf(w.id), build: (o) => workoutCard(day, w, o) });
     }
     if (day.sleep) options.push({ key: 'sleep', label: t('Sleep'), name: `sleep-${day.date}`, build: () => sleepCard(day) });
     const tab = currentTab();
@@ -270,7 +274,7 @@ export function recipeShareButton(day, f) {
 }
 
 export function workoutShareButton(day, w) {
-  return shareButton((btn) => openShare([{ key: 'w', label: '', name: `workout-${day.date}`, route: hasRoute(w), build: (o) => workoutCard(day, w, o) }], 'w', btn));
+  return shareButton((btn) => openShare([{ key: 'w', label: '', name: `workout-${day.date}`, route: hasRoute(w), note: !!noteOf(w.id), build: (o) => workoutCard(day, w, o) }], 'w', btn));
 }
 
 // On the Weight card, next to "Save as image": the range the card shows.

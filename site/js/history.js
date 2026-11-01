@@ -1,7 +1,7 @@
 // The history windows: opened from the most logged foods and the top
 // activities. One food or activity over the whole history: how often it was
 // logged per month, at which meals or on which weekdays, and every entry,
-// each opening its day.
+// each opening its day (a workout's with its note folded below it).
 
 import { MEALS, MEAL_ICONS, actIcon, actLabel, activityDetail, dfLong, dfMonthYear, dfShort, fmt, fmtAmount, fmtDistance, fmtDuration, fmtAvgQty, parse } from './format.js';
 import { $, h, emoji, qualityBadges, setHashParam } from './dom.js';
@@ -10,6 +10,7 @@ import { openDialog } from './dialog.js';
 import { openDay } from './sheet.js';
 import { openWorkout } from './workout.js';
 import { activityHistory, foodHistory } from './query.js';
+import { noteFold, noteOf } from './notes.js';
 import { t, tn } from './i18n.js';
 
 let win = null;
@@ -104,6 +105,7 @@ export function openActivity(key, returnFocus) {
         const day = state.byDate.get(e.date);
         if (e.w && day?.workouts?.some((w) => w.id === e.w)) openWorkout(day, e.w, $('#modal .sheet-close'));
       },
+      e.w && noteOf(e.w),
     ])),
   ], returnFocus);
 }
@@ -184,16 +186,17 @@ function barsSection(title, note, rows, total) {
   return sec;
 }
 
-// Every entry, newest first; rows are [icon, date, detail, value, open].
+// Every entry, newest first; rows are [icon, date, detail, value, open, note].
 function entriesSection(n, rows) {
   const sec = section(t('Every time'), tn(n, '{n} entry', '{n} entries'));
-  for (const [icon, date, detail, value, open] of rows) {
+  for (const [icon, date, detail, value, open, note] of rows) {
     const row = h('button', { class: 'day-item workout-row hs-row', type: 'button', title: t('Open this day') });
     const name = h('span', { class: 'name' });
     name.append(emoji(icon), h('span', { class: 'txt' }, dfLong.format(parse(date))));
     row.append(name, h('span', { class: 'amt' }, detail), h('span', { class: 'val' }, value), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
     row.onclick = open;
     sec.append(row);
+    if (note) sec.append(noteFold(note));
   }
   return sec;
 }

@@ -206,6 +206,44 @@ export function list(rows, title, { rowH = 30, minRows = 3 } = {}) {
   };
 }
 
+// Lines of text, wrapped to the card's width: [{ text, head }] under a
+// heading. A long text gets what room there is and ends in "…".
+export function textLines(lines, title) {
+  const lineH = 19, top = 22, most = 12;
+  const rows = lines.flatMap((l) => wrap(l.text, l.head ? 13 : 14, l.head ? 650 : 400).map((text) => ({ text, head: l.head })));
+  return {
+    h: top + Math.min(rows.length, most) * lineH,
+    min: top + Math.min(rows.length, 3) * lineH,
+    max: top + rows.length * lineH,
+    optional: true,
+    draw(g, y, height) {
+      g.append(label(X, y + 12, title, 'c-head'));
+      const fits = Math.max(1, Math.floor((height - top) / lineH));
+      rows.slice(0, fits).forEach((r, i) => {
+        const cut = i === fits - 1 && rows.length > fits;
+        const text = cut ? fitText(r.text + ' …', 14, 400, CW) : r.text;
+        g.append(label(X, y + top + i * lineH + 14, text, r.head ? 'c-head' : 'c-name'));
+      });
+    },
+  };
+}
+
+// A text in lines that fit the card; a word too long for a line is cut.
+function wrap(text, px, weight) {
+  const out = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    const next = line ? line + ' ' + word : word;
+    if (textW(next, px, weight) <= CW) line = next;
+    else {
+      if (line) out.push(line);
+      line = fitText(word, px, weight, CW);
+    }
+  }
+  out.push(line);
+  return out;
+}
+
 // A photo, cropped to fill its box. img is from photoData().
 export function photo(img, { h: ph = 250, min = 130, max = 380 } = {}) {
   return {
@@ -444,12 +482,13 @@ function choices(name, items, value, onPick) {
 let win = null;
 
 // The share window: what to share (options: [{ key, label, name, route,
-// build(opts) → card }]), post or story, light or dark, and for a workout
-// with a route whether to show it. The picture is made before Share is
-// tapped, so the tap still counts as the gesture the share sheet needs.
+// note, build(opts) → card }]), post or story, light or dark, and for a
+// workout with a route or a note whether to show them. The picture is made
+// before Share is tapped, so the tap still counts as the gesture the share
+// sheet needs.
 export function openShare(options, current, returnFocus) {
   closeShare(true);
-  const prefs = { format: store.get('share-format') || 'post', theme: currentTheme(), route: false };
+  const prefs = { format: store.get('share-format') || 'post', theme: currentTheme(), route: false, note: false };
   let opt = options.find((o) => o.key === current) || options[0];
   let blob = null, run = 0;
 
@@ -476,11 +515,16 @@ export function openShare(options, current, returnFocus) {
     choices(t('Format'), [['post', t('Post')], ['story', t('Story')]], prefs.format, (v) => { prefs.format = v; store.set('share-format', v); update(); }),
     choices(t('Style'), [['light', t('Light|style')], ['dark', t('Dark')]], prefs.theme, (v) => { prefs.theme = v; update(); }),
   );
-  const routeBox = h('input', { type: 'checkbox' });
-  const routeLabel = h('label', { class: 'share-check' });
-  routeLabel.append(routeBox, ' ' + t('Show route'));
-  routeBox.onchange = () => { prefs.route = routeBox.checked; update(); };
-  row.append(routeLabel);
+  const check = (key, text) => {
+    const box = h('input', { type: 'checkbox' });
+    const item = h('label', { class: 'share-check' });
+    item.append(box, ' ' + text);
+    box.onchange = () => { prefs[key] = box.checked; update(); };
+    row.append(item);
+    return item;
+  };
+  const routeLabel = check('route', t('Show route'));
+  const noteLabel = check('note', t('Include note'));
   controls.append(row);
 
   const img = h('img', { class: 'share-img', alt: '' });
@@ -524,12 +568,13 @@ export function openShare(options, current, returnFocus) {
   async function update() {
     const mine = ++run;
     routeLabel.hidden = !opt.route;
+    noteLabel.hidden = !opt.note;
     preview.dataset.format = prefs.format;
     preview.classList.add('busy');
     actions.querySelectorAll('button').forEach((b) => { b.disabled = true; });
     status.textContent = '';
     try {
-      const card = await opt.build({ route: prefs.route });
+      const card = await opt.build({ route: prefs.route, note: prefs.note });
       const png = await renderCard(card, prefs);
       if (mine !== run) return;
       blob = png;

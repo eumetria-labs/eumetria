@@ -17,6 +17,7 @@ import (
 
 	"eumetria/internal/auth"
 	"eumetria/internal/db"
+	"eumetria/internal/notes"
 	"eumetria/internal/store"
 	"eumetria/site"
 )
@@ -73,6 +74,8 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 		return err
 	}
 	go snapshotLoop(ctx, database, filepath.Join(cfg.dataDir, "backup"))
+	noteImages := filepath.Join(cfg.dataDir, "note-images")
+	go imageLoop(ctx, &notes.Store{DB: database, Now: time.Now}, noteImages)
 
 	data := newPublished(baseOptions(cfg))
 	if !cfg.demo {
@@ -88,7 +91,7 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	r := newRunner(cfg, o.interval, data)
 	srv := &http.Server{
 		Addr:              o.addr,
-		Handler:           newHandler(r, pages, data, cfg.photoDir, accounts),
+		Handler:           newHandler(r, pages, data, cfg.photoDir, noteImages, accounts),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

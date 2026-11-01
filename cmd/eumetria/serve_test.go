@@ -36,7 +36,8 @@ func testHistory() *store.History {
 	start := time.Date(2026, 10, 20, 16, 0, 0, 0, time.UTC)
 	return &store.History{
 		Days: map[string]*store.Day{
-			"2025-01-10": {Date: "2025-01-10", Total: store.Macros{Energy: 1500}},
+			"2025-01-10": {Date: "2025-01-10", Total: store.Macros{Energy: 1500},
+				Photos: []store.Photo{{Daytime: "lunch", File: "old.jpg"}}},
 			"2026-10-20": {Date: "2026-10-20", Total: store.Macros{Energy: 1800}, Steps: 9000,
 				Items:  []store.Item{{Name: "Skyr", Daytime: "breakfast", Energy: 66}},
 				Photos: []store.Photo{{Daytime: "lunch", File: "abc.jpg"}}},
@@ -70,6 +71,7 @@ func newTestEnv(t *testing.T, withUsers bool) *testEnv {
 		filepath.Join(siteDir, "fonts", "f.woff2"): "font",
 		filepath.Join(siteDir, "stats.json"):       `{"days":[]}`, // as -out writes it locally
 		filepath.Join(photos, "abc.jpg"):           string(tinyJPEG),
+		filepath.Join(photos, "old.jpg"):           string(tinyJPEG),
 		filepath.Join(photos, "secret.jpg"):        string(tinyJPEG), // on disk, but on no page
 	} {
 		os.MkdirAll(filepath.Dir(path), 0o755)
@@ -105,7 +107,7 @@ func newTestEnv(t *testing.T, withUsers bool) *testEnv {
 		<-e.release
 		return nil, nil
 	}
-	e.srv = httptest.NewTLSServer(newHandler(r, os.DirFS(siteDir), data, photos, accounts))
+	e.srv = httptest.NewTLSServer(newHandler(r, os.DirFS(siteDir), data, photos, filepath.Join(dir, "note-images"), accounts))
 	t.Cleanup(e.srv.Close)
 	t.Cleanup(func() {
 		select {
@@ -203,7 +205,7 @@ func TestEveryRouteNamesItsAccess(t *testing.T) {
 		}
 		// Without a session every route that isn't open says so, before
 		// doing anything.
-		path := strings.NewReplacer("{id}", "1", "{name}", "x").Replace(rt.path)
+		path := strings.NewReplacer("{id}", "1", "{name}", "x", "{key}", "w1").Replace(rt.path)
 		var body string
 		if rt.method != "GET" {
 			body = "{}"
@@ -526,7 +528,7 @@ func TestServeCompiledInPages(t *testing.T) {
 	defer d.Close()
 	data := newPublished(stats.Options{})
 	r := newRunner(config{}, time.Hour, data)
-	srv := httptest.NewServer(newHandler(r, site.Files, data, dir, auth.NewStore(d)))
+	srv := httptest.NewServer(newHandler(r, site.Files, data, dir, dir, auth.NewStore(d)))
 	t.Cleanup(srv.Close)
 	get := func(p string, opts ...reqOpt) *http.Response {
 		req, _ := http.NewRequest("GET", srv.URL+p, nil)
@@ -615,6 +617,22 @@ func TestDataFollowsTheRole(t *testing.T) {
 	res, _ := e.do(t, anna, "GET", "/api/stats", "")
 	if res, _ := e.do(t, anna, "GET", "/api/stats", "", header("If-None-Match", res.Header.Get("ETag"))); res.StatusCode != 304 {
 		t.Errorf("revalidating the stats = %d, want 304", res.StatusCode)
+	}
+}
+
+// The photos of days in a year file are served like the recent ones.
+func TestPhotosOfOlderDays(t *testing.T) {
+	e := newTestEnv(t, true)
+	anna := e.signIn(t, "anna", viewerPassword, false)
+	_, body := e.do(t, anna, "GET", "/"+e.statsOf(t, anna).Archive[0], "")
+	var year struct {
+		Days []stats.Day `json:"days"`
+	}
+	if err := json.Unmarshal([]byte(body), &year); err != nil || len(year.Days[0].Photos) != 1 {
+		t.Fatalf("year file = %s", body)
+	}
+	if res, _ := e.do(t, anna, "GET", "/"+year.Days[0].Photos[0].Src, ""); res.StatusCode != 200 {
+		t.Errorf("a photo of an older day = %d, want 200", res.StatusCode)
 	}
 }
 

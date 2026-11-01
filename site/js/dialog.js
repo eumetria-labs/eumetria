@@ -54,7 +54,13 @@ export function openDialog({ cls, labelledBy, label, id, content = [], returnFoc
   // The browser can still close it without us (it ignores a repeated cancel
   // preventDefault without user activation); clean up then.
   el.addEventListener('close', () => { if (open) { open = false; onClose?.(); done(); } });
-  el.addEventListener('click', (e) => { if (e.target === el) close(); });
+  // A click outside the panel starts and ends there: a drag out of a text
+  // field, or into one, also ends in a click on the dialog, the parent of
+  // both ends.
+  let pressed = null, released = null;
+  el.addEventListener('pointerdown', (e) => { pressed = e.target; });
+  el.addEventListener('pointerup', (e) => { released = e.target; });
+  el.addEventListener('click', (e) => { if (e.target === el && pressed === el && released === el) close(); });
   return { el, close };
 }
 

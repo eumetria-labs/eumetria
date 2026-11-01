@@ -1,6 +1,6 @@
 // Users & roles (account menu, admins only): the accounts with their role,
 // second factor and state; the roles as sets of scopes; everyone's
-// sessions; the audit log. The server (manage.go) checks every request and
+// sessions; notes whose workout is gone; the audit log. The server (manage.go) checks every request and
 // refuses what would lock the admin out; changes need a sign-in within the
 // last 10 minutes, as in the security settings, and the window offers to
 // sign in again and come back here ("#admin").
@@ -9,6 +9,7 @@ import { LOCALE, deviceName } from './format.js';
 import { h, setHashParam, tabKeys } from './dom.js';
 import { openDialog } from './dialog.js';
 import { account, api, reason, signOut } from './account.js';
+import { noteFold, withText } from './notes.js';
 import { t, tn } from './i18n.js';
 
 const dfTime = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -35,7 +36,7 @@ const ERRORS = {
   name_taken: () => t('That name is taken.'),
   bad_name: () => t('Names: up to 64 letters, digits and . _ - @, starting with a letter or digit.'),
   bad_role_name: () => t('Role names: up to 32 letters, digits, spaces and . _ -, starting with a letter or digit.'),
-  bad_scopes: () => t('Routes need Fitbit too.'),
+  bad_scopes: () => t('Routes and notes need Fitbit too, and writing notes needs reading them.'),
   builtin: () => t('The built-in roles can’t be changed.'),
   in_use: () => t('Someone still has this role. Give them another one first.'),
   too_short: () => t('The password needs at least 12 characters.'),
@@ -57,12 +58,14 @@ const ACTIONS = {
   totp_added: () => t('set up an authenticator app'), totp_removed: () => t('removed the authenticator app'),
   recovery_codes_made: () => t('made recovery codes'), recovery_code_used: () => t('used a recovery code'),
   token_created: () => t('made an API token'),
+  note_added: () => t('added a note'), note_changed: () => t('changed a note'), note_deleted: () => t('deleted a note'),
+  note_image_added: () => t('added an image to a note'),
 };
 
 // The role whose form stays open after it is drawn again (lower case).
 let openRole = '';
 
-const TABS = [['users', () => t('Users')], ['roles', () => t('Roles')], ['sessions', () => t('Sessions')], ['audit', () => t('Audit log')]];
+const TABS = [['users', () => t('Users')], ['roles', () => t('Roles')], ['sessions', () => t('Sessions')], ['notes', () => t('Notes')], ['audit', () => t('Audit log')]];
 
 let win = null;
 
@@ -101,7 +104,7 @@ export function openManage(returnFocus, tab = 'users') {
 // load fetches what a tab shows and draws it.
 async function load(body, tab) {
   body.dataset.tab = tab;
-  const path = { users: 'admin/users', roles: 'admin/roles', sessions: 'admin/sessions', audit: 'audit?limit=200' }[tab];
+  const path = { users: 'admin/users', roles: 'admin/roles', sessions: 'admin/sessions', notes: 'admin/notes', audit: 'audit?limit=200' }[tab];
   const [res, roles] = await Promise.all([api(path).catch(() => null), tab === 'users' ? api('admin/roles').catch(() => null) : null]);
   if (body.dataset.tab !== tab) return; // another tab was picked meanwhile
   if (!res?.ok) {
@@ -113,7 +116,7 @@ async function load(body, tab) {
   }
   const data = await res.json();
   const roleData = roles?.ok ? await roles.json() : null;
-  const draw = { users: () => usersTab(body, data, roleData), roles: () => rolesTab(body, data), sessions: () => sessionsTab(body, data), audit: () => auditTab(data) }[tab];
+  const draw = { users: () => usersTab(body, data, roleData), roles: () => rolesTab(body, data), sessions: () => sessionsTab(body, data), notes: () => notesTab(body, data), audit: () => auditTab(data) }[tab];
   body.replaceChildren(...draw());
 }
 
@@ -318,7 +321,7 @@ function roleSection(body, r, scopes, taken = []) {
   return sec;
 }
 
-/* ---------- sessions and the audit log ---------- */
+/* ---------- sessions, notes and the audit log ---------- */
 
 function sessionsTab(body, list) {
   const sec = section(t('Sessions'), tn(list.length, '{n} signed-in device', '{n} signed-in devices'));
@@ -331,6 +334,23 @@ function sessionsTab(body, list) {
     end.disabled = s.current;
     end.onclick = () => change(body, end, () => api('admin/sessions/' + s.id, 'DELETE'));
     row.append(name, h('span', { class: 'amt' }, note.join(' · ')), end);
+    sec.append(row);
+  }
+  return [sec];
+}
+
+// Notes whose workout is gone from the synced data: only admins still see them.
+function notesTab(body, list) {
+  const sec = section(t('Notes without a workout'), t('Their workout is no longer in the synced data.'));
+  if (!list.length) sec.append(h('p', { class: 'empty-tab' }, t('Every note has its workout.')));
+  for (const n of list) {
+    const row = h('div', { class: 'adm-note' });
+    const del = h('button', { class: 'pill-btn', type: 'button' }, t('Delete'));
+    del.onclick = () => {
+      if (confirm(t('Delete this note?'))) change(body, del, () => api('notes/' + encodeURIComponent(n.workout_id), 'DELETE'));
+    };
+    const info = h('span', { class: 'muted' }, t('by {name}, {date}', { name: n.updated_by, date: dfTime.format(new Date(n.updated_at)) }));
+    row.append(info, del, noteFold(withText(n)));
     sec.append(row);
   }
   return [sec];

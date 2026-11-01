@@ -23,6 +23,7 @@ import (
 
 	"eumetria/internal/auth"
 	"eumetria/internal/imgmeta"
+	"eumetria/internal/notes"
 )
 
 // Every route of the server and who may use it. routes() is the only place
@@ -42,6 +43,11 @@ import (
 //	GET    /days/{name}       older days, one file per year (listed in the stats)  signed in
 //	GET    /photos/{name}     a meal or recipe photo, without metadata             signed in, view.photos
 //	GET    /routes/{name}     a workout's GPS track                                signed in, view.routes
+//	GET    /api/notes         workout notes (?from, ?to: days), notes.go           signed in, view.notes
+//	PUT    /api/notes/{key}   {markdown}: a workout's note, new or changed         edit.notes
+//	DELETE /api/notes/{key}   deletes it                                           edit.notes
+//	POST   /api/notes/{key}/images  {image}: stores one, answers its address       edit.notes
+//	GET    /note-images/{name}  an image in a note                                 signed in, view.notes
 //	GET    /api/me            who is signed in, with their scopes                  signed in
 //	POST   /api/logout        ends this session                                    session
 //	POST   /api/logout-all    ends every session of this user                      session
@@ -64,13 +70,15 @@ import (
 //	DELETE /api/admin/roles/{name}  deletes one nobody has                         admin, recent sign-in
 //	GET    /api/admin/sessions  everyone's sessions                                admin
 //	DELETE /api/admin/sessions/{id}  ends one                                      admin
+//	GET    /api/admin/notes   notes whose workout is gone                          admin
 //	GET    /api/status        sync state                                           sync
 //	POST   /api/sync          starts a sync now (?all=1 re-fetches everything)     sync
 //
 // "Signed in" is a session or an API token with the read scope; "admin" a
-// session of a role with the admin scope; "sync" a session of a role with
-// the sync scope, or such a user's token with the sync scope. Admin and
-// sync sessions count only once the user has a second factor. API tokens
+// session of a role with the admin scope; "edit.notes" a session of a role
+// with that scope; "sync" a session of a role with the sync scope, or such a
+// user's token with the sync scope. Admin and sync rights, and notes written
+// with them, count only once the user has a second factor. API tokens
 // are sent as "Authorization: Bearer eum_…" and made with -create-token;
 // with "read" they see what the user's role sees.
 
@@ -82,6 +90,7 @@ const (
 	ownSession                   // a session (an API token can't manage sessions)
 	adminOnly                    // a session with the admin scope
 	syncAccess                   // a session with the sync scope, or a token with "sync"
+	noteWriter                   // a session with the edit.notes scope
 )
 
 type route struct {
@@ -131,10 +140,13 @@ const sessionCookie = "__Host-eumetria_session"
 type app struct {
 	runner   *runner
 	store    *auth.Store
+	notes    *notes.Store
 	data     *published
 	photoDir string
-	site     http.Handler
-	tags     map[string]string
+	// Images in notes (internal/notes, images.go).
+	noteImages string
+	site       http.Handler
+	tags       map[string]string
 	// Failed sign-ins per account name and per address. An account locks
 	// after 5 within 15 minutes, for 15 minutes, doubling up to a day; an
 	// address after 20, so one person can't lock everyone out by guessing
@@ -146,16 +158,18 @@ type app struct {
 	relyingParties sync.Map
 }
 
-func newHandler(r *runner, pages fs.FS, data *published, photoDir string, store *auth.Store) http.Handler {
+func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages string, store *auth.Store) http.Handler {
 	a := &app{
-		runner:   r,
-		store:    store,
-		data:     data,
-		photoDir: photoDir,
-		site:     http.FileServerFS(noDirs{pages}),
-		tags:     etags(pages),
-		byName:   auth.NewLimiter(5, 15*time.Minute, 15*time.Minute, 24*time.Hour),
-		byIP:     auth.NewLimiter(20, 15*time.Minute, 15*time.Minute, 24*time.Hour),
+		runner:     r,
+		store:      store,
+		notes:      &notes.Store{DB: store.DB, Now: store.Now},
+		data:       data,
+		photoDir:   photoDir,
+		noteImages: noteImages,
+		site:       http.FileServerFS(noDirs{pages}),
+		tags:       etags(pages),
+		byName:     auth.NewLimiter(5, 15*time.Minute, 15*time.Minute, 24*time.Hour),
+		byIP:       auth.NewLimiter(20, 15*time.Minute, 15*time.Minute, 24*time.Hour),
 	}
 	mux := http.NewServeMux()
 	for _, rt := range a.routes() {
@@ -178,6 +192,11 @@ func (a *app) routes() []route {
 		{"GET", "/days/{name}", signedIn, a.file("days")},
 		{"GET", "/photos/{name}", signedIn, scoped(auth.ViewPhotos, a.photo)},
 		{"GET", "/routes/{name}", signedIn, scoped(auth.ViewRoutes, a.file("routes"))},
+		{"GET", "/api/notes", signedIn, scoped(auth.ViewNotes, a.notesList)},
+		{"PUT", "/api/notes/{key}", noteWriter, a.notePut},
+		{"DELETE", "/api/notes/{key}", noteWriter, a.noteDelete},
+		{"POST", "/api/notes/{key}/images", noteWriter, a.noteImagePost},
+		{"GET", "/note-images/{name}", signedIn, scoped(auth.ViewNotes, a.noteImage)},
 		{"GET", "/api/me", signedIn, a.me},
 		{"POST", "/api/logout", ownSession, a.logout},
 		{"POST", "/api/logout-all", ownSession, a.logoutAll},
@@ -202,6 +221,7 @@ func (a *app) routes() []route {
 		{"DELETE", "/api/admin/roles/{name}", adminOnly, a.adminDeleteRole},
 		{"GET", "/api/admin/sessions", adminOnly, a.adminSessions},
 		{"DELETE", "/api/admin/sessions/{id}", adminOnly, a.adminEndSession},
+		{"GET", "/api/admin/notes", adminOnly, a.adminNotes},
 		{"GET", "/api/status", syncAccess, a.status},
 		{"POST", "/api/sync", syncAccess, a.sync},
 	}
@@ -239,7 +259,7 @@ func (a *app) guard(rt route) http.Handler {
 			writeError(w, http.StatusUnauthorized, "signin")
 			return
 		}
-		if p.session != nil && p.user.Elevated() && (rt.access == adminOnly || rt.access == syncAccess) {
+		if p.session != nil && p.user.Elevated() && (rt.access == adminOnly || rt.access == syncAccess || rt.access == noteWriter) {
 			// Admin and sync rights need the second factor; reading doesn't.
 			f, err := a.store.Factors(req.Context(), p.user)
 			if err != nil || !f.Any() {
@@ -257,6 +277,8 @@ func (a *app) guard(rt route) http.Handler {
 			ok = p.session != nil && p.user.Can(auth.ScopeAdmin)
 		case syncAccess:
 			ok = p.can(auth.ScopeSync)
+		case noteWriter:
+			ok = p.can(auth.EditNotes)
 		}
 		if !ok {
 			writeError(w, http.StatusForbidden, "forbidden")
@@ -670,13 +692,22 @@ func (a *app) audit_(ctx context.Context, u *auth.User, actor, action, detail, i
 	}
 }
 
-// readJSON decodes a small JSON body into v, answering 400 itself when it
-// can't.
+// readJSON decodes a small JSON body into v, answering itself when it can't.
 func readJSON(w http.ResponseWriter, req *http.Request, v any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, req.Body, 8<<10))
+	return readJSONUpTo(w, req, v, 8<<10)
+}
+
+// readJSONUpTo is readJSON for a body of up to limit bytes.
+func readJSONUpTo(w http.ResponseWriter, req *http.Request, v any, limit int64) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, req.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request")
+		var big *http.MaxBytesError
+		if errors.As(err, &big) {
+			writeError(w, http.StatusRequestEntityTooLarge, "too_long")
+		} else {
+			writeError(w, http.StatusBadRequest, "bad_request")
+		}
 		return false
 	}
 	return true

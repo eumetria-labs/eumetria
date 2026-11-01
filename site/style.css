@@ -1371,6 +1371,8 @@ a.q-badges:focus-visible { outline: none; }
 .adm-fold .adm-role { margin-top: 12px; }
 .adm-scope span { display: flex; flex-direction: column; }
 .adm-scope .muted { font-size: 12.5px; line-height: 1.35; }
+.adm-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 10px 0; border-bottom: 1px solid var(--grid); font-size: 13.5px; }
+.adm-note .note-fold { flex-basis: 100%; padding-bottom: 0; border-bottom: 0; }
 .adm-log { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--grid); font-size: 13.5px; align-items: baseline; }
 .adm-log time, .adm-ip { font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .adm-error { margin-bottom: 12px; }
@@ -1380,3 +1382,52 @@ a.q-badges:focus-visible { outline: none; }
   .adm-log span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
 }
 @media (max-width: 420px) { .sec-code-list { columns: 1; } }
+
+/* Workout notes: a note as Markdown, and writing one */
+.md { font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 8px 0; }
+.md h4, .md h5, .md h6 { margin: 16px 0 4px; font-weight: 650; letter-spacing: -0.01em; color: var(--ink); }
+.md h4 { font-size: 16px; }
+.md h5 { font-size: 14.5px; }
+.md h6 { font-size: 13.5px; color: var(--ink-2); }
+.md ul, .md ol { margin: 6px 0; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md li::marker { color: var(--muted); }
+.md strong { font-weight: 650; }
+.md img { display: block; max-width: 100%; max-height: 420px; border-radius: 12px; cursor: zoom-in; }
+.md img:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+.md pre { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); overflow-x: auto; overflow-wrap: normal; }
+.md pre code { padding: 0; background: none; font-size: 12.5px; line-height: 1.5; }
+.md code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; padding: 1px 5px; border-radius: 6px; background: var(--surface-2); }
+.md a { color: var(--s1); text-underline-offset: 2px; }
+.note-clamp { position: relative; max-height: 260px; overflow: hidden; }
+.note-clamp.open { max-height: none; }
+.note-clamp.cut::after { content: ""; position: absolute; inset: auto 0 0; height: 56px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--surface)); }
+.note-more { display: block; margin-top: 4px; padding: 4px 0; font: inherit; font-size: 13.5px; font-weight: 550; color: var(--s1); background: none; border: 0; cursor: pointer; }
+.note-more[hidden] { display: none; }
+.note-more:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; border-radius: 3px; }
+.note-actions { margin-top: 12px; }
+.note-status { margin: 0; font-size: 13px; }
+.note-status:empty { display: none; }
+.note-actions + .lock-error { margin-top: 8px; }
+.note-form { display: grid; gap: 8px; }
+.note-form .lock-error[hidden] { display: none; }
+.note-tabs { margin: 0; }
+textarea.field.note-input {
+  display: block; width: 100%; height: auto; min-height: 180px; padding: 10px 12px; border-radius: 12px; resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.5;
+}
+textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
+.note-preview { min-height: 180px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; }
+@media (max-width: 520px) {
+  textarea.field.note-input { font-size: 16px; } /* 16px keeps iOS from zooming in */
+}
+.note-fold { padding: 6px 0 10px; border-bottom: 1px solid var(--grid); font-size: 13.5px; }
+.note-fold summary { cursor: pointer; list-style: none; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-fold summary::-webkit-details-marker { display: none; }
+.note-fold summary::before { content: "›"; display: inline-block; width: 14px; color: var(--muted); transition: transform .2s var(--ease); }
+.note-fold[open] summary::before { transform: rotate(90deg); }
+.note-fold summary:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; border-radius: 3px; }
+.note-fold .md { margin-top: 6px; }

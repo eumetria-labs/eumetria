@@ -1,5 +1,5 @@
 // The workout window: opened from a workout in the day sheet. Key numbers,
-// the heart rate curve over the zone bands, time per zone and, for workouts
+// the note, the heart rate curve over the zone bands, time per zone and, for workouts
 // recorded with GPS, the route on a map.
 
 import { actLabel, actName, dfLong, fmt, fmtDistance, fmtDuration, parse } from './format.js';
@@ -7,6 +7,7 @@ import { ZONES, speedLabel, workoutIcon, workoutName, zoneOf, zoneRuns, zoneShar
 import { $, h, svg, emoji, showTip, hideTip, setHashParam, textWidth } from './dom.js';
 import { openDialog } from './dialog.js';
 import { workoutShareButton } from './cards.js';
+import { noteSection } from './notes.js';
 import { t } from './i18n.js';
 
 let win = null;
@@ -31,6 +32,8 @@ export function openWorkout(day, id, returnFocus) {
 
   const body = h('div', { class: 'wo-body' });
   body.append(stats(w));
+  const note = noteSection(w);
+  if (note) body.append(note);
   if (w.hr?.length > 1) {
     const sec = section(t('Heart rate'), w.limits ? t('Dotted lines mark your zone limits that day') : '');
     const chart = h('div', { class: 'chart wo-hr' });

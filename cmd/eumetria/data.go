@@ -28,10 +28,11 @@ type published struct {
 
 // build is the stats for one set of scopes, with the files they point to.
 type build struct {
-	stats  []byte            // the JSON of /api/stats
-	etag   string            // its hash, for revalidation
-	files  map[string][]byte // "routes/<hash>.json" and "days/<hash>.json"
-	photos map[string]bool   // the photo files these stats show
+	stats    []byte            // the JSON of /api/stats
+	etag     string            // its hash, for revalidation
+	files    map[string][]byte // "routes/<hash>.json" and "days/<hash>.json"
+	photos   map[string]bool   // the photo files these stats show
+	workouts map[string]string // the workouts they show: ID → day
 }
 
 func newPublished(opts stats.Options) *published {
@@ -68,23 +69,27 @@ func (p *published) get(scopes []string, admin bool) (*build, error) {
 	opts.CreditStatus = admin
 	out := stats.Build(p.hist, opts, p.at)
 	out.Scopes = scopes
-	files, err := splitFiles(&out)
-	if err != nil {
-		return nil, err
-	}
-	b := &build{files: files, photos: map[string]bool{}}
+	b := &build{photos: map[string]bool{}, workouts: map[string]string{}}
 	photo := func(src string) {
 		if strings.HasPrefix(src, opts.PhotoPath) { // not the demo's data: URLs
 			b.photos[path.Base(src)] = true
 		}
 	}
+	// Every day, before splitFiles moves the older ones into their year files.
 	for _, d := range out.Days {
 		for _, ph := range d.Photos {
 			photo(ph.Src)
 		}
+		for _, w := range d.Workouts {
+			b.workouts[w.ID] = d.Date
+		}
 	}
 	for _, r := range out.Recipes {
 		photo(r.Image)
+	}
+	var err error
+	if b.files, err = splitFiles(&out); err != nil {
+		return nil, err
 	}
 	if b.stats, err = json.Marshal(out); err != nil {
 		return nil, err

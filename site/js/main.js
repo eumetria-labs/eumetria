@@ -21,6 +21,7 @@ import { renderTraining } from './training.js';
 import { renderDevice, renderNotices } from './device.js';
 import { initAdmin } from './admin.js';
 import { forgetData, initAccount, onUserChange, reason, signedIn } from './account.js';
+import { loadNotes } from './notes.js';
 import { renderTable } from './table.js';
 import { renderFoodQuality } from './foodquality.js';
 import { renderReview } from './weekly.js';
@@ -94,6 +95,8 @@ async function load() {
     }
     if (!res.ok) throw new Error(res.status);
     const recent = await res.json();
+    // Notes change between syncs, and every window reads them when it opens.
+    await loadNotes(recent);
     if (state.data && recent.generated_at === state.data.generated_at) return;
     const next = await withArchive(recent);
     const first = !state.data;

@@ -108,11 +108,14 @@ Everything but the sign-in page needs an account, and each account has one role.
 | `view.health` | Fitbit workouts, heart rate, sleep, recovery, the tracker |
 | `view.routes` | GPS tracks of workouts (needs `view.health`) |
 | `view.review` | the weekly review |
-| `view.notes`, `edit.notes` | workout notes (coming) |
+| `view.notes` | workout notes (needs `view.health`) |
+| `edit.notes` | add, change and delete notes (needs `view.notes`) |
 | `sync` | the sync button, with **Full refresh** in its menu |
 | `admin` | everything, including the audit log and the credit warning |
 
 Two roles are built in: **admin** (everything) and **viewer** (every `view.*` scope). Make your own for anyone who should see less, e.g. a coach who sees what you eat but not where you run.
+
+**Workout notes** belong to Fitbit workouts: open a workout and write Markdown (headings, bold, italic, lists, inline code, code blocks between ``` lines, `http(s)` links; no HTML). Paste an image with Ctrl+V or use **Add image**: it's uploaded at once, stripped of its metadata and embedded where the cursor is; images from other sites aren't shown. A long note shows its start with a **Show more** button. Notes show in the workout, in the activity's history and in the search, and you can add one to a workout's share card (text only). They live in `app.db`, their images in `note-images/` in the data folder, so both are backed up. A note whose workout has gone from Google stays until an admin deletes it (**Users & roles** → **Notes**).
 
 Admins manage all of this in the page: account menu → **Users & roles**. There you add people, give them a role, set a new password for someone who forgot theirs, require a second factor (until they set one up they see no data), disable an account, edit roles as checkboxes, end anyone's session and read the audit log. Changes need a sign-in within the last 10 minutes. You can't disable or demote your own account, and the site always keeps one admin. A changed role applies to the user's next request; they stay signed in.
 

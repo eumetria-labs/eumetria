@@ -70,7 +70,8 @@ func (u *User) Elevated() bool { return u.Can(ScopeAdmin) || u.Can(ScopeSync) }
 func (u *User) NeedsSecondFactor() bool { return u.Elevated() || u.RequireSecondFactor }
 
 // NormalizeScopes checks scopes and returns them sorted without
-// duplicates. GPS tracks need the workouts they belong to.
+// duplicates. GPS tracks and notes need the workouts they belong to, and
+// writing notes needs reading them.
 func NormalizeScopes(scopes []string) ([]string, error) {
 	var out []string
 	for _, sc := range scopes {
@@ -81,8 +82,10 @@ func NormalizeScopes(scopes []string) ([]string, error) {
 			out = append(out, sc)
 		}
 	}
-	if slices.Contains(out, ViewRoutes) && !slices.Contains(out, ViewHealth) && !slices.Contains(out, ScopeAdmin) {
-		return nil, fmt.Errorf("%w: %s needs %s", ErrBadScope, ViewRoutes, ViewHealth)
+	for _, need := range [][2]string{{ViewRoutes, ViewHealth}, {ViewNotes, ViewHealth}, {EditNotes, ViewNotes}} {
+		if slices.Contains(out, need[0]) && !slices.Contains(out, need[1]) && !slices.Contains(out, ScopeAdmin) {
+			return nil, fmt.Errorf("%w: %s needs %s", ErrBadScope, need[0], need[1])
+		}
 	}
 	slices.Sort(out)
 	return out, nil

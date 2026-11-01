@@ -3,6 +3,7 @@
 export const state = {
   data: null,
   byDate: new Map(),
+  notes: new Map(), // workout id → its note (notes.js)
   range: '30', // '7', '30', '90', '365', 'all' or 'custom'
   from: null, // first and last day of a custom range, ISO dates
   to: null,

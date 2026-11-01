@@ -297,6 +297,27 @@ export function searchAll(days, q, limit = 8) {
   return { foods: rank(foods), activities: rank(activities, actLabel), days: found };
 }
 
+// Notes ({ date, text }) holding every word of q, the newest workouts first.
+export function searchNotes(notes, q, limit = 8) {
+  const ws = words(q);
+  if (!ws.length) return [];
+  return notes
+    .filter((n) => FOLDS.some((fold) => {
+      const text = fold(n.text);
+      return ws.every((w) => text.includes(fold(w)));
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, limit);
+}
+
+// The part of a note around the first word of q, on one line.
+export function noteSnippet(text, q, around = 24) {
+  const line = text.replace(/\s+/g, ' ').trim();
+  const first = words(q)[0];
+  const at = first ? line.toLowerCase().indexOf(first.toLowerCase()) : -1;
+  return at <= around ? line : '…' + line.slice(at - around).trimStart();
+}
+
 // The first and last day of the selected range, as dates: the last N days
 // up to the last synced day, everything, or a custom from–to (either order).
 // Never outside the synced days, so charts have no empty lead-in.

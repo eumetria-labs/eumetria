@@ -301,15 +301,22 @@ func TestRoles(t *testing.T) {
 		t.Fatalf("coach = %+v, %v", coach, err)
 	}
 	for scopes, want := range map[string]error{
-		"view.routes":             ErrBadScope, // needs the workouts
-		"view.routes view.health": nil,
-		"view.everything":         ErrBadScope,
+		"view.routes":                       ErrBadScope, // needs the workouts
+		"view.routes view.health":           nil,
+		"view.notes":                        ErrBadScope, // needs the workouts too
+		"edit.notes view.health":            ErrBadScope, // writing needs reading
+		"edit.notes view.notes view.health": nil,
+		"admin edit.notes":                  nil,
+		"view.everything":                   ErrBadScope,
 	} {
 		if err := s.SaveRole(ctx, "Coach", strings.Fields(scopes)); !errors.Is(err, want) {
 			t.Errorf("%q: %v, want %v", scopes, err, want)
 		}
 	}
 	// A changed role applies to the user's next request.
+	if err := s.SaveRole(ctx, "Coach", []string{ViewRoutes, ViewHealth}); err != nil {
+		t.Fatal(err)
+	}
 	tok, _, _ := s.CreateSession(ctx, coach, false, "", "")
 	if _, u, _ := s.Session(ctx, tok); !u.Can(ViewRoutes) || u.Can(ViewNutrition) {
 		t.Errorf("session scopes after the change = %v", u.Scopes)

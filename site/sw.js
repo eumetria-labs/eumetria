@@ -1,10 +1,10 @@
 // Service worker: makes the page installable and usable offline.
 //
-// Page code and the data (api/stats) are fetched from the network first, so
+// Page code and the data (api/stats, api/notes) are fetched from the network first, so
 // a new deploy or sync shows up immediately; the cache is only a fallback
-// when offline. Photos, routes, the older days (days/), fonts and icons
-// never change under the same name, so they are served from the cache
-// first.
+// when offline. Photos, images in notes, routes, the older days (days/),
+// fonts and icons never change under the same name, so they are served from
+// the cache first.
 //
 // Two caches: CACHE holds the page and the data and is replaced with each
 // new version of the page (the data only once it was loaded: it needs a
@@ -15,17 +15,18 @@
 // are kept, never a 401 or the sign-in; the page clears the data when the
 // user signs out, gets a 401 or another user signs in (account.js).
 
-const CACHE = 'stats-v22';
+const CACHE = 'stats-v24';
 const DATA = 'stats-data-v1';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/main.js', 'js/format.js', 'js/insights.js', 'js/state.js', 'js/dom.js', 'js/charts.js', 'js/sheet.js', 'js/lightbox.js', 'js/admin.js',
   'js/health.js', 'js/workout.js', 'js/recovery.js', 'js/device.js', 'js/training.js', 'js/table.js', 'js/query.js', 'js/recipe.js', 'js/quality.js', 'js/foodquality.js', 'js/reviewtext.js', 'js/weekly.js', 'js/history.js',
-  'js/today.js', 'js/energy.js', 'js/weight.js', 'js/macros.js', 'js/movement.js', 'js/foods.js', 'js/dialog.js', 'js/sections.js', 'js/search.js', 'js/export.js', 'js/zip.js', 'js/report.js', 'js/snapshot.js', 'js/share.js', 'js/cards.js', 'js/account.js', 'js/security.js', 'js/manage.js', 'js/webauthn.js', 'js/sources.js', 'js/i18n.js', 'js/de.js',
+  'js/today.js', 'js/energy.js', 'js/weight.js', 'js/macros.js', 'js/movement.js', 'js/foods.js', 'js/dialog.js', 'js/sections.js', 'js/search.js', 'js/export.js', 'js/zip.js', 'js/report.js', 'js/snapshot.js', 'js/share.js', 'js/cards.js', 'js/account.js', 'js/security.js', 'js/manage.js', 'js/notes.js', 'js/markdown.js', 'js/webauthn.js', 'js/sources.js', 'js/i18n.js', 'js/de.js',
   'fonts/inter-latin-var.woff2', 'icons/icon-192.png', 'icons/mark.svg',
 ];
-const IMMUTABLE = /\/(photos|routes|days|fonts|icons|vendor)\//;
+const IMMUTABLE = /\/(photos|note-images|routes|days|fonts|icons|vendor)\//;
 const PRUNABLE = /\/(photos|routes|days)\//;
+const OFFLINE_API = /\/api\/(stats|notes)$/;
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -44,9 +45,10 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   // Of the API only the data is kept for offline use; sign-in, sync and the
   // rest always hit the network.
-  if (url.pathname.includes('/api/') && !url.pathname.endsWith('/api/stats')) return;
+  const data = OFFLINE_API.test(url.pathname);
+  if (url.pathname.includes('/api/') && !data) return;
   // The data is stored under one key, whatever query it was asked with.
-  const key = url.pathname.endsWith('/api/stats') ? new Request(url.origin + url.pathname) : e.request;
+  const key = data ? new Request(url.origin + url.pathname) : e.request;
   e.respondWith(IMMUTABLE.test(url.pathname) ? cacheFirst(e.request) : networkFirst(e.request, key));
 });
 
