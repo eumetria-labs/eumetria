@@ -164,7 +164,7 @@ The Anthropic API is prepaid: buy credit at [console.anthropic.com](https://cons
 
 Every night at 03:30 the app writes an archive to `/var/backups/eumetria`, keeping 14 days: the synced history, photos, pictures, images in notes, the Google token and the database. **Settings → Backups** changes the time and how long they are kept, shows the last runs and has **Back up now**. It doesn't run during a sync.
 
-**With a passphrase** (set it in the same tab, and keep a copy in your password manager) archives are encrypted. Then they can also go to **Google Drive**: turn it on, use **Connect again** under Settings → Google to allow it, and **Test connection**. The app can only see and delete the files it made there. Without a passphrase nothing is uploaded, and local archives are readable by root on the server.
+**With a passphrase** (set it in the same tab, and keep a copy in your password manager) archives are encrypted. Then they can also go to **Google Drive**: enable the **Google Drive API** in the Google Cloud project, turn it on here and save, use **Connect again** under Settings → Google to allow it, and **Test connection**. The app can only see and delete the files it made there. Without a passphrase nothing is uploaded, and local archives are readable by root on the server.
 
 `SETTINGS_KEY` isn't in the archives. Keep it with the passphrase: a restored server needs it to read its secrets, or they have to be typed in again.
 
