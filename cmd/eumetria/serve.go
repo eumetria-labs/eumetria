@@ -18,6 +18,7 @@ import (
 	"eumetria/internal/auth"
 	"eumetria/internal/db"
 	"eumetria/internal/notes"
+	"eumetria/internal/settings"
 	"eumetria/internal/store"
 	"eumetria/site"
 )
@@ -39,13 +40,13 @@ const csp = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 's
 	"connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 const (
-	minInterval = 5 * time.Minute  // Yazio's API is private; don't hammer it
-	syncTimeout = 15 * time.Minute // a full backfill with photos takes a few minutes
+	syncTimeout    = 15 * time.Minute // a full backfill with photos takes a few minutes
+	rewriteTimeout = 2 * time.Hour    // a minute or so per week
 )
 
 func serve(ctx context.Context, cfg config, o serveOptions) error {
-	if o.interval < minInterval {
-		return fmt.Errorf("-interval %s is too short, use at least %s", o.interval, minInterval)
+	if o.interval < settings.MinInterval {
+		return fmt.Errorf("-interval %s is too short, use at least %s", o.interval, settings.MinInterval)
 	}
 	pages, from := fs.FS(site.Files), "compiled-in page files"
 	if o.siteDir != "" {
@@ -73,6 +74,24 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	if err := setupAccounts(ctx, accounts, cfg.demo); err != nil {
 		return err
 	}
+	conf, err := settings.New(database, os.Getenv("SETTINGS_KEY"))
+	if err != nil {
+		return err
+	}
+	if !conf.CanEncrypt() {
+		log.Printf("SETTINGS_KEY isn't set: secrets stay in the environment and can't be changed in the page")
+	}
+	if n, err := conf.Import(ctx); err != nil {
+		return fmt.Errorf("importing the settings: %w", err)
+	} else if n > 0 {
+		log.Printf("settings: copied %d values from the environment; the page shows them under Settings", n)
+	}
+	values, err := conf.Values(ctx)
+	if err != nil {
+		return err
+	}
+	cfg.interval = o.interval
+	cfg = cfg.with(values)
 	go snapshotLoop(ctx, database, filepath.Join(cfg.dataDir, "backup"))
 	noteImages := filepath.Join(cfg.dataDir, "note-images")
 	go imageLoop(ctx, &notes.Store{DB: database, Now: time.Now}, noteImages)
@@ -88,7 +107,8 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 			data.set(hist, info.ModTime())
 		}
 	}
-	r := newRunner(cfg, o.interval, data)
+	r := newRunner(cfg, cfg.interval, data)
+	r.settings = conf
 	srv := &http.Server{
 		Addr:              o.addr,
 		Handler:           newHandler(r, pages, data, cfg.photoDir, noteImages, filepath.Join(cfg.dataDir, "avatars"), accounts),
@@ -121,18 +141,26 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	return nil
 }
 
-// runner runs syncs one at a time, on a schedule or on request, and hands
-// each new history to data.
+// runner runs one job at a time, a sync or rewriting the reviews, on a
+// schedule or on request, and hands each new history to data. Each job reads
+// the settings when it starts.
 type runner struct {
 	cfg      config
-	interval time.Duration
 	started  time.Time
 	data     *published
+	settings *settings.Store                                       // nil in tests that don't need it
 	sync     func(context.Context, config) (*store.History, error) // syncHistory; replaced in tests
+	rewrite  func(context.Context, config, func(done, total int)) (*store.History, error)
+	retimed  chan struct{} // the interval changed
 
 	mu          sync.Mutex
+	interval    time.Duration
 	running     bool
-	runningAll  bool // the running sync re-fetches everything
+	runningAll  bool   // the running sync re-fetches everything
+	job         string // what runs, when it isn't a sync
+	jobDone     int
+	jobTotal    int
+	jobError    string
 	lastAttempt time.Time
 	lastSuccess time.Time
 	lastError   string
@@ -140,7 +168,52 @@ type runner struct {
 }
 
 func newRunner(cfg config, interval time.Duration, data *published) *runner {
-	return &runner{cfg: cfg, interval: interval, started: time.Now(), data: data, sync: syncHistory}
+	return &runner{cfg: cfg, interval: interval, started: time.Now(), data: data, sync: syncHistory, rewrite: rewriteServer, retimed: make(chan struct{}, 1)}
+}
+
+func rewriteServer(ctx context.Context, cfg config, progress func(done, total int)) (*store.History, error) {
+	if cfg.values.AnthropicKey == "" {
+		return nil, errors.New("no Anthropic API key in the settings")
+	}
+	return rewriteReviews(ctx, cfg, writer(cfg.values.AnthropicKey), progress)
+}
+
+// current is the config for a job that starts now.
+func (r *runner) current(ctx context.Context) config {
+	if r.settings == nil {
+		return r.cfg
+	}
+	v, err := r.settings.Values(ctx)
+	if err != nil {
+		log.Printf("settings: %v", err)
+		return r.cfg
+	}
+	return r.cfg.with(v)
+}
+
+// reconfigure takes new settings: the schedule moves to the new interval at
+// once. It returns the config they make.
+func (r *runner) reconfigure(v settings.Values) config {
+	cfg := r.cfg.with(v)
+	r.mu.Lock()
+	changed := cfg.interval != r.interval && cfg.interval > 0
+	if changed {
+		r.interval = cfg.interval
+	}
+	r.mu.Unlock()
+	if changed {
+		select {
+		case r.retimed <- struct{}{}:
+		default:
+		}
+	}
+	return cfg
+}
+
+func (r *runner) period() time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.interval
 }
 
 // schedule syncs right away and then every interval until ctx ends. A
@@ -148,12 +221,14 @@ func newRunner(cfg config, interval time.Duration, data *published) *runner {
 // sync; otherwise every scheduled run would re-fetch a whole year.
 func (r *runner) schedule(ctx context.Context) {
 	r.start(ctx, r.cfg.refreshAll)
-	t := time.NewTicker(r.interval)
+	t := time.NewTicker(r.period())
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-r.retimed:
+			t.Reset(r.period())
 		case <-t.C:
 			r.start(ctx, false)
 		}
@@ -173,7 +248,7 @@ func (r *runner) start(ctx context.Context, refreshAll bool) bool {
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		cfg := r.cfg
+		cfg := r.current(ctx)
 		cfg.refreshAll = refreshAll
 		syncCtx, cancel := context.WithTimeout(ctx, syncTimeout)
 		hist, err := r.sync(syncCtx, cfg)
@@ -196,12 +271,51 @@ func (r *runner) start(ctx context.Context, refreshAll bool) bool {
 	return true
 }
 
+// startRewrite has every review written again in the background, and reports
+// false if a job is running. The history comes in as far as it got.
+func (r *runner) startRewrite(ctx context.Context) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.running {
+		return false
+	}
+	r.running, r.job, r.jobDone, r.jobTotal, r.jobError = true, "rewrite", 0, 0, ""
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		jobCtx, cancel := context.WithTimeout(ctx, rewriteTimeout)
+		defer cancel()
+		hist, err := r.rewrite(jobCtx, r.current(ctx), func(done, total int) {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			r.jobDone, r.jobTotal = done, total
+		})
+		if hist != nil {
+			r.data.set(hist, time.Now())
+		}
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.running, r.job = false, ""
+		if err != nil {
+			r.jobError = err.Error()
+			log.Printf("rewriting the reviews: %v", err)
+		}
+	}()
+	return true
+}
+
 func (r *runner) wait() { r.wg.Wait() }
 
 type syncStatus struct {
 	Running bool `json:"running"`
 	// All marks a running refresh of the whole history.
 	All bool `json:"all,omitempty"`
+	// Job is what runs when it isn't a sync, with how far it got; JobError
+	// how the last one ended.
+	Job      string `json:"job,omitempty"`
+	JobDone  int    `json:"job_done,omitempty"`
+	JobTotal int    `json:"job_total,omitempty"`
+	JobError string `json:"job_error,omitempty"`
 	// RefreshDays is how many recent days a normal sync re-fetches.
 	RefreshDays int        `json:"refresh_days"`
 	LastAttempt *time.Time `json:"last_attempt,omitempty"`
@@ -222,6 +336,10 @@ func (r *runner) status() syncStatus {
 	return syncStatus{
 		Running:     r.running,
 		All:         r.runningAll,
+		Job:         r.job,
+		JobDone:     r.jobDone,
+		JobTotal:    r.jobTotal,
+		JobError:    r.jobError,
 		RefreshDays: r.cfg.refreshDays,
 		LastAttempt: opt(r.lastAttempt),
 		LastSuccess: opt(r.lastSuccess),

@@ -12,6 +12,8 @@ package google
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,7 +35,10 @@ const (
 )
 
 // tokenURL is a variable so tests can point it at a fake server.
-var tokenURL = "https://oauth2.googleapis.com/token"
+var (
+	tokenURL  = "https://oauth2.googleapis.com/token"
+	revokeURL = "https://oauth2.googleapis.com/revoke"
+)
 
 // Scopes are read-only: workouts and heart rate zones (activity_and_fitness),
 // resting heart rate and HRV (health_metrics_and_measurements), sleep, and
@@ -46,8 +51,9 @@ var Scopes = []string{
 	scopePrefix + "settings.readonly",
 }
 
-// ErrNotAuthorized means there is no usable refresh token: run -google-auth.
-var ErrNotAuthorized = errors.New("google: not authorized, run eumetria -google-auth")
+// ErrNotAuthorized means there is no usable refresh token: connect Google in
+// the settings.
+var ErrNotAuthorized = errors.New("google: not connected, use Connect Google in the settings")
 
 // Config identifies the OAuth client registered in the Google Cloud console.
 // RedirectURL must be one of the client's authorized redirect URIs.
@@ -55,6 +61,9 @@ type Config struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
+	// Verifier turns on PKCE: the consent carries its hash, the exchange the
+	// verifier itself.
+	Verifier string
 }
 
 // AuthURL is the consent page. access_type=offline with prompt=consent makes
@@ -69,6 +78,11 @@ func (c Config) AuthURL(state string) string {
 		"prompt":                 {"consent"},
 		"include_granted_scopes": {"true"},
 		"state":                  {state},
+	}
+	if c.Verifier != "" {
+		sum := sha256.Sum256([]byte(c.Verifier))
+		q.Set("code_challenge", base64.RawURLEncoding.EncodeToString(sum[:]))
+		q.Set("code_challenge_method", "S256")
 	}
 	return authURL + "?" + q.Encode()
 }
@@ -120,13 +134,35 @@ type tokenResponse struct {
 	Description  string `json:"error_description"`
 }
 
+// Revoke ends the grant at Google, so the app loses access there too.
+func Revoke(ctx context.Context, hc *http.Client, t *Token) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, revokeURL, strings.NewReader(url.Values{"token": {t.RefreshToken}}.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	res, err := hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("google: revoking: %s", res.Status)
+	}
+	return nil
+}
+
 // Exchange trades the code from the consent redirect for tokens.
 func (c Config) Exchange(ctx context.Context, hc *http.Client, code string) (*Token, error) {
-	tr, err := c.token(ctx, hc, url.Values{
+	form := url.Values{
 		"grant_type":   {"authorization_code"},
 		"code":         {code},
 		"redirect_uri": {c.RedirectURL},
-	})
+	}
+	if c.Verifier != "" {
+		form.Set("code_verifier", c.Verifier)
+	}
+	tr, err := c.token(ctx, hc, form)
 	if err != nil {
 		return nil, err
 	}

@@ -14,6 +14,7 @@ import (
 type Options struct {
 	Title    string
 	Timezone string
+	Language string // the page's language until a visitor picks one; "": its own
 	// The parts of the data to include, one per view scope (auth.View*).
 	Nutrition bool // calories, macros, meals, goals, weight, water
 	Foods     bool // food names and amounts, recipes, Open Food Facts data
@@ -142,6 +143,7 @@ type Output struct {
 	Title       string    `json:"title"`
 	GeneratedAt time.Time `json:"generated_at"`
 	Timezone    string    `json:"timezone"`
+	Language    string    `json:"language,omitempty"`
 	// SyncIntervalMinutes is how often the data is synced (SYNC_INTERVAL).
 	SyncIntervalMinutes int   `json:"sync_interval_minutes,omitempty"`
 	Goals               Goals `json:"goals"`
@@ -170,7 +172,7 @@ type Output struct {
 }
 
 func Build(h *store.History, opt Options, now time.Time) Output {
-	out := Output{Title: opt.Title, GeneratedAt: now.UTC(), Timezone: opt.Timezone, Days: []Day{}}
+	out := Output{Title: opt.Title, GeneratedAt: now.UTC(), Timezone: opt.Timezone, Language: opt.Language, Days: []Day{}}
 	out.SyncIntervalMinutes = int(opt.SyncInterval.Round(time.Minute) / time.Minute)
 	if !opt.Health {
 		opt.Routes = false

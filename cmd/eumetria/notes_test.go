@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -357,12 +358,21 @@ func TestNginxLetsNotesThrough(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, path := range []string{"location /api/notes/ {", "location = /api/profile/avatar {"} {
+		for path, limit := range map[string]string{
+			"location /api/notes {":            want,
+			"location = /api/profile/avatar {": want,
+			"location = /api/admin/settings {": "client_max_body_size 8k;",
+		} {
 			_, block, found := strings.Cut(string(conf), path)
 			block, _, _ = strings.Cut(block, "}")
-			if !found || !strings.Contains(block, want) {
-				t.Errorf("%s has no %s with %s", f, path, want)
+			if !found || !strings.Contains(block, limit) {
+				t.Errorf("%s has no %s with %s", f, path, limit)
 			}
+		}
+		// A prefix ending in a slash makes nginx redirect the address without
+		// it: GET /api/notes, the list, never reached the app that way.
+		if m := regexp.MustCompile(`location /api/[^ ]+/ \{`).FindString(string(conf)); m != "" {
+			t.Errorf("%s: %s redirects the address without the slash", f, m)
 		}
 	}
 }

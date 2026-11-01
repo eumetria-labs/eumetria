@@ -18,25 +18,20 @@ import (
 	"time"
 
 	"eumetria/internal/google"
+	"eumetria/internal/settings"
 )
 
-// Google Health (Fitbit / Pixel Watch) configuration:
-//
-//	GOOGLE_CLIENT_ID,          OAuth client from the Google Cloud console.
-//	GOOGLE_CLIENT_SECRET,      The redirect URL must be one of the client's
-//	GOOGLE_REDIRECT_URL        authorized redirect URIs, character for character.
-//
-// The refresh token from -google-auth lives in -google-token (private, 0600).
+// Google Health (Fitbit / Pixel Watch): the OAuth client is in the settings,
+// and Connect Google there gets the refresh token. -google-auth is the same
+// without a browser on the server: it needs GOOGLE_REDIRECT_URL, one of the
+// client's authorized redirect URIs, character for character. The token lives
+// in -google-token (private, 0600).
 
-// googleConfig takes the OAuth client from the environment.
-func googleConfig() (google.Config, error) {
-	cfg := google.Config{
-		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-		RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
-	}
+// googleConfig is the OAuth client for the commands.
+func googleConfig(v settings.Values) (google.Config, error) {
+	cfg := google.Config{ClientID: v.GoogleClientID, ClientSecret: v.GoogleSecret, RedirectURL: os.Getenv("GOOGLE_REDIRECT_URL")}
 	if cfg.ClientID == "" || cfg.ClientSecret == "" || cfg.RedirectURL == "" {
-		return cfg, fmt.Errorf("GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URL must be set")
+		return cfg, fmt.Errorf("the Google client in the settings and GOOGLE_REDIRECT_URL must be set")
 	}
 	return cfg, nil
 }
@@ -134,8 +129,8 @@ func missingScopes(granted string) []string {
 // debugGoogle prints the raw Health API responses for one day, to pin down
 // the real field names before the data goes into the history. Every section
 // is tried even when an earlier one fails. It never prints tokens.
-func debugGoogle(ctx context.Context, c *google.Client, date string) error {
-	day, err := time.ParseInLocation(time.DateOnly, date, time.Local)
+func debugGoogle(ctx context.Context, c *google.Client, zone *time.Location, date string) error {
+	day, err := time.ParseInLocation(time.DateOnly, date, zone)
 	if err != nil {
 		return fmt.Errorf("invalid -debug-google %q: %w", date, err)
 	}

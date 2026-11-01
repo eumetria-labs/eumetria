@@ -1346,12 +1346,14 @@ a.q-badges:focus-visible { outline: none; }
 .sec-password .field { min-width: 0; }
 .sec-password .sec-msg, .sec-password .pill-btn { grid-column: 1 / -1; justify-self: start; }
 .sec-msg { margin: 0; font-size: 14px; color: var(--good); font-weight: 550; }
+.sec-msg.lock-error { color: var(--over); }
 .sec-msg[hidden] { display: none; }
 .menu button[hidden] { display: none; }
 
 /* Users & roles (manage.js) */
 .adm-tabs { margin: 0 0 4px; padding: 0 20px; }
-.adm-tabs button { flex: 1; }
+.adm-tabs { overflow-x: auto; scrollbar-width: none; }
+.adm-tabs button { flex: 1 0 auto; padding-left: 12px; padding-right: 12px; }
 .adm-user { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 8px 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--grid); font-size: 14px; }
 .adm-user.off .adm-info b { color: var(--muted); }
 .adm-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -1454,4 +1456,17 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .pf-token .sec-msg { flex-basis: 100%; margin: 0; }
 .pf-token select.field { flex: 0 1 120px; }
 .pf-secret { display: block; overflow-wrap: anywhere; margin-bottom: 8px; }
-.sec-msg[hidden] { display: none; }
+
+/* The settings */
+.set-form { display: grid; gap: 12px; }
+.set-field { display: grid; gap: 4px; font-size: 14px; }
+.set-field .field { width: 100%; }
+.set-label { display: flex; justify-content: space-between; gap: 8px; font-weight: 550; }
+.set-label small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.set-label small.set-bad { color: var(--over); }
+.set-check { grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 8px; cursor: pointer; }
+.set-check input { order: -1; width: 16px; height: 16px; margin: 0; accent-color: var(--s1); }
+.set-check .set-hint { grid-column: 2; }
+.set-hint { font-size: 12.5px; line-height: 1.35; }
+.set-back { margin-top: 12px; }
+.wo-sec > .set-hint { display: block; margin: 12px 0 6px; }

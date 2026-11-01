@@ -44,6 +44,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -57,9 +58,11 @@ import (
 	"time"
 	_ "time/tzdata" // TZ works even in images without a zoneinfo database
 
+	"eumetria/internal/db"
 	"eumetria/internal/demo"
 	"eumetria/internal/google"
 	"eumetria/internal/imgmeta"
+	"eumetria/internal/settings"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
 	"eumetria/internal/yazio"
@@ -86,7 +89,35 @@ type config struct {
 	demo        bool
 	interval    time.Duration // written to stats.json for the footer; 0 if unknown
 	googleToken string        // Google Health token file
+	values      settings.Values
+	flags       map[string]bool // the flags given: they win over the settings
 }
+
+// with takes the settings in v for a run, except what a flag decided.
+func (c config) with(v settings.Values) config {
+	c.values = v
+	if !c.flags["since"] {
+		c.since = v.Since
+	}
+	if !c.flags["refresh-days"] {
+		c.refreshDays = v.RefreshDays
+	}
+	if c.interval != 0 && !c.flags["interval"] {
+		c.interval = v.Interval
+	}
+	return c
+}
+
+// now is the time in the zone that decides what "today" is. Each run reads it,
+// so a new zone applies without a restart.
+func (c config) now() time.Time {
+	if c.values.Zone == nil {
+		return time.Now()
+	}
+	return time.Now().In(c.values.Zone)
+}
+
+func (c config) zone() *time.Location { return c.now().Location() }
 
 func run() error {
 	var (
@@ -142,23 +173,30 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	if tz := os.Getenv("TZ"); tz != "" {
-		if _, err := time.LoadLocation(tz); err != nil {
-			log.Printf("TZ %q is not a valid time zone, using UTC", tz)
+	cfg.flags = map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { cfg.flags[f.Name] = true })
+
+	// Commands that only run once take the settings as they are; serve mode
+	// keeps reading them.
+	if !accounts.any() && *addr == "" {
+		v, err := loadSettings(ctx, cfg)
+		if err != nil {
+			return err
 		}
+		cfg = cfg.with(v)
 	}
 
 	switch {
 	case accounts.any():
 		return runAccountCommand(ctx, cfg, accounts)
 	case *googleAuthFlag:
-		gcfg, err := googleConfig()
+		gcfg, err := googleConfig(cfg.values)
 		if err != nil {
 			return err
 		}
 		return googleAuth(ctx, gcfg, cfg.googleToken)
 	case *debugGoogleDay != "":
-		gcfg, err := googleConfig()
+		gcfg, err := googleConfig(cfg.values)
 		if err != nil {
 			return err
 		}
@@ -166,17 +204,21 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		return debugGoogle(ctx, gc, *debugGoogleDay)
+		return debugGoogle(ctx, gc, cfg.zone(), *debugGoogleDay)
 	case *debugWeek != "":
 		return debugReview(ctx, cfg, *debugWeek, *dryRun)
 	case *rewrite:
-		return rewriteReviews(ctx, cfg)
+		if cfg.values.AnthropicKey == "" {
+			return errors.New("no Anthropic API key in the settings")
+		}
+		_, err := rewriteReviews(ctx, cfg, writer(cfg.values.AnthropicKey), func(int, int) {})
+		return err
 	case *debugDay != "":
-		client, err := login(ctx)
+		client, err := login(ctx, cfg.values)
 		if err != nil {
 			return err
 		}
-		return debugDump(ctx, client, *debugDay)
+		return debugDump(ctx, client, cfg.zone(), *debugDay)
 	case *addr != "":
 		return serve(ctx, cfg, serveOptions{
 			addr:     *addr,
@@ -201,39 +243,53 @@ func (c *config) inData() {
 	c.dbPath = filepath.Join(c.dataDir, "app.db")
 }
 
-// checkYazioEnv reports missing Yazio credentials.
-func checkYazioEnv() error {
-	if os.Getenv("YAZIO_CLIENT_ID") == "" || os.Getenv("YAZIO_CLIENT_SECRET") == "" {
-		return fmt.Errorf("YAZIO_CLIENT_ID and YAZIO_CLIENT_SECRET must be set (see README; or use -demo)")
+// loadSettings reads the settings for a command: from the database when the
+// data folder has one, else from the environment.
+func loadSettings(ctx context.Context, cfg config) (settings.Values, error) {
+	if _, err := os.Stat(cfg.dbPath); err != nil {
+		return settings.Env(), nil
 	}
-	if os.Getenv("YAZIO_EMAIL") == "" || os.Getenv("YAZIO_PASSWORD") == "" {
-		return fmt.Errorf("YAZIO_EMAIL and YAZIO_PASSWORD must be set (or use -demo)")
+	database, err := db.Open(ctx, cfg.dbPath)
+	if err != nil {
+		return settings.Values{}, err
+	}
+	defer database.Close()
+	s, err := settings.New(database, os.Getenv("SETTINGS_KEY"))
+	if err != nil {
+		return settings.Values{}, err
+	}
+	return s.Values(ctx)
+}
+
+// checkYazio reports missing Yazio credentials.
+func checkYazio(v settings.Values) error {
+	if v.YazioClientID == "" || v.YazioClientSecret == "" || v.YazioEmail == "" || v.YazioPassword == "" {
+		return errors.New("the Yazio account isn't set up: add it in the settings (or use -demo)")
 	}
 	return nil
 }
 
-// login checks the credentials in the environment and logs in to Yazio.
-func login(ctx context.Context) (*yazio.Client, error) {
-	if err := checkYazioEnv(); err != nil {
+// login logs in to Yazio.
+func login(ctx context.Context, v settings.Values) (*yazio.Client, error) {
+	if err := checkYazio(v); err != nil {
 		return nil, err
 	}
-	email, password := os.Getenv("YAZIO_EMAIL"), os.Getenv("YAZIO_PASSWORD")
-	clientID, clientSecret := os.Getenv("YAZIO_CLIENT_ID"), os.Getenv("YAZIO_CLIENT_SECRET")
 	client := yazio.New(os.Getenv("YAZIO_API_BASE"))
-	client.ClientID, client.ClientSecret = clientID, clientSecret
-	if err := client.Login(ctx, email, password); err != nil {
+	client.ClientID, client.ClientSecret = v.YazioClientID, v.YazioClientSecret
+	if err := client.Login(ctx, v.YazioEmail, v.YazioPassword); err != nil {
 		return nil, err
 	}
 	return client, nil
 }
 
-// baseOptions are the settings of the stats from the environment; which
-// parts of the data they include depends on who reads them.
+// baseOptions are the settings of the stats; which parts of the data they
+// include depends on who reads them.
 func baseOptions(cfg config) stats.Options {
 	return stats.Options{
-		Title:        env("STATS_TITLE", "Eumetria"),
-		Timezone:     env("TZ", "UTC"),
-		CreditUSD:    envFloat("AI_CREDIT_USD", 0),
+		Title:        cfg.values.Title,
+		Timezone:     cfg.values.ZoneName,
+		Language:     cfg.values.Language,
+		CreditUSD:    cfg.values.CreditUSD,
 		PhotoPath:    "photos/",
 		SyncInterval: cfg.interval,
 	}
@@ -247,7 +303,7 @@ func syncOnce(ctx context.Context, cfg config) error {
 		return err
 	}
 	if cfg.outPath != "" {
-		out := stats.Build(hist, baseOptions(cfg).Everything(), time.Now())
+		out := stats.Build(hist, baseOptions(cfg).Everything(), cfg.now())
 		if err := exportStats(cfg.outPath, out, cfg.photoDir); err != nil {
 			return fmt.Errorf("writing %s: %w", cfg.outPath, err)
 		}
@@ -261,8 +317,8 @@ func syncOnce(ctx context.Context, cfg config) error {
 // even when a source failed, along with that error; nil means nothing
 // could be synced.
 func syncHistory(ctx context.Context, cfg config) (*store.History, error) {
-	now := time.Now()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	now := cfg.now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	if cfg.demo {
 		hist := demo.History(today, 400)
@@ -273,7 +329,7 @@ func syncHistory(ctx context.Context, cfg config) (*store.History, error) {
 
 	start := today.AddDate(0, 0, -365)
 	if cfg.since != "" {
-		t, err := time.ParseInLocation(time.DateOnly, cfg.since, time.Local)
+		t, err := time.ParseInLocation(time.DateOnly, cfg.since, now.Location())
 		if err != nil {
 			return nil, fmt.Errorf("invalid -since %q: %w", cfg.since, err)
 		}
@@ -281,7 +337,7 @@ func syncHistory(ctx context.Context, cfg config) (*store.History, error) {
 	}
 
 	// Missing credentials are a setup error: stop before touching anything.
-	if err := checkYazioEnv(); err != nil {
+	if err := checkYazio(cfg.values); err != nil {
 		return nil, err
 	}
 	hist, err := store.Load(cfg.historyPath)
@@ -484,8 +540,8 @@ func publishPhoto(src, dst string) error {
 // photos, to check the undocumented fields (is_ai_generated, serving,
 // exercise distance units, meal-images) on a real
 // account. It never prints credentials or the access token.
-func debugDump(ctx context.Context, c *yazio.Client, date string) error {
-	day, err := time.ParseInLocation(time.DateOnly, date, time.Local)
+func debugDump(ctx context.Context, c *yazio.Client, zone *time.Location, date string) error {
+	day, err := time.ParseInLocation(time.DateOnly, date, zone)
 	if err != nil {
 		return fmt.Errorf("invalid -debug-day %q: %w", date, err)
 	}
@@ -580,14 +636,6 @@ func envDuration(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
-}
-
-func envFloat(key string, def float64) float64 {
-	f, err := strconv.ParseFloat(os.Getenv(key), 64)
-	if err != nil {
-		return def
-	}
-	return f
 }
 
 func envInt(key string, def int) int {

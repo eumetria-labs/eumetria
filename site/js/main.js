@@ -95,6 +95,8 @@ async function load() {
     }
     if (!res.ok) throw new Error(res.status);
     const recent = await res.json();
+    // The site's language, until this visitor picked one.
+    if (recent.language && recent.language !== LANG && !store.get('lang')) return setLang(recent.language);
     // Notes change between syncs, and every window reads them when it opens.
     await loadNotes(recent);
     if (state.data && recent.generated_at === state.data.generated_at) return;

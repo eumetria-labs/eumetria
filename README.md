@@ -43,19 +43,14 @@ nano eumetria.env          # paste the example and fill it in
 docker compose config        # check what gets passed in (prints secrets)
 ```
 
-Keep secret values in **single quotes**: unquoted, Compose expands `$` and cuts at ` #`.
+Keep values in **single quotes**: unquoted, Compose expands `$` and cuts at ` #`.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `YAZIO_EMAIL`, `YAZIO_PASSWORD` | – | Your Yazio login |
-| `YAZIO_CLIENT_ID`, `YAZIO_CLIENT_SECRET` | – | The Yazio app's OAuth client, see [🥗 Yazio](#-yazio) |
-| `SYNC_INTERVAL` | `30m` | Time between syncs, at least `5m` |
-| `TZ` | `UTC` | Decides what "today" is, e.g. `Europe/Berlin` |
-| `STATS_TITLE` | `Eumetria` | Page heading |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URL` | – | Fitbit data, see [⌚ Fitbit](#-fitbit--google-health) |
-| `ANTHROPIC_API_KEY`, `AI_MODEL`, `AI_EFFORT`, `AI_CREDIT_USD` | –, `claude-opus-5-5`, `medium`, – | Weekly review, see [🤖 Weekly review](#-weekly-review-with-claude) |
-| `OPENFOODFACTS` | `true` | `false` skips the Open Food Facts lookups (only barcodes are sent) |
-| `YAZIO_SINCE`, `YAZIO_REFRESH_DAYS` | 365 days ago, `3` | First day to fetch; how many recent days every sync fetches again |
+| `SETTINGS_KEY` | – | Encrypts the secrets in the settings. Make it with `openssl rand -hex 32` and **keep a copy outside the server**: it isn't in the backups (that's the point), and without it the secrets have to be typed in again. Without the variable, secrets can't be saved in the page |
+| `TZ` | `UTC` | The default time zone, e.g. `Europe/Berlin` |
+
+Everything else is set in the page, under account menu → **Settings**, after the first sign-in.
 
 **3. Start it.**
 
@@ -155,21 +150,15 @@ Optional. With a Fitbit or Pixel Watch the page also shows workouts (heart rate 
 1. Create a project and enable the **Google Health API**.
 2. **Google Auth Platform → Branding:** an app name (without "Google" or "Fitbit"), your e-mail, and your domain under **Authorized domains**. No logo (a logo needs Google's verification).
 3. **Audience → Publish app**, so the status is **In production**. In "Testing", refresh tokens expire after 7 days.
-4. **Clients → Create client → Web application**, with `https://eumetria.example.com` as **Authorized redirect URI**, character for character as in `GOOGLE_REDIRECT_URL`.
+4. **Clients → Create client → Web application**, with `https://eumetria.example.com/api/google/callback` as **Authorized redirect URI**, character for character. **Settings → Google** shows the address to use.
 
-Put the client into `eumetria.env`, run `docker compose up -d`, then authorize once:
-
-```sh
-docker compose run --rm -it eumetria -google-auth -google-token /data/google-token.json
-```
-
-Open the printed URL, allow every access, and paste the address you land on. The token is stored in `data/google-token.json` and the running container picks it up at its next sync. If the logs say `google: not authorized`, Google revoked the token (password change, access removed, or six months unused): authorize again.
+Put the client ID and secret into **Settings → Google**, press **Connect Google** and allow every access. The token is stored in `data/google-token.json` and the running container picks it up at its next sync. If the logs say `google: not authorized`, Google revoked the token (password change, access removed, or six months unused): authorize again.
 
 ## 🤖 Weekly review with Claude
 
-With `ANTHROPIC_API_KEY` set, the first sync after a calendar week has Claude write a short review of it: nutrition, training, sleep and recovery, compared with the week before, in English and German. It's written once per week and stored, about $0.10 per week with Claude Opus 5.5. Claude sees all of the data; who reads the review is up to the `view.review` scope.
+With an API key in **Settings → Weekly review**, the first sync after a calendar week has Claude write a short review of it: nutrition, training, sleep and recovery, compared with the week before, in English and German. It's written once per week and stored, about $0.10 per week with Claude Opus 5.5. Claude sees all of the data; who reads the review is up to the `view.review` scope.
 
-The Anthropic API is prepaid: buy credit at [console.anthropic.com](https://console.anthropic.com) and leave auto-reload off, so nothing more can be charged. Set `AI_CREDIT_USD` to what you bought; the page warns admins when it covers fewer than 4 more reviews.
+The Anthropic API is prepaid: buy credit at [console.anthropic.com](https://console.anthropic.com) and leave auto-reload off, so nothing more can be charged. Enter what you bought under **Credit bought**; the page warns admins when it covers fewer than 4 more reviews.
 
 ## 🧰 Maintenance
 
@@ -181,20 +170,14 @@ All commands run on the server in `/srv/eumetria`.
 | Sync now | the refresh button, or `curl -X POST -H "Authorization: Bearer <token>" https://eumetria.example.com/api/sync` with a `sync` token |
 | Fetch the whole history again (after editing old days in Yazio) | the button's menu → **Full refresh**, or the same `curl` with `/api/sync?all=1` |
 | Sync state | `curl -H "Authorization: Bearer <token>" https://eumetria.example.com/api/status` |
-| Change a setting | edit `eumetria.env`, then `docker compose up -d` |
+| Change a setting | account menu → **Settings**; it applies at once |
 | Update | `docker compose pull && docker compose up -d` (the cron does this nightly) |
 | Roll back | `image: …:<commit>` in `compose.yaml`, then `docker compose up -d` |
-| Authorize Fitbit again | `docker compose run --rm -it eumetria -google-auth -google-token /data/google-token.json` |
+| Authorize Fitbit again | **Settings → Google → Connect again** |
 | Raw Yazio / Fitbit answers for a day | `docker compose run --rm eumetria -debug-day 2026-10-13` / `… -debug-google 2026-10-13 -google-token /data/google-token.json` |
-| Restore a backup | `docker compose down`, `rm -rf data`, `tar -xzf /var/backups/eumetria/data-<date>.tar.gz`, `cp data/backup/app.db data/app.db`, `chown -R eumetria:eumetria data && chmod 700 data`, `docker compose up -d` |
+| Restore a backup | `docker compose down`, `rm -rf data`, `tar -xzf /var/backups/eumetria/data-<date>.tar.gz`, `cp data/backup/app.db data/app.db`, `chown -R eumetria:eumetria data && chmod 700 data`, `docker compose up -d`. Secrets need the same `SETTINGS_KEY` |
 
-**Write all weekly reviews again** (e.g. after a prompt change). Both the server and this command write the history, so stop the server first:
-
-```sh
-docker compose stop eumetria
-docker compose run --rm eumetria -rewrite-reviews -history /data/history.json
-docker compose up -d
-```
+**Write all weekly reviews again** (e.g. after a prompt change): **Settings → Weekly review**. It runs between syncs and shows how far it got.
 
 `/healthz` turns unhealthy when no sync has succeeded for three intervals, e.g. because Yazio changed its API or your password. Point an uptime monitor at `https://eumetria.example.com/healthz` to hear about it.
 

@@ -62,6 +62,8 @@ const ACTIONS = {
   note_image_added: () => t('added an image to a note'),
   profile_changed: () => t('changed their profile'), picture_changed: () => t('changed their picture'),
   picture_removed: () => t('removed their picture'), token_deleted: () => t('revoked an API token'),
+  settings_changed: () => t('changed settings'), reviews_rewritten: () => t('had the reviews written again'),
+  google_connected: () => t('connected Google'), google_disconnected: () => t('disconnected Google'), google_failed: () => t('couldn’t connect Google'),
 };
 
 // The role whose form stays open after it is drawn again (lower case).

@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ func TestFilesDefaultToTheDataFolder(t *testing.T) {
 		dataDir: "/data", dbPath: "/data/app.db", historyPath: "/data/history.json",
 		photoDir: "/data/photos", googleToken: "/data/google-token.json",
 	}
-	if c != want {
+	if !reflect.DeepEqual(c, want) {
 		t.Errorf("got %+v\nwant %+v", c, want)
 	}
 

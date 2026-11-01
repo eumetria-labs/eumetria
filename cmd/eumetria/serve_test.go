@@ -16,6 +16,7 @@ import (
 
 	"eumetria/internal/auth"
 	"eumetria/internal/db"
+	"eumetria/internal/settings"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
 	"eumetria/site"
@@ -52,6 +53,7 @@ type testEnv struct {
 	srv     *httptest.Server
 	store   *auth.Store
 	data    *published
+	runner  *runner
 	release chan struct{}
 	calls   chan config
 	now     time.Time // the server's clock; codes work once, so it moves on
@@ -107,6 +109,11 @@ func newTestEnv(t *testing.T, withUsers bool) *testEnv {
 		<-e.release
 		return nil, nil
 	}
+	r.cfg.googleToken = filepath.Join(dir, "google-token.json")
+	if r.settings, err = settings.New(d, testSettingsKey); err != nil {
+		t.Fatal(err)
+	}
+	e.runner = r
 	e.srv = httptest.NewTLSServer(newHandler(r, os.DirFS(siteDir), data, photos, filepath.Join(dir, "note-images"), filepath.Join(dir, "avatars"), accounts))
 	t.Cleanup(e.srv.Close)
 	t.Cleanup(func() {

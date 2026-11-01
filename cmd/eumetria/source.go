@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"sort"
 	"time"
 
 	"eumetria/internal/off"
 	"eumetria/internal/review"
+	"eumetria/internal/settings"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
 )
@@ -55,22 +55,19 @@ type window struct {
 // first day logged in Yazio, so Yazio goes first.
 func sources(cfg config, opts stats.Options) []Source {
 	srcs := []Source{
-		yazioSource{photoDir: cfg.photoDir},
-		googleSource{tokenPath: cfg.googleToken},
+		yazioSource{photoDir: cfg.photoDir, values: cfg.values},
+		googleSource{tokenPath: cfg.googleToken, values: cfg.values},
 	}
-	// Open Food Facts only sees barcodes; OPENFOODFACTS=false keeps even
-	// those on the server.
-	if envBool("OPENFOODFACTS", true) {
+	// Open Food Facts only sees barcodes; turned off, even those stay on the
+	// server.
+	if cfg.values.OpenFoodFacts {
 		// Open Food Facts allows 15 product reads a minute per IP and may ban
 		// above that: 12 a minute, 30 per sync (2.5 minutes).
 		srcs = append(srcs, offSource{client: off.New(), perRun: 30, pause: 5 * time.Second})
 	}
 	// Last: the weekly review reads what the others brought in.
-	if os.Getenv("ANTHROPIC_API_KEY") != "" {
-		srcs = append(srcs, reviewSource{
-			opts: opts, model: env("AI_MODEL", review.DefaultModel), effort: env("AI_EFFORT", "medium"),
-			write: review.Generate,
-		})
+	if v := cfg.values; v.Review && v.AnthropicKey != "" {
+		srcs = append(srcs, reviewSource{opts: opts, model: v.Model, effort: v.Effort, write: writer(v.AnthropicKey)})
 	}
 	return srcs
 }
@@ -79,12 +76,13 @@ func sources(cfg config, opts stats.Options) []Source {
 // activities, and the meal and recipe photos.
 type yazioSource struct {
 	photoDir string
+	values   settings.Values
 }
 
 func (yazioSource) Name() string { return "yazio" }
 
 func (y yazioSource) Sync(ctx context.Context, h *store.History, w window) error {
-	client, err := login(ctx)
+	client, err := login(ctx, y.values)
 	if err != nil {
 		return err
 	}
@@ -106,12 +104,13 @@ func (y yazioSource) Sync(ctx context.Context, h *store.History, w window) error
 // for the page's warning, and everything else is published either way.
 type googleSource struct {
 	tokenPath string
+	values    settings.Values
 }
 
 func (googleSource) Name() string { return "google health" }
 
 func (g googleSource) Sync(ctx context.Context, h *store.History, w window) error {
-	gc, err := googleClient(g.tokenPath)
+	gc, err := googleClient(g.tokenPath, g.values)
 	if gc == nil && err == nil {
 		return nil // not set up
 	}
@@ -257,6 +256,13 @@ func (o offSource) Sync(ctx context.Context, h *store.History, w window) error {
 		log.Printf("open food facts: looked up %d barcodes, %d known", len(due), found)
 	}
 	return nil
+}
+
+// writer has Claude write a review with this API key.
+func writer(apiKey string) func(context.Context, string, string, review.Week) (*review.Result, error) {
+	return func(ctx context.Context, model, effort string, w review.Week) (*review.Result, error) {
+		return review.Generate(ctx, apiKey, model, effort, w)
+	}
 }
 
 // reviewSource has Claude write the review of the last completed calendar

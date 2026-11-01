@@ -20,6 +20,7 @@ import { autofillSupported, credentialJSON, requestOptions, supported } from './
 import { openSecurity } from './security.js';
 import { openManage } from './manage.js';
 import { openProfile } from './profile.js';
+import { openSettings } from './settings.js';
 import { store } from './state.js';
 import { LANG, setLang, t } from './i18n.js';
 
@@ -92,7 +93,7 @@ async function welcome(user) {
   if (!user.scopes?.includes('admin') && !user.scopes?.includes('sync')) {
     $('#mfa-text').textContent = t('Please set up a second factor, such as a passkey: until then the data stays hidden.');
   }
-  $('#account-admin').hidden = !user.scopes?.includes('admin');
+  $('#account-admin').hidden = $('#account-settings').hidden = !user.scopes?.includes('admin');
   for (const fn of changeListeners) fn(user);
   // "#profile" opens the profile, also after signing in again.
   if (hashParam('profile') != null) {
@@ -103,6 +104,15 @@ async function welcome(user) {
   if (hashParam('security') != null) {
     setHashParam('security', null);
     openSecurity($('#account-btn'));
+  }
+  // "#settings=google" opens that tab, also after signing in again and when
+  // Connect Google comes back ("&google=connected").
+  const settings = hashParam('settings');
+  if (settings != null && user.scopes?.includes('admin')) {
+    const result = hashParam('google') || '';
+    setHashParam('settings', null);
+    setHashParam('google', null);
+    openSettings($('#account-btn'), settings, result);
   }
   // "#admin=roles" opens Users & roles on that tab, also after signing in again.
   const admin = hashParam('admin');
@@ -337,6 +347,7 @@ export function initAccount(toggleTheme) {
   $('#account-photo').onerror = () => showPicture(null);
   popupMenu($('#account-btn'), $('#account-menu'), async (item) => {
     if (item.dataset.action === 'profile') return openProfile($('#account-btn'));
+    if (item.dataset.action === 'settings') return openSettings($('#account-btn'));
     if (item.dataset.action === 'theme') return toggleTheme();
     if (item.dataset.action === 'lang') return setLang(LANG === 'de' ? 'en' : 'de');
     if (item.dataset.action === 'security') return openSecurity($('#account-btn'));

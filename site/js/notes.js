@@ -28,11 +28,16 @@ export const withText = (n) => ({ ...n, text: noteLines(n.markdown).map((l) => l
 export const noteOf = (id) => state.notes.get(id);
 
 // The notes that go with data. Offline, or when the server doesn't answer,
-// the ones already here stay.
+// the ones already here stay, and the page knows the list may be incomplete.
 export async function loadNotes(data) {
   if (!data.scopes?.includes('view.notes')) return state.notes.clear();
   const res = await api('notes').catch(() => null);
-  if (res?.ok) state.notes = new Map((await res.json()).map((n) => [n.workout_id, withText(n)]));
+  if (!res?.ok) {
+    console.error('loading the notes failed', res?.status);
+    return;
+  }
+  state.notes = new Map((await res.json()).map((n) => [n.workout_id, withText(n)]));
+  state.notesLoaded = true;
 }
 
 // Without a second factor the server refuses a role that needs one.
@@ -62,6 +67,9 @@ function noteView(w, show, edit) {
     b.onclick = onClick;
     return b;
   };
+  // Without the list this workout may well have a note, which adding one
+  // would overwrite.
+  if (!n && !state.notesLoaded) return [h('p', { class: 'muted' }, t('The notes could not be loaded.'))];
   if (!n) return [button(t('Add note'), edit)];
   const head = h('div', { class: 'wo-sec-head' });
   const by = h('span', { class: 'muted note-by' });

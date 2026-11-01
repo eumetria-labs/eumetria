@@ -39,6 +39,13 @@ func newPublished(opts stats.Options) *published {
 	return &published{opts: opts, hist: &store.History{}, builds: map[string]*build{}}
 }
 
+// setOptions takes new settings; the stats are built again with them.
+func (p *published) setOptions(opts stats.Options) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.opts, p.builds = opts, map[string]*build{}
+}
+
 // set replaces the history after a sync.
 func (p *published) set(h *store.History, at time.Time) {
 	p.mu.Lock()

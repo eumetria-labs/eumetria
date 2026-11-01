@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"eumetria/internal/google"
+	"eumetria/internal/settings"
 	"eumetria/internal/store"
 )
 
@@ -25,16 +25,15 @@ type healthSource interface {
 }
 
 // googleClient returns the Google Health client, or nil when Google is not
-// configured (GOOGLE_CLIENT_ID unset): the Fitbit part is optional.
-func googleClient(tokenPath string) (*google.Client, error) {
-	if os.Getenv("GOOGLE_CLIENT_ID") == "" {
+// set up: the Fitbit part is optional.
+func googleClient(tokenPath string, v settings.Values) (*google.Client, error) {
+	if v.GoogleClientID == "" {
 		return nil, nil
 	}
-	cfg, err := googleConfig()
-	if err != nil {
-		return nil, err
+	if v.GoogleSecret == "" {
+		return nil, errors.New("the Google client secret isn't set")
 	}
-	return google.New(cfg, tokenPath)
+	return google.New(google.Config{ClientID: v.GoogleClientID, ClientSecret: v.GoogleSecret}, tokenPath)
 }
 
 // healthWindow returns the first day to fetch from Google: the whole window
@@ -59,7 +58,7 @@ func firstLogged(h *store.History, since time.Time) time.Time {
 			first = date
 		}
 	}
-	t, err := time.ParseInLocation(time.DateOnly, first, time.Local)
+	t, err := time.ParseInLocation(time.DateOnly, first, since.Location())
 	if err != nil || t.Before(since) {
 		return since
 	}

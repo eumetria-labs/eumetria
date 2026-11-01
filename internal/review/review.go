@@ -89,7 +89,7 @@ func encode(w Week) (string, error) {
 
 // Generate asks Claude for the review of w. The API key comes from
 // ANTHROPIC_API_KEY; effort is "low", "medium", "high", "xhigh" or "max".
-func Generate(ctx context.Context, model, effort string, w Week) (*Result, error) {
+func Generate(ctx context.Context, apiKey, model, effort string, w Week) (*Result, error) {
 	data, err := encode(w)
 	if err != nil {
 		return nil, err
@@ -98,7 +98,7 @@ func Generate(ctx context.Context, model, effort string, w Week) (*Result, error
 	if w.Running {
 		week += " The week is still running."
 	}
-	client := anthropic.NewClient()
+	client := anthropic.NewClient(option.WithAPIKey(apiKey))
 	var opts []option.RequestOption
 	if fallbackModels[model] {
 		opts = append(opts,

@@ -79,6 +79,13 @@ import (
 //	GET    /api/admin/sessions  everyone's sessions                                admin
 //	DELETE /api/admin/sessions/{id}  ends one                                      admin
 //	GET    /api/admin/notes   notes whose workout is gone                          admin
+//	GET    /api/admin/settings  the settings, without secrets (settings.go)        admin
+//	PUT    /api/admin/settings  {values, reset}: changes them                      admin, recent sign-in
+//	POST   /api/admin/settings/test/yazio  tries the saved login                   admin
+//	POST   /api/admin/reviews/rewrite  writes every review again, in the background  admin, recent sign-in
+//	POST   /api/google/connect  starts Connect Google, answers where to go         admin, recent sign-in
+//	GET    /api/google/callback  where Google sends the browser back               admin
+//	DELETE /api/google        disconnects                                          admin, recent sign-in
 //	GET    /api/status        sync state                                           sync
 //	POST   /api/sync          starts a sync now (?all=1 re-fetches everything)     sync
 //
@@ -241,6 +248,13 @@ func (a *app) routes() []route {
 		{"GET", "/api/admin/sessions", adminOnly, a.adminSessions},
 		{"DELETE", "/api/admin/sessions/{id}", adminOnly, a.adminEndSession},
 		{"GET", "/api/admin/notes", adminOnly, a.adminNotes},
+		{"GET", "/api/admin/settings", adminOnly, a.settingsGet},
+		{"PUT", "/api/admin/settings", adminOnly, a.settingsSave},
+		{"POST", "/api/admin/settings/test/yazio", adminOnly, a.settingsTestYazio},
+		{"POST", "/api/admin/reviews/rewrite", adminOnly, a.reviewsRewrite},
+		{"POST", "/api/google/connect", adminOnly, a.googleConnect},
+		{"GET", "/api/google/callback", adminOnly, a.googleCallbackRoute},
+		{"DELETE", "/api/google", adminOnly, a.googleDisconnect},
 		{"GET", "/api/status", syncAccess, a.status},
 		{"POST", "/api/sync", syncAccess, a.sync},
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"time"
@@ -13,11 +14,13 @@ import (
 	"eumetria/internal/store"
 )
 
+type writeFunc = func(context.Context, string, string, review.Week) (*review.Result, error)
+
 // debugReview prints the AI review of the calendar week that contains date,
 // written from the local history (no sync). With dryRun it prints the data
 // that would be sent instead.
 func debugReview(ctx context.Context, cfg config, date string, dryRun bool) error {
-	day, err := time.ParseInLocation(time.DateOnly, date, time.Local)
+	day, err := time.ParseInLocation(time.DateOnly, date, cfg.zone())
 	if err != nil {
 		return fmt.Errorf("invalid -debug-week %q: %w", date, err)
 	}
@@ -28,7 +31,7 @@ func debugReview(ctx context.Context, cfg config, date string, dryRun bool) erro
 	if len(hist.Days) == 0 {
 		return fmt.Errorf("%s holds no days; run a sync first", cfg.historyPath)
 	}
-	now := time.Now()
+	now := cfg.now()
 	// Everything the history holds: the review is printed here, not published.
 	out := stats.Build(hist, stats.Options{}.Everything(), now)
 	week := review.BuildWeek(out, review.Monday(day), now.Format(time.DateOnly))
@@ -42,13 +45,13 @@ func debugReview(ctx context.Context, cfg config, date string, dryRun bool) erro
 		enc.SetIndent("", "  ")
 		return enc.Encode(week)
 	}
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		return fmt.Errorf("ANTHROPIC_API_KEY is not set (use -dry-run to see the data without it)")
+	if cfg.values.AnthropicKey == "" {
+		return fmt.Errorf("no Anthropic API key in the settings (use -dry-run to see the data without it)")
 	}
-	model, effort := env("AI_MODEL", review.DefaultModel), env("AI_EFFORT", "medium")
+	model, effort := cfg.values.Model, cfg.values.Effort
 	fmt.Fprintf(os.Stderr, "asking %s (effort %s) for the review of %s to %s…\n", model, effort, week.From, week.To)
 	start := time.Now()
-	r, err := review.Generate(ctx, model, effort, week)
+	r, err := review.Generate(ctx, cfg.values.AnthropicKey, model, effort, week)
 	if err != nil {
 		return err
 	}
@@ -67,39 +70,39 @@ func debugReview(ctx context.Context, cfg config, date string, dryRun bool) erro
 
 // rewriteReviews writes every stored weekly review again, in English and
 // German, from the data the sync would send, and saves each one as soon as
-// it is written. The server's next sync publishes them. Run it while the
-// server is stopped: both write the history file.
-func rewriteReviews(ctx context.Context, cfg config) error {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		return fmt.Errorf("ANTHROPIC_API_KEY is not set")
-	}
+// it is written, and tells progress about each. The server runs it between
+// syncs, since both write the history file (Settings → Weekly review); as a
+// command, stop the server first and its next sync publishes them. It returns
+// the history as far as it got.
+func rewriteReviews(ctx context.Context, cfg config, write writeFunc, progress func(done, total int)) (*store.History, error) {
 	hist, err := store.Load(cfg.historyPath)
 	if err != nil {
-		return fmt.Errorf("loading history: %w", err)
+		return nil, fmt.Errorf("loading history: %w", err)
 	}
 	if len(hist.Reviews) == 0 {
-		fmt.Println("no weekly reviews stored yet; the next sync after a week ends writes the first")
-		return nil
+		log.Printf("no weekly reviews stored yet; the next sync after a week ends writes the first")
+		return hist, nil
 	}
 	weeks := make([]string, 0, len(hist.Reviews))
 	for k := range hist.Reviews {
 		weeks = append(weeks, k)
 	}
 	sort.Strings(weeks)
-	now := time.Now()
+	now := cfg.now()
 	today := now.Format(time.DateOnly)
 	out := stats.Build(hist, baseOptions(cfg).Everything(), now)
-	model, effort := env("AI_MODEL", review.DefaultModel), env("AI_EFFORT", "medium")
+	model, effort := cfg.values.Model, cfg.values.Effort
 	var total float64
-	for _, key := range weeks {
-		monday, err := time.ParseInLocation(time.DateOnly, key, time.Local)
+	progress(0, len(weeks))
+	for i, key := range weeks {
+		monday, err := time.ParseInLocation(time.DateOnly, key, now.Location())
 		if err != nil {
-			return fmt.Errorf("stored review %q: %w", key, err)
+			return hist, fmt.Errorf("stored review %q: %w", key, err)
 		}
-		fmt.Fprintf(os.Stderr, "asking %s (effort %s) for the week of %s…\n", model, effort, key)
-		r, err := review.Generate(ctx, model, effort, review.BuildWeek(out, monday, today))
+		log.Printf("asking %s (effort %s) for the week of %s", model, effort, key)
+		r, err := write(ctx, model, effort, review.BuildWeek(out, monday, today))
 		if err != nil {
-			return fmt.Errorf("week of %s: %w (the weeks before it are saved)", key, err)
+			return hist, fmt.Errorf("week of %s: %w (the weeks before it are saved)", key, err)
 		}
 		// The cost adds up: the credit warning counts what was spent on the
 		// first version, too.
@@ -109,15 +112,16 @@ func rewriteReviews(ctx context.Context, cfg config) error {
 			CostUSD: spent + r.CostUSD, CreatedAt: now,
 		}
 		if err := hist.Save(cfg.historyPath); err != nil {
-			return err
+			return hist, err
 		}
 		german := "with German"
 		if r.TextDE == "" {
 			german = "WITHOUT German (no separator in the answer)"
 		}
-		fmt.Printf("week of %s: %s, %d+%d tokens, about $%.3f\n", key, german, r.InputTokens, r.OutputTokens, r.CostUSD)
+		log.Printf("week of %s: %s, %d+%d tokens, about $%.3f", key, german, r.InputTokens, r.OutputTokens, r.CostUSD)
 		total += r.CostUSD
+		progress(i+1, len(weeks))
 	}
-	fmt.Printf("%d reviews rewritten, about $%.3f in total; start the server to publish them\n", len(weeks), total)
-	return nil
+	log.Printf("%d reviews rewritten, about $%.3f in total", len(weeks), total)
+	return hist, nil
 }
