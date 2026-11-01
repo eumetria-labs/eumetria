@@ -48,6 +48,7 @@ import (
 //	DELETE /api/notes/{key}   deletes it                                           edit.notes
 //	POST   /api/notes/{key}/images  {image}: stores one, answers its address       edit.notes
 //	GET    /note-images/{name}  an image in a note                                 signed in, view.notes
+//	GET    /avatars/{id}      a user's picture                                     signed in
 //	GET    /api/me            who is signed in, with their scopes                  signed in
 //	POST   /api/logout        ends this session                                    session
 //	POST   /api/logout-all    ends every session of this user                      session
@@ -60,6 +61,13 @@ import (
 //	POST   /api/security/totp/begin, …/confirm  sets up the authenticator app       session, recent sign-in
 //	DELETE /api/security/totp                  removes it                           session, recent sign-in
 //	POST   /api/security/recovery              ten new recovery codes               session, recent sign-in
+//	GET    /api/profile       this user's profile (profile.go)                     session
+//	PUT    /api/profile       {first_name, surname, email, instagram}              session
+//	POST   /api/profile/avatar  {image}: a new picture                             session
+//	DELETE /api/profile/avatar  removes it                                         session
+//	GET    /api/tokens        this user's API tokens                               session
+//	POST   /api/tokens        {name, scopes, days}: makes one, shown once          session, recent sign-in
+//	DELETE /api/tokens/{id}   revokes one                                          session
 //	GET    /api/audit         the audit log                                        admin
 //	GET    /api/admin/users   every account (manage.go)                            admin
 //	POST   /api/admin/users   {name, password, role}: adds one                     admin, recent sign-in
@@ -79,7 +87,8 @@ import (
 // with that scope; "sync" a session of a role with the sync scope, or such a
 // user's token with the sync scope. Admin and sync rights, and notes written
 // with them, count only once the user has a second factor. API tokens
-// are sent as "Authorization: Bearer eum_…" and made with -create-token;
+// are sent as "Authorization: Bearer eum_…" and made in the profile or with
+// -create-token;
 // with "read" they see what the user's role sees.
 
 type access int
@@ -145,6 +154,7 @@ type app struct {
 	photoDir string
 	// Images in notes (internal/notes, images.go).
 	noteImages string
+	avatars    string
 	site       http.Handler
 	tags       map[string]string
 	// Failed sign-ins per account name and per address. An account locks
@@ -158,7 +168,7 @@ type app struct {
 	relyingParties sync.Map
 }
 
-func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages string, store *auth.Store) http.Handler {
+func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, avatars string, store *auth.Store) http.Handler {
 	a := &app{
 		runner:     r,
 		store:      store,
@@ -166,6 +176,7 @@ func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages st
 		data:       data,
 		photoDir:   photoDir,
 		noteImages: noteImages,
+		avatars:    avatars,
 		site:       http.FileServerFS(noDirs{pages}),
 		tags:       etags(pages),
 		byName:     auth.NewLimiter(5, 15*time.Minute, 15*time.Minute, 24*time.Hour),
@@ -197,6 +208,7 @@ func (a *app) routes() []route {
 		{"DELETE", "/api/notes/{key}", noteWriter, a.noteDelete},
 		{"POST", "/api/notes/{key}/images", noteWriter, a.noteImagePost},
 		{"GET", "/note-images/{name}", signedIn, scoped(auth.ViewNotes, a.noteImage)},
+		{"GET", "/avatars/{id}", signedIn, a.avatar},
 		{"GET", "/api/me", signedIn, a.me},
 		{"POST", "/api/logout", ownSession, a.logout},
 		{"POST", "/api/logout-all", ownSession, a.logoutAll},
@@ -211,6 +223,13 @@ func (a *app) routes() []route {
 		{"POST", "/api/security/totp/confirm", ownSession, a.totpConfirm},
 		{"DELETE", "/api/security/totp", ownSession, a.totpDelete},
 		{"POST", "/api/security/recovery", ownSession, a.recoveryCodes},
+		{"GET", "/api/profile", ownSession, a.profile},
+		{"PUT", "/api/profile", ownSession, a.profileSave},
+		{"POST", "/api/profile/avatar", ownSession, a.avatarPost},
+		{"DELETE", "/api/profile/avatar", ownSession, a.avatarDelete},
+		{"GET", "/api/tokens", ownSession, a.tokens},
+		{"POST", "/api/tokens", ownSession, a.tokenCreate},
+		{"DELETE", "/api/tokens/{id}", ownSession, a.tokenDelete},
 		{"GET", "/api/audit", adminOnly, a.audit},
 		{"GET", "/api/admin/users", adminOnly, a.adminUsers},
 		{"POST", "/api/admin/users", adminOnly, a.adminCreateUser},
@@ -467,8 +486,9 @@ func clearSessionCookie(w http.ResponseWriter) {
 /* ---------- signed in ---------- */
 
 type me struct {
-	Name string `json:"name"`
-	Role string `json:"role"`
+	Name   string `json:"name"`
+	Role   string `json:"role"`
+	Avatar string `json:"avatar"` // the picture's address, if there is one
 	// Scopes are every scope the role gives (admin spelled out).
 	Scopes       []string `json:"scopes"`
 	Sync         bool     `json:"sync"` // may start a sync: the page shows the button
@@ -484,13 +504,18 @@ func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User) 
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
+	_, avatar, err := a.store.Profile(ctx, u)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server")
+		return
+	}
 	scopes := []string{}
 	for _, sc := range auth.AllScopes {
 		if u.Can(sc) {
 			scopes = append(scopes, sc)
 		}
 	}
-	writeJSON(w, http.StatusOK, me{Name: u.Name, Role: string(u.Role), Scopes: scopes,
+	writeJSON(w, http.StatusOK, me{Name: u.Name, Role: string(u.Role), Avatar: avatar, Scopes: scopes,
 		Sync: u.Can(auth.ScopeSync) && f.Any(), SecondFactor: f.Any(), NeedsSecondFactor: u.NeedsSecondFactor() && !f.Any()})
 }
 

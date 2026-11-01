@@ -60,7 +60,7 @@ initStickyHeader();
 initSections();
 initSearch();
 initOffline();
-initAccount();
+initAccount(toggleTheme);
 onUserChange(() => initAdmin({ onSynced: load, onIdle: renderUpdated }));
 start();
 setInterval(renderUpdated, 60 * 1000);
@@ -216,8 +216,8 @@ function initRange() {
   new ResizeObserver(sync).observe(seg);
 }
 
-// English or German, from the footer. The choice is stored and the page
-// reloads in that language.
+// English or German: the footer has the switch while signed out, the account
+// menu afterwards. The choice is stored and the page reloads in that language.
 function initLanguage() {
   for (const b of document.querySelectorAll('.lang-switch button')) {
     b.setAttribute('aria-pressed', String(b.dataset.lang === LANG));
@@ -225,16 +225,27 @@ function initLanguage() {
   }
 }
 
+function currentTheme() {
+  return document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+
+// The account menu offers the style that isn't on.
+function themeLabel() {
+  $('#theme-label').textContent = currentTheme() === 'dark' ? t('Light mode') : t('Dark mode');
+}
+
 function initTheme() {
   const saved = store.get('theme');
   if (saved) document.documentElement.dataset.theme = saved;
-  $('#theme').addEventListener('click', () => {
-    const dark = matchMedia('(prefers-color-scheme: dark)').matches;
-    const cur = document.documentElement.dataset.theme || (dark ? 'dark' : 'light');
-    const next = cur === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
-    store.set('theme', next);
-  });
+  themeLabel();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', themeLabel);
+}
+
+function toggleTheme() {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  store.set('theme', next);
+  themeLabel();
 }
 
 function initStickyHeader() {

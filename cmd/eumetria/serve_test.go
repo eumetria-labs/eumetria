@@ -107,7 +107,7 @@ func newTestEnv(t *testing.T, withUsers bool) *testEnv {
 		<-e.release
 		return nil, nil
 	}
-	e.srv = httptest.NewTLSServer(newHandler(r, os.DirFS(siteDir), data, photos, filepath.Join(dir, "note-images"), accounts))
+	e.srv = httptest.NewTLSServer(newHandler(r, os.DirFS(siteDir), data, photos, filepath.Join(dir, "note-images"), filepath.Join(dir, "avatars"), accounts))
 	t.Cleanup(e.srv.Close)
 	t.Cleanup(func() {
 		select {
@@ -528,7 +528,7 @@ func TestServeCompiledInPages(t *testing.T) {
 	defer d.Close()
 	data := newPublished(stats.Options{})
 	r := newRunner(config{}, time.Hour, data)
-	srv := httptest.NewServer(newHandler(r, site.Files, data, dir, dir, auth.NewStore(d)))
+	srv := httptest.NewServer(newHandler(r, site.Files, data, dir, dir, dir, auth.NewStore(d)))
 	t.Cleanup(srv.Close)
 	get := func(p string, opts ...reqOpt) *http.Response {
 		req, _ := http.NewRequest("GET", srv.URL+p, nil)

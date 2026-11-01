@@ -10,6 +10,7 @@ import (
 	"errors"
 	"time"
 
+	"eumetria/internal/auth"
 	"eumetria/internal/db"
 )
 
@@ -18,13 +19,15 @@ var ErrNotFound = errors.New("no such note")
 // Note is a workout's note. Date is the workout's day, which comes from the
 // synced data: it is empty here, and for a workout that is gone.
 type Note struct {
-	WorkoutID string    `json:"workout_id"`
-	Date      string    `json:"date,omitempty"`
-	Markdown  string    `json:"markdown"`
-	CreatedBy string    `json:"created_by"`
-	UpdatedBy string    `json:"updated_by"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	WorkoutID string `json:"workout_id"`
+	Date      string `json:"date,omitempty"`
+	Markdown  string `json:"markdown"`
+	CreatedBy string `json:"created_by"`
+	UpdatedBy string `json:"updated_by"`
+	// The address of the picture of who wrote it last, if they have one.
+	UpdatedByAvatar string    `json:"updated_by_avatar,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // Store reads and writes the notes.
@@ -33,15 +36,17 @@ type Store struct {
 	Now func() time.Time
 }
 
-const selectNote = `SELECT n.workout_id, n.markdown, c.name, u.name, n.created_at, n.updated_at
-	FROM notes n JOIN users c ON c.id = n.created_by JOIN users u ON u.id = n.updated_by`
+const selectNote = `SELECT n.workout_id, n.markdown, c.name, u.name, u.id, coalesce(p.avatar, 0), n.created_at, n.updated_at
+	FROM notes n JOIN users c ON c.id = n.created_by JOIN users u ON u.id = n.updated_by
+	LEFT JOIN profiles p ON p.user_id = u.id`
 
 type scanner interface{ Scan(...any) error }
 
 func scanNote(row scanner) (Note, error) {
 	var n Note
-	var created, updated int64
-	err := row.Scan(&n.WorkoutID, &n.Markdown, &n.CreatedBy, &n.UpdatedBy, &created, &updated)
+	var writer, avatar, created, updated int64
+	err := row.Scan(&n.WorkoutID, &n.Markdown, &n.CreatedBy, &n.UpdatedBy, &writer, &avatar, &created, &updated)
+	n.UpdatedByAvatar = auth.AvatarURL(writer, avatar)
 	n.CreatedAt, n.UpdatedAt = time.Unix(created, 0).UTC(), time.Unix(updated, 0).UTC()
 	return n, err
 }

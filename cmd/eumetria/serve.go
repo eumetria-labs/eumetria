@@ -91,7 +91,7 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	r := newRunner(cfg, o.interval, data)
 	srv := &http.Server{
 		Addr:              o.addr,
-		Handler:           newHandler(r, pages, data, cfg.photoDir, noteImages, accounts),
+		Handler:           newHandler(r, pages, data, cfg.photoDir, noteImages, filepath.Join(cfg.dataDir, "avatars"), accounts),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

@@ -12,14 +12,14 @@ import { openLightbox } from './lightbox.js';
 import { account, api, reason } from './account.js';
 import { can, state } from './state.js';
 import { noteLines, renderMarkdown } from './markdown.js';
+import { imageForUpload } from './upload.js';
 import { t } from './i18n.js';
 
 const dfNote = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', year: 'numeric' });
 
 const drafts = new Map(); // workout id → the text being written
 
-// The longest side of an uploaded image. Smaller is enough for a note, and
-// drawing it into a canvas also turns a phone's photo the right way up.
+// The longest side of an uploaded image: enough for a note.
 const IMAGE_SIDE = 1920;
 
 // text is the note without its Markdown, for search and for folded notes.
@@ -64,7 +64,10 @@ function noteView(w, show, edit) {
   };
   if (!n) return [button(t('Add note'), edit)];
   const head = h('div', { class: 'wo-sec-head' });
-  head.append(h('h3', {}, t('Note')), h('span', { class: 'muted' }, byline(n)));
+  const by = h('span', { class: 'muted note-by' });
+  if (n.updated_by_avatar) by.append(h('img', { class: 'note-avatar', src: n.updated_by_avatar, alt: '' }));
+  by.append(byline(n));
+  head.append(h('h3', {}, t('Note')), by);
   const parts = [head, ...collapsible(noteBody(n))];
   if (mayEdit()) {
     const row = h('div', { class: 'sec-row note-actions' });
@@ -124,26 +127,6 @@ function collapsible(md) {
     more.setAttribute('aria-expanded', String(open));
   };
   return [box, more];
-}
-
-// An image as a JPEG of at most IMAGE_SIDE, as base64 for the server.
-async function prepareImage(file) {
-  const bitmap = await createImageBitmap(file);
-  const k = Math.min(1, IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
-  const canvas = h('canvas', { width: Math.round(bitmap.width * k), height: Math.round(bitmap.height * k) });
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#fff'; // a JPEG has no transparency
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', 0.85));
-  if (!blob) throw new Error('the browser could not encode the image');
-  return new Promise((ok, fail) => {
-    const r = new FileReader();
-    r.onload = () => ok(r.result.slice(r.result.indexOf(',') + 1));
-    r.onerror = () => fail(r.error);
-    r.readAsDataURL(blob);
-  });
 }
 
 // The server's reasons for refusing a note, in the page's words. nginx
@@ -216,7 +199,7 @@ function noteEditor(w, done) {
     status.textContent = t('Uploading image…');
     for (const file of files) {
       try {
-        const res = await api(`notes/${encodeURIComponent(w.id)}/images`, 'POST', { image: await prepareImage(file) });
+        const res = await api(`notes/${encodeURIComponent(w.id)}/images`, 'POST', { image: await imageForUpload(file, IMAGE_SIDE) });
         if (!res.ok) throw Object.assign(new Error(), { res });
         const { src } = await res.json();
         const at = area.selectionStart;

@@ -14,6 +14,7 @@ import (
 
 	"eumetria/internal/auth"
 	"eumetria/internal/db"
+	"eumetria/internal/picture"
 )
 
 func TestNotes(t *testing.T) {
@@ -105,22 +106,8 @@ func TestImages(t *testing.T) {
 		t.Errorf("a transparent pixel = %v", img.At(1, 1))
 	}
 
-	for name, raw := range map[string][]byte{
-		"text":   []byte("<svg onload=alert(1)>"),
-		"gif":    []byte("GIF89a"),
-		"empty":  nil,
-		"broken": src.Bytes()[:40],
-	} {
-		if _, err := SaveImage(dir, raw); !errors.Is(err, ErrBadImage) {
-			t.Errorf("%s: %v", name, err)
-		}
-	}
-	var huge bytes.Buffer
-	if err := png.Encode(&huge, image.NewGray(image.Rect(0, 0, MaxImageSide+1, 1))); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SaveImage(dir, huge.Bytes()); !errors.Is(err, ErrBadImage) {
-		t.Errorf("too wide: %v", err)
+	if _, err := SaveImage(dir, []byte("<svg onload=alert(1)>")); !errors.Is(err, picture.ErrBad) {
+		t.Errorf("not an image: %v", err)
 	}
 
 	// Pruning leaves what a note uses and what may still be used.

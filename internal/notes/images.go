@@ -1,21 +1,17 @@
 package notes
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"image"
-	"image/color"
-	"image/draw"
-	"image/jpeg"
-	_ "image/png" // what a pasted screenshot may be
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"eumetria/internal/picture"
 )
 
 // Images in notes: files in one folder of the data, with random names, which
@@ -25,48 +21,19 @@ import (
 // file, behind. They are saved before the note that uses them, so images no
 // note ended up using are removed later (PruneImages).
 
-// MaxImageSide is the longest side the server takes; the page scales images
-// down to less. It also keeps a small file from decoding into a huge image.
-const MaxImageSide = 4096
-
-var ErrBadImage = errors.New("not a usable image")
-
 var imageName = regexp.MustCompile(`^[0-9a-f]{32}\.jpg$`)
 
 // ValidImageName reports whether name can be an image's file name.
 func ValidImageName(name string) bool { return imageName.MatchString(name) }
 
-// cleanImage decodes a JPEG or PNG and encodes its pixels as a new JPEG, on
-// white where it is transparent.
-func cleanImage(raw []byte) ([]byte, error) {
-	cfg, format, err := image.DecodeConfig(bytes.NewReader(raw))
-	if err != nil || (format != "jpeg" && format != "png") {
-		return nil, ErrBadImage
-	}
-	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > MaxImageSide || cfg.Height > MaxImageSide {
-		return nil, ErrBadImage
-	}
-	src, _, err := image.Decode(bytes.NewReader(raw))
-	if err != nil {
-		return nil, ErrBadImage
-	}
-	flat := image.NewRGBA(src.Bounds())
-	draw.Draw(flat, flat.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
-	draw.Draw(flat, flat.Bounds(), src, src.Bounds().Min, draw.Over)
-	var out bytes.Buffer
-	if err := jpeg.Encode(&out, flat, &jpeg.Options{Quality: 85}); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
-}
-
-// SaveImage cleans raw, stores it in dir and returns its file name.
+// SaveImage writes raw anew into dir and returns its file name.
 func SaveImage(dir string, raw []byte) (string, error) {
-	clean, err := cleanImage(raw)
+	img, err := picture.Decode(raw)
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	clean, err := picture.JPEG(img)
+	if err != nil {
 		return "", err
 	}
 	id := make([]byte, 16)
@@ -74,22 +41,7 @@ func SaveImage(dir string, raw []byte) (string, error) {
 		return "", err
 	}
 	name := hex.EncodeToString(id) + ".jpg"
-	tmp, err := os.CreateTemp(dir, ".upload-*")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(clean); err != nil {
-		tmp.Close()
-		return "", err
-	}
-	if err := tmp.Close(); err != nil {
-		return "", err
-	}
-	if err := os.Chmod(tmp.Name(), 0o600); err != nil {
-		return "", err
-	}
-	return name, os.Rename(tmp.Name(), filepath.Join(dir, name))
+	return name, picture.Save(dir, name, clean)
 }
 
 // PruneImages deletes the images in dir that no note uses and that are older

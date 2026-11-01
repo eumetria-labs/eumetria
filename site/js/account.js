@@ -1,7 +1,8 @@
 // Accounts: the server hands the data only to signed-in users (api.go). At
 // start the page asks who is signed in; without a session it shows the
 // sign-in form and goes on once someone signed in. The account menu in the
-// header opens the security settings and signs out.
+// header opens the profile and the security settings, switches the style
+// and the language, and signs out.
 //
 // Signing in: name and password, then a second factor if the account has
 // one (a passkey or security key, a code from an authenticator app, or a
@@ -18,10 +19,11 @@ import { $, hashParam, popupMenu, setHashParam } from './dom.js';
 import { autofillSupported, credentialJSON, requestOptions, supported } from './webauthn.js';
 import { openSecurity } from './security.js';
 import { openManage } from './manage.js';
+import { openProfile } from './profile.js';
 import { store } from './state.js';
-import { t } from './i18n.js';
+import { LANG, setLang, t } from './i18n.js';
 
-// Who is signed in: { name, role, scopes, sync, second_factor,
+// Who is signed in: { name, role, avatar, scopes, sync, second_factor,
 // needs_second_factor }, or null without accounts.
 export const account = { user: null };
 
@@ -82,6 +84,7 @@ async function welcome(user) {
   }
   account.user = user;
   $('#account-initial').textContent = user.name.slice(0, 1).toUpperCase();
+  showPicture(user.avatar);
   $('#account-name').textContent = user.name;
   $('#account').hidden = false;
   $('#mfa-notice').hidden = !user.needs_second_factor;
@@ -91,6 +94,11 @@ async function welcome(user) {
   }
   $('#account-admin').hidden = !user.scopes?.includes('admin');
   for (const fn of changeListeners) fn(user);
+  // "#profile" opens the profile, also after signing in again.
+  if (hashParam('profile') != null) {
+    setHashParam('profile', null);
+    openProfile($('#account-btn'));
+  }
   // "#security" opens the security settings, also after signing in again.
   if (hashParam('security') != null) {
     setHashParam('security', null);
@@ -102,6 +110,14 @@ async function welcome(user) {
     setHashParam('admin', null);
     openManage($('#account-btn'), admin);
   }
+}
+
+// The round button shows the picture, or the initial without one.
+function showPicture(src) {
+  const photo = $('#account-photo');
+  if (src) photo.src = src;
+  photo.hidden = !src;
+  $('#account-initial').hidden = !!src;
 }
 
 // setup says how to make the first account; the page waits forever.
@@ -311,10 +327,18 @@ async function lockedText(res) {
 
 /* ---------- the account menu ---------- */
 
-// Security settings, or signing out here or everywhere. Signing out also
-// makes this device forget the data it kept for offline use.
-export function initAccount() {
+// The profile, security settings, the style and the language, or signing
+// out here or everywhere. Signing out also makes this device forget the
+// data it kept for offline use. toggleTheme switches the style.
+export function initAccount(toggleTheme) {
+  $('#lang-label').textContent = LANG === 'de' ? 'English' : 'Deutsch';
+  $('#lang-label').lang = LANG === 'de' ? 'en' : 'de';
+  // Offline, or for a picture just removed: the initial instead.
+  $('#account-photo').onerror = () => showPicture(null);
   popupMenu($('#account-btn'), $('#account-menu'), async (item) => {
+    if (item.dataset.action === 'profile') return openProfile($('#account-btn'));
+    if (item.dataset.action === 'theme') return toggleTheme();
+    if (item.dataset.action === 'lang') return setLang(LANG === 'de' ? 'en' : 'de');
     if (item.dataset.action === 'security') return openSecurity($('#account-btn'));
     if (item.dataset.action === 'admin') return openManage($('#account-btn'));
     await signOut(item.dataset.out === 'all');

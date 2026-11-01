@@ -12,6 +12,7 @@ import (
 
 	"eumetria/internal/auth"
 	"eumetria/internal/notes"
+	"eumetria/internal/picture"
 )
 
 // Workout notes (PLAN M6), the first thing people write through the app.
@@ -159,7 +160,7 @@ func (a *app) noteImagePost(w http.ResponseWriter, req *http.Request, p *princip
 		return
 	}
 	name, err := notes.SaveImage(a.noteImages, in.Image)
-	if errors.Is(err, notes.ErrBadImage) {
+	if errors.Is(err, picture.ErrBad) {
 		writeError(w, http.StatusBadRequest, "bad_image")
 		return
 	}

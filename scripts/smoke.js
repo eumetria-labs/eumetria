@@ -63,7 +63,7 @@ const oldDay = stats.archive?.length ? JSON.parse(await readFile(join(root, stat
 const views = [
   { hash: 'range=7', expect: ['id="today-ring"', 'class="card tile"', 'class="coach-bubble teaser"'] },
   { hash: 'range=all', expect: ['id="chart-energy"'] },
-  // German (the footer's language switch), page and a day.
+  // German ("#lang=de" in a link), page and a day.
   { hash: 'range=30&lang=de', expect: ['<html lang="de"', 'Tagesdetails', 'Meistgegessen'] },
   { hash: `range=30&lang=de&day=${day}`, expect: ['<dialog class="dlg sheet-overlay"', 'Vorheriger Tag'] },
   { hash: `range=30&day=${day}`, expect: ['class="sheet"', '<dialog class="dlg sheet-overlay"'] },

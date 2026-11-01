@@ -117,6 +117,8 @@ Two roles are built in: **admin** (everything) and **viewer** (every `view.*` sc
 
 **Workout notes** belong to Fitbit workouts: open a workout and write Markdown (headings, bold, italic, lists, inline code, code blocks between ``` lines, `http(s)` links; no HTML). Paste an image with Ctrl+V or use **Add image**: it's uploaded at once, stripped of its metadata and embedded where the cursor is; images from other sites aren't shown. A long note shows its start with a **Show more** button. Notes show in the workout, in the activity's history and in the search, and you can add one to a workout's share card (text only). They live in `app.db`, their images in `note-images/` in the data folder, so both are backed up. A note whose workout has gone from Google stays until an admin deletes it (**Users & roles** → **Notes**).
 
+**Your profile** (account menu → **Profile**) holds a picture, shown in the menu and next to your notes, your name, e-mail and Instagram handle, all optional and visible only to you except the picture. It also lists your API tokens and the devices you're signed in on. Style and language are in the same menu.
+
 Admins manage all of this in the page: account menu → **Users & roles**. There you add people, give them a role, set a new password for someone who forgot theirs, require a second factor (until they set one up they see no data), disable an account, edit roles as checkboxes, end anyone's session and read the audit log. Changes need a sign-in within the last 10 minutes. You can't disable or demote your own account, and the site always keeps one admin. A changed role applies to the user's next request; they stay signed in.
 
 - **Passwords:** at least 12 characters, no common ones, stored as argon2id hashes. Change yours under account menu → **Security**; that signs out your other devices.
@@ -136,7 +138,7 @@ The same from the command line, e.g. for the first admin or when nobody can sign
 | Change or delete a role | `-create-role <role> -scopes …` again with the new scopes; `-delete-role <role>` once nobody has it |
 | Forgotten password | `docker compose run --rm -it eumetria -reset-password <name>` (ends their sessions too) |
 | Every second factor lost (and the recovery codes too) | `docker compose run --rm eumetria -reset-second-factors <name>`, then sign in with the password and set up new ones |
-| Token for a script | `docker compose run --rm eumetria -create-token <name> -token-name cron -scopes sync -expires 365` |
+| Token for a script | Account menu → **Profile** → **API tokens**, or `docker compose run --rm eumetria -create-token <name> -token-name cron -scopes sync -expires 365` |
 
 ## 🥗 Yazio
 

@@ -595,6 +595,8 @@ body.modal-open { overflow: hidden; }
 .lang-switch button:hover { color: var(--ink); }
 .lang-switch button[aria-pressed="true"] { color: var(--ink); font-weight: 600; cursor: default; }
 .lang-switch button:focus-visible { outline: 2px solid var(--s1); outline-offset: 1px; }
+/* Signed in, the language is in the account menu. */
+html:not([data-locked]) .foot .lang-switch { display: none; }
 .foot p { margin: 0 0 4px; }
 
 /* Password lock (encrypted stats.json): replaces the page until unlocked */
@@ -638,6 +640,10 @@ html[data-locked] main, html[data-locked] .top .controls, html[data-locked] .top
 .account[hidden] { display: none; }
 .account-btn { font: inherit; font-size: 14px; font-weight: 650; color: #fff; background: #1d2740; }
 .account-btn:hover { background: #2a3858; }
+.account-btn { overflow: hidden; padding: 0; }
+.account-btn img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.account-btn img[hidden], .account-btn span[hidden] { display: none; }
+.menu button.menu-sep { margin-top: 2px; border-top: 1px solid var(--grid); border-top-left-radius: 0; border-top-right-radius: 0; }
 .menu-head { margin: 0; padding: 8px 10px 6px; font-size: 13px; display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--grid); margin-bottom: 2px; }
 
 /* Loading skeleton (first load only; refreshes keep the old render dimmed) */
@@ -1408,6 +1414,8 @@ a.q-badges:focus-visible { outline: none; }
 .note-more { display: block; margin-top: 4px; padding: 4px 0; font: inherit; font-size: 13.5px; font-weight: 550; color: var(--s1); background: none; border: 0; cursor: pointer; }
 .note-more[hidden] { display: none; }
 .note-more:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; border-radius: 3px; }
+.note-by { display: inline-flex; align-items: center; gap: 6px; }
+.note-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 .note-actions { margin-top: 12px; }
 .note-status { margin: 0; font-size: 13px; }
 .note-status:empty { display: none; }
@@ -1431,3 +1439,19 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .note-fold[open] summary::before { transform: rotate(90deg); }
 .note-fold summary:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; border-radius: 3px; }
 .note-fold .md { margin-top: 6px; }
+
+/* The profile */
+.pf-picture { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.pf-face {
+  flex: none; width: 72px; height: 72px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+  font-size: 28px; font-weight: 650; color: #fff; background: #1d2740;
+}
+.pf-face img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pf-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 8px; }
+.pf-form .field { width: 100%; }
+.pf-form .sec-msg, .pf-form .pill-btn { grid-column: 1 / -1; justify-self: start; margin: 0; }
+.pf-token { align-items: center; }
+.pf-token .sec-msg { flex-basis: 100%; margin: 0; }
+.pf-token select.field { flex: 0 1 120px; }
+.pf-secret { display: block; overflow-wrap: anywhere; margin-bottom: 8px; }
+.sec-msg[hidden] { display: none; }

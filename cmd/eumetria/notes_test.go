@@ -357,10 +357,12 @@ func TestNginxLetsNotesThrough(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, block, found := strings.Cut(string(conf), "location /api/notes/ {")
-		block, _, _ = strings.Cut(block, "}")
-		if !found || !strings.Contains(block, want) {
-			t.Errorf("%s has no location /api/notes/ with %s", f, want)
+		for _, path := range []string{"location /api/notes/ {", "location = /api/profile/avatar {"} {
+			_, block, found := strings.Cut(string(conf), path)
+			block, _, _ = strings.Cut(block, "}")
+			if !found || !strings.Contains(block, want) {
+				t.Errorf("%s has no %s with %s", f, path, want)
+			}
 		}
 	}
 }
