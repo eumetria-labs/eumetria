@@ -97,6 +97,8 @@ type Token struct {
 	RefreshToken string    `json:"refresh_token"`
 	Expiry       time.Time `json:"expiry,omitzero"`
 	Scope        string    `json:"scope,omitempty"`
+	// AccessScope is what AccessToken was narrowed to, see narrowed.
+	AccessScope string `json:"access_scope,omitempty"`
 	// IssuedAt is when the refresh token was granted. Refresh tokens of an
 	// OAuth app in "Testing" status expire after 7 days.
 	IssuedAt time.Time `json:"issued_at"`
@@ -217,6 +219,8 @@ type Client struct {
 	Config    Config
 	TokenPath string
 
+	drive bool // access tokens for Drive, not the Health API
+
 	mu  sync.Mutex
 	tok *Token
 }
@@ -237,21 +241,42 @@ func New(cfg Config, tokenPath string) (*Client, error) {
 	}, nil
 }
 
-// accessToken returns a valid access token, refreshing it when it is about to expire.
+// narrowed is the scope to ask for when refreshing a grant of these scopes, or
+// "" for all of them. The Health API refuses any access token that also carries
+// Drive (DISALLOWED_OAUTH_SCOPES), so a grant with Drive gets one access token
+// per API.
+func narrowed(granted string, drive bool) string {
+	scopes := strings.Fields(granted)
+	if !slices.Contains(scopes, DriveScope) {
+		return ""
+	}
+	if drive {
+		return DriveScope
+	}
+	return strings.Join(slices.DeleteFunc(scopes, func(s string) bool { return s == DriveScope }), " ")
+}
+
+// accessToken returns a valid access token, refreshing it when it is about to
+// expire or was made for the other API.
 func (c *Client) accessToken(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.tok.AccessToken != "" && time.Until(c.tok.Expiry) > time.Minute {
+	scope := narrowed(c.tok.Scope, c.drive)
+	if c.tok.AccessToken != "" && c.tok.AccessScope == scope && time.Until(c.tok.Expiry) > time.Minute {
 		return c.tok.AccessToken, nil
 	}
-	tr, err := c.Config.token(ctx, c.HTTP, url.Values{
+	form := url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {c.tok.RefreshToken},
-	})
+	}
+	if scope != "" {
+		form.Set("scope", scope)
+	}
+	tr, err := c.Config.token(ctx, c.HTTP, form)
 	if err != nil {
 		return "", err
 	}
-	c.tok.AccessToken = tr.AccessToken
+	c.tok.AccessToken, c.tok.AccessScope = tr.AccessToken, scope
 	c.tok.Expiry = time.Now().Add(time.Duration(tr.ExpiresIn) * time.Second)
 	if tr.RefreshToken != "" {
 		// Google rarely rotates refresh tokens; the file keeps up.

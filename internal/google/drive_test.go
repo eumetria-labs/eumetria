@@ -121,7 +121,7 @@ func TestDrive(t *testing.T) {
 	}
 
 	// Without the scope the error says what to do.
-	c.tok.AccessToken = "other"
+	d.c.tok.AccessToken = "other"
 	if _, err := d.Folder(ctx, "x"); err == nil || !strings.Contains(err.Error(), "Connect again") {
 		t.Errorf("error = %v", err)
 	}

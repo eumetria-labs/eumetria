@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 )
 
 // fakeGoogle answers the token endpoint and one list endpoint with two pages.
@@ -91,6 +93,70 @@ func TestRevokedRefreshToken(t *testing.T) {
 	_, err = c.List(context.Background(), "exercise", "", "", 0)
 	if !errors.Is(err, ErrNotAuthorized) {
 		t.Errorf("err = %v, want ErrNotAuthorized", err)
+	}
+}
+
+// A grant with Drive gets one access token per API, also from a token file
+// that still caches one with both: the Health API refuses those.
+func TestAccessTokenPerAPI(t *testing.T) {
+	health := scopePrefix + "sleep.readonly"
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			asked = append(asked, r.FormValue("scope"))
+			json.NewEncoder(w).Encode(map[string]any{"access_token": "for " + r.FormValue("scope"), "expires_in": 3599})
+		case "/users/me/identity":
+			if r.Header.Get("Authorization") != "Bearer for "+health {
+				w.WriteHeader(http.StatusForbidden)
+			}
+		default:
+			if r.Header.Get("Authorization") != "Bearer for "+DriveScope {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+	old := tokenURL
+	tokenURL = srv.URL + "/token"
+	defer func() { tokenURL = old }()
+
+	path := filepath.Join(t.TempDir(), "google-token.json")
+	both := &Token{RefreshToken: "r", AccessToken: "both", Expiry: time.Now().Add(time.Hour), Scope: DriveScope + " " + health}
+	if err := SaveToken(path, both); err != nil {
+		t.Fatal(err)
+	}
+	c, err := New(testConfig, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.BaseURL = srv.URL
+	ctx := context.Background()
+	if _, err := c.Raw(ctx, http.MethodGet, "/users/me/identity", nil, nil); err != nil {
+		t.Fatalf("health: %v", err)
+	}
+	d := c.Drive()
+	d.API = srv.URL
+	if _, err := d.Files(ctx, "folder"); err != nil {
+		t.Fatalf("drive: %v", err)
+	}
+
+	// Drive left its token in the file: the next sync must not take it.
+	c, err = New(testConfig, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.BaseURL = srv.URL
+	if _, err := c.Raw(ctx, http.MethodGet, "/users/me/identity", nil, nil); err != nil {
+		t.Fatalf("health after drive: %v", err)
+	}
+	if want := []string{health, DriveScope, health}; !slices.Equal(asked, want) {
+		t.Errorf("asked for %q, want %q", asked, want)
+	}
+	if saved, _ := LoadToken(path); saved.Scope != both.Scope {
+		t.Errorf("the grant's scopes changed: %q", saved.Scope)
 	}
 }
 

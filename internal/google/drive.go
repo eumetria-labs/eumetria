@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// Backups go to Google Drive with plain REST calls and the token the Health
-// data uses. The drive.file scope lets the app see and delete only what it
+// Backups go to Google Drive with plain REST calls and the grant the Health
+// data uses, through an access token of their own. The drive.file scope lets the app see and delete only what it
 // created there, nothing else in the Drive.
 
 const DriveScope = "https://www.googleapis.com/auth/drive.file"
@@ -40,7 +40,9 @@ type Drive struct {
 func (c *Client) Drive() *Drive {
 	// An archive takes minutes on a slow uplink, so no overall timeout: the
 	// caller's context bounds it.
-	return &Drive{c: c, HTTP: &http.Client{}, API: "https://www.googleapis.com/drive/v3", Upload: "https://www.googleapis.com/upload/drive/v3"}
+	tok := *c.tok
+	dc := &Client{HTTP: c.HTTP, Config: c.Config, TokenPath: c.TokenPath, drive: true, tok: &tok}
+	return &Drive{c: dc, HTTP: &http.Client{}, API: "https://www.googleapis.com/drive/v3", Upload: "https://www.googleapis.com/upload/drive/v3"}
 }
 
 func (d *Drive) request(ctx context.Context, method, u, ctype string, body io.Reader, size int64) (*http.Response, error) {
