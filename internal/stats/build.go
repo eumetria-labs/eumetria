@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"eumetria/internal/scores"
 	"eumetria/internal/store"
 )
 
@@ -29,6 +30,7 @@ type Options struct {
 	CreditUSD    float64
 	PhotoPath    string        // URL prefix of photo files, e.g. "photos/"
 	SyncInterval time.Duration // how often syncs run, shown in the footer; 0 when unknown
+	SleepGoal    float64       // minutes, for the sleep score; 0: scores.DefaultSleepGoal
 }
 
 // Everything returns o with every part of the data included.
@@ -127,6 +129,11 @@ type Day struct {
 	// fat burn, cardio and peak zones.
 	FitbitKcal  float64     `json:"kcal_burned,omitempty"`
 	ZoneMinutes *[3]float64 `json:"azm,omitempty"`
+	VO2Max      float64     `json:"vo2max,omitempty"`    // Fitbit's estimate, ml/kg/min
+	VO2Level    string      `json:"vo2_level,omitempty"` // Fitbit's rating, e.g. "GOOD"
+	// Scores are Eumetria's own Sleep, Recovery and Readiness scores and the
+	// training load (package scores).
+	Scores *scores.Day `json:"scores,omitempty"`
 }
 
 // GoalChange is a day a goal differs from the last day before it that had
@@ -145,9 +152,12 @@ type Output struct {
 	Timezone    string    `json:"timezone"`
 	Language    string    `json:"language,omitempty"`
 	// SyncIntervalMinutes is how often the data is synced (SYNC_INTERVAL).
-	SyncIntervalMinutes int   `json:"sync_interval_minutes,omitempty"`
-	Goals               Goals `json:"goals"`
-	Days                []Day `json:"days"`
+	SyncIntervalMinutes int `json:"sync_interval_minutes,omitempty"`
+	// SleepGoal is the sleep goal the sleep score uses, minutes; only with
+	// the health data.
+	SleepGoal float64 `json:"sleep_goal,omitempty"`
+	Goals     Goals   `json:"goals"`
+	Days      []Day   `json:"days"`
 	// Device is the Fitbit tracker with its battery and last sync.
 	Device *Device `json:"device,omitempty"`
 	// HealthSync tells the page when the Fitbit sync is failing.
@@ -187,6 +197,17 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 			}
 		}
 		out.HealthSync = healthSync(h.HealthSync)
+	}
+
+	// Scores look back up to 30 days, so they use the whole Fitbit history,
+	// not only the days shown.
+	var dayScores map[string]*scores.Day
+	if opt.Health {
+		dayScores = scores.Compute(h.Health, opt.SleepGoal)
+		out.SleepGoal = opt.SleepGoal
+		if out.SleepGoal <= 0 {
+			out.SleepGoal = scores.DefaultSleepGoal
+		}
 	}
 
 	var lastGoals map[string]float64 // the previous day's goals, rounded
@@ -275,6 +296,7 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 		}
 		if health != nil {
 			addHealth(&d, health, opt)
+			d.Scores = dayScores[date]
 		}
 		linked := map[string]bool{}
 		for _, a := range src.Activities {

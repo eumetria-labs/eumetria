@@ -142,6 +142,7 @@
             <button class="pill-btn" id="today-open" type="button">Day details <span aria-hidden="true">›</span></button>
           </header>
           <div class="today-macros" id="today-macros"></div>
+          <div class="today-scores" id="today-scores" hidden></div>
           <div class="today-meals" id="today-meals"></div>
           <div class="highlights" id="today-highlights" role="list" aria-label="Highlights" hidden></div>
         </div>
@@ -238,6 +239,17 @@
               <li><span class="key st-awake"></span>Awake</li>
             </ul>
           </header>
+          <div id="scores-part" hidden>
+            <div class="mini-head">
+              <h3 class="mini-title">Eumetria scores <span class="muted">our own formulas, not Fitbit’s</span></h3>
+              <ul class="legend mini-legend">
+                <li><span class="key line s3"></span>Readiness</li>
+                <li><span class="key line s2"></span>Sleep</li>
+                <li><span class="key line s1"></span>Recovery</li>
+              </ul>
+            </div>
+            <div class="chart short" id="chart-scores"></div>
+          </div>
           <h3 class="mini-title">Sleep per night</h3>
           <div class="chart" id="chart-sleep"></div>
           <div class="recovery-split">
@@ -270,6 +282,29 @@
             <div><h2>Training</h2><p class="muted" id="training-sub"></p></div>
           </header>
           <div class="stat-row training-week" id="training-week" aria-label="Last 7 days compared with the 4-week average"></div>
+          <div class="training-split training-trends" id="training-trends" hidden>
+            <div id="load-part" hidden>
+              <div class="mini-head">
+                <h3 class="mini-title">Training load <span class="muted" id="load-sub"></span></h3>
+                <ul class="legend mini-legend">
+                  <li><span class="key line s1"></span>7 days vs. 28 days</li>
+                  <li><span class="key load-zone"></span>Usual load</li>
+                </ul>
+              </div>
+              <div class="chart short" id="chart-load"></div>
+              <p class="note muted trend-note">Active zone minutes of the last 7 days divided by the weekly average of the last 28. The shaded band is the load you're used to; well above it, the training rises faster than the body usually adapts.</p>
+            </div>
+            <div id="vo2-part" hidden>
+              <div class="mini-head">
+                <h3 class="mini-title">Cardio fitness <span class="muted" id="vo2-sub"></span></h3>
+                <ul class="legend mini-legend">
+                  <li><span class="key line s2"></span>VO2 max (ml/kg/min)</li>
+                </ul>
+              </div>
+              <div class="chart short" id="chart-vo2"></div>
+              <p class="note muted trend-note">Fitbit's estimate of how much oxygen your body can use, from resting heart rate and runs with GPS. It changes slowly: watch the trend over weeks, not single days.</p>
+            </div>
+          </div>
           <div class="training-split">
             <div>
               <h3 class="mini-title">Personal bests <span class="muted">all time</span></h3>

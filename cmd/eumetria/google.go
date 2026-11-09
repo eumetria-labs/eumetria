@@ -259,7 +259,7 @@ func debugGoogle(ctx context.Context, c *google.Client, zone *time.Location, dat
 	from, to := day.AddDate(0, 0, -6).Format(time.DateOnly), day.Format(time.DateOnly)
 	for _, dt := range []string{
 		"daily-resting-heart-rate", "daily-heart-rate-variability", "daily-heart-rate-zones",
-		"daily-respiratory-rate", "daily-oxygen-saturation", "daily-sleep-temperature-derivations",
+		"daily-respiratory-rate", "daily-oxygen-saturation", "daily-sleep-temperature-derivations", "daily-vo2-max",
 	} {
 		snake := strings.ReplaceAll(dt, "-", "_")
 		shown := false

@@ -37,7 +37,9 @@ const TABLES = [
     ['water_ml', d.water], ['steps', d.steps], ['weight_kg', d.weight],
     ['kcal_activities', d.activity_energy], ['kcal_burned_fitbit', d.kcal_burned], ['resting_hr', d.rhr],
     ['zone_min_fat_burn', d.azm?.[0]], ['zone_min_cardio', d.azm?.[1]], ['zone_min_peak', d.azm?.[2]],
-    ['zone_minutes', d.azm && sum(d.azm)],
+    ['zone_minutes', d.azm && sum(d.azm)], ['vo2max', d.vo2max], ['vo2max_rating', d.vo2_level],
+    ['eumetria_readiness', d.scores?.readiness?.value], ['eumetria_sleep_score', d.scores?.sleep?.value],
+    ['eumetria_recovery', d.scores?.recovery?.value], ['training_load_ratio', d.scores?.load?.ratio],
     ['foods', d.foods?.length], ['activities', d.activities?.length], ['workouts', d.workouts?.length],
   ]],
   ['foods', (days) => days.flatMap((d) => (d.foods || []).map((f) => ({ d, f }))), ({ d, f }, data) => {

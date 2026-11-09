@@ -16,6 +16,8 @@ type fakeHealth struct {
 	sleeps    []google.SleepSession
 	dailies   map[string]*google.Daily
 	dailyErr  error
+	vo2       map[string]google.VO2
+	vo2Err    error
 	hrCalls   int
 	routeCall int
 }
@@ -33,6 +35,9 @@ func (f *fakeHealth) WorkoutRoute(context.Context, store.Workout) ([]store.Route
 }
 func (f *fakeHealth) DailyTotals(context.Context, time.Time, time.Time) (map[string]*google.Totals, error) {
 	return map[string]*google.Totals{"2026-10-16": {Kcal: 2450, ZoneMinutes: &[3]float64{12, 8, 0}}}, nil
+}
+func (f *fakeHealth) VO2Max(context.Context, time.Time, time.Time) (map[string]google.VO2, error) {
+	return f.vo2, f.vo2Err
 }
 func (f *fakeHealth) Devices(context.Context) ([]store.Device, error) {
 	return []store.Device{{Type: "TRACKER", Name: "Google Fitbit Air", Battery: 64}}, nil
@@ -58,6 +63,7 @@ func TestSyncHealth(t *testing.T) {
 		workouts: []store.Workout{ride},
 		sleeps:   []google.SleepSession{night, nap},
 		dailies:  map[string]*google.Daily{"2026-10-16": {RestingHR: 63, HRV: 31.2, HRVDeep: 28, SleepHR: 55}},
+		vo2:      map[string]google.VO2{"2026-10-15": {Value: 44.3, Level: "GOOD"}},
 	}
 	from := time.Date(2026, 10, 14, 0, 0, 0, 0, time.Local)
 	today := time.Date(2026, 10, 16, 0, 0, 0, 0, time.Local)
@@ -77,6 +83,9 @@ func TestSyncHealth(t *testing.T) {
 	}
 	if len(h.Devices) != 1 || h.Devices[0].Battery != 64 {
 		t.Errorf("devices = %+v", h.Devices)
+	}
+	if d := h.Health["2026-10-15"]; d == nil || d.VO2Max != 44.3 || d.VO2Level != "GOOD" {
+		t.Errorf("VO2 max missing: %+v", d)
 	}
 	if d := h.Health["2026-10-16"]; d == nil || d.Sleep == nil || d.Sleep.Asleep != 355 || d.RestingHR != 63 || d.HRVDeep != 28 || d.SleepHR != 55 {
 		t.Errorf("night (not the nap) and dailies belong to the wake-up day: %+v", d)
@@ -102,6 +111,15 @@ func TestSyncHealth(t *testing.T) {
 	}
 	if src.hrCalls != 2 {
 		t.Errorf("edited workout not re-fetched")
+	}
+
+	// A failing VO2 max fetch keeps the stored values and doesn't fail the sync.
+	src.vo2, src.vo2Err = nil, errors.New("no such data type")
+	if err := syncHealth(context.Background(), src, h, from, today); err != nil {
+		t.Fatal(err)
+	}
+	if d := h.Health["2026-10-15"]; d == nil || d.VO2Max != 44.3 || d.VO2Level != "GOOD" {
+		t.Errorf("VO2 max lost after a failed fetch: %+v", d)
 	}
 
 	// A failing daily type keeps the stored values instead of wiping them.

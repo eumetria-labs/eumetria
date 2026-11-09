@@ -73,6 +73,7 @@ var defs = []def{
 	{key: "ai_effort", env: "AI_EFFORT", fallback: "medium", valid: oneOf("low", "medium", "high", "xhigh", "max")},
 	{key: "ai_credit_usd", env: "AI_CREDIT_USD", valid: money},
 	{key: "openfoodfacts", env: "OPENFOODFACTS", fallback: "true", valid: boolean},
+	{key: "sleep_goal", fallback: "480", valid: number(240, 720)},
 	{key: "backups", fallback: "true", valid: boolean},
 	{key: "backup_time", fallback: "03:30", valid: clock},
 	{key: "backup_keep_days", fallback: "14", valid: number(1, 365)},
@@ -382,6 +383,7 @@ type Values struct {
 	Model, Effort     string
 	CreditUSD         float64
 	OpenFoodFacts     bool
+	SleepGoal         int // minutes, for the sleep score
 
 	Backups             bool
 	BackupTime          string // "HH:MM" in the site's time zone
@@ -431,6 +433,10 @@ func resolve(get func(key string) string) Values {
 		v.RefreshDays = 3
 	}
 	v.CreditUSD, _ = strconv.ParseFloat(get("ai_credit_usd"), 64)
+	v.SleepGoal, _ = strconv.Atoi(get("sleep_goal"))
+	if v.SleepGoal < 240 {
+		v.SleepGoal = 480
+	}
 	onOff := func(key string) bool {
 		b, err := strconv.ParseBool(get(key))
 		return err != nil || b

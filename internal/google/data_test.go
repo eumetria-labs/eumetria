@@ -167,6 +167,7 @@ func healthServer(t *testing.T) *Client {
 		"/users/me/dataTypes/daily-respiratory-rate/dataPoints":              `{"dataPoints":[{"dailyRespiratoryRate":{"breathsPerMinute":17.6,"date":{"day":24,"month":9,"year":2026}}}]}`,
 		"/users/me/dataTypes/daily-oxygen-saturation/dataPoints":             `{"dataPoints":[{"dailyOxygenSaturation":{"averagePercentage":98.7,"date":{"day":24,"month":9,"year":2026},"lowerBoundPercentage":97.8,"upperBoundPercentage":99.1}}]}`,
 		"/users/me/dataTypes/daily-sleep-temperature-derivations/dataPoints": `{"dataPoints":[{"dailySleepTemperatureDerivations":{"baselineTemperatureCelsius":33.43,"date":{"day":24,"month":9,"year":2026},"nightlyTemperatureCelsius":33.01}}]}`,
+		"/users/me/dataTypes/daily-vo2-max/dataPoints":                       `{"dataPoints":[{"dailyVo2Max":{"date":{"day":24,"month":9,"year":2026},"vo2Max":44.3,"cardioFitnessLevel":"GOOD"}}]}`,
 		"/users/me/dataTypes/sleep/dataPoints:reconcile": `{"dataPoints":[{"dataPointName":"users/787/dataTypes/sleep/dataPoints/1","sleep":{
 			"interval":{"startTime":"2026-10-15T20:55:00Z","startUtcOffset":"7200s","endTime":"2026-10-16T02:57:00Z","endUtcOffset":"7200s"},
 			"type":"STAGES",
@@ -202,6 +203,15 @@ func TestDailies(t *testing.T) {
 	if d == nil || d.RestingHR != 62 || d.HRV != 35.4 || d.HRVDeep != 33.8 || d.HRVEntropy != 2.92 || d.SleepHR != 54 || d.Respiratory != 17.6 || d.SpO2 != 98.7 || d.SpO2Low != 97.8 ||
 		d.SkinTemp != 33.01 || d.SkinBaseline != 33.43 || d.Zones == nil || *d.Zones != [3]float64{109, 133, 163} {
 		t.Errorf("dailies = %+v (zones %v)", d, d.Zones)
+	}
+}
+
+func TestVO2Max(t *testing.T) {
+	c := healthServer(t)
+	from := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	got, err := c.VO2Max(context.Background(), from, from.AddDate(0, 0, 1))
+	if err != nil || len(got) != 1 || got["2026-09-24"] != (VO2{44.3, "GOOD"}) {
+		t.Errorf("VO2Max = %v, %v", got, err)
 	}
 }
 

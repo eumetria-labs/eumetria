@@ -57,6 +57,12 @@ type Day struct {
 	HRV        float64            `json:"hrv_ms,omitempty"`
 	SleepHR    float64            `json:"sleeping_hr,omitempty"`
 	ZoneMin    float64            `json:"active_zone_minutes,omitempty"`
+	// Eumetria's own scores (0–100) and the training load ratio.
+	SleepScore int      `json:"eumetria_sleep_score,omitempty"`
+	Recovery   int      `json:"eumetria_recovery,omitempty"`
+	Readiness  int      `json:"eumetria_readiness,omitempty"`
+	Flags      []string `json:"recovery_flags,omitempty"`
+	LoadRatio  float64  `json:"training_load_ratio,omitempty"`
 }
 
 type Food struct {
@@ -93,16 +99,19 @@ type Sleep struct {
 
 // Totals are a week's averages over the days that have the value.
 type Totals struct {
-	DaysLogged   int     `json:"days_food_logged"`
-	AvgKcal      float64 `json:"avg_kcal_eaten,omitempty"`
-	AvgKcalGoal  float64 `json:"avg_kcal_goal,omitempty"`
-	AvgProteinG  float64 `json:"avg_protein_g,omitempty"`
-	AvgSteps     float64 `json:"avg_steps,omitempty"`
-	Workouts     int     `json:"workouts"`
-	WorkoutTime  string  `json:"workout_time,omitempty"`
-	AvgSleep     string  `json:"avg_sleep,omitempty"`
-	AvgRestingHR float64 `json:"avg_resting_hr,omitempty"`
-	AvgHRV       float64 `json:"avg_hrv_ms,omitempty"`
+	DaysLogged    int     `json:"days_food_logged"`
+	AvgKcal       float64 `json:"avg_kcal_eaten,omitempty"`
+	AvgKcalGoal   float64 `json:"avg_kcal_goal,omitempty"`
+	AvgProteinG   float64 `json:"avg_protein_g,omitempty"`
+	AvgSteps      float64 `json:"avg_steps,omitempty"`
+	Workouts      int     `json:"workouts"`
+	WorkoutTime   string  `json:"workout_time,omitempty"`
+	AvgSleep      string  `json:"avg_sleep,omitempty"`
+	AvgRestingHR  float64 `json:"avg_resting_hr,omitempty"`
+	AvgHRV        float64 `json:"avg_hrv_ms,omitempty"`
+	AvgSleepScore float64 `json:"avg_eumetria_sleep_score,omitempty"`
+	AvgRecovery   float64 `json:"avg_eumetria_recovery,omitempty"`
+	AvgReadiness  float64 `json:"avg_eumetria_readiness,omitempty"`
 	// Single weigh-ins swing with water and food; the week's average is
 	// what to compare.
 	AvgWeightKg float64  `json:"avg_weight_kg,omitempty"`
@@ -182,6 +191,20 @@ func day(d stats.Day, date time.Time, out stats.Output) Day {
 	if z := d.ZoneMinutes; z != nil {
 		o.ZoneMin = z[0] + z[1] + z[2]
 	}
+	if s := d.Scores; s != nil {
+		if s.Sleep != nil {
+			o.SleepScore = s.Sleep.Value
+		}
+		if s.Recovery != nil {
+			o.Recovery, o.Flags = s.Recovery.Value, s.Recovery.Flags
+		}
+		if s.Readiness != nil {
+			o.Readiness = s.Readiness.Value
+		}
+		if s.Load != nil {
+			o.LoadRatio = math.Round(s.Load.Ratio*100) / 100
+		}
+	}
 	for _, f := range d.Foods {
 		food := Food{Meal: f.Daytime, Name: f.Name, Amount: amount(f), Kcal: f.Energy}
 		if p, ok := out.Products[f.Barcode]; ok {
@@ -234,7 +257,7 @@ func amount(f stats.Food) string {
 
 func totals(days []stats.Day, out stats.Output) Totals {
 	var t Totals
-	var kcal, goal, protein, steps, sleep, rhr, hrv, weights []float64
+	var kcal, goal, protein, steps, sleep, rhr, hrv, weights, sleepScore, recovery, readiness []float64
 	var workoutMin float64
 	nova, nutri := map[string]float64{}, map[string]float64{}
 	var foodKcal float64
@@ -258,6 +281,17 @@ func totals(days []stats.Day, out stats.Output) Totals {
 		}
 		if d.HRV > 0 {
 			hrv = append(hrv, d.HRV)
+		}
+		if s := d.Scores; s != nil {
+			if s.Sleep != nil {
+				sleepScore = append(sleepScore, float64(s.Sleep.Value))
+			}
+			if s.Recovery != nil {
+				recovery = append(recovery, float64(s.Recovery.Value))
+			}
+			if s.Readiness != nil {
+				readiness = append(readiness, float64(s.Readiness.Value))
+			}
 		}
 		if d.Weight != nil {
 			weights = append(weights, *d.Weight)
@@ -289,6 +323,7 @@ func totals(days []stats.Day, out stats.Output) Totals {
 	t.AvgKcal, t.AvgKcalGoal, t.AvgProteinG = avg(kcal), avg(goal), avg(protein)
 	t.AvgSteps, t.AvgRestingHR, t.AvgHRV = avg(steps), avg(rhr), round1(avgRaw(hrv))
 	t.AvgSleep, t.WorkoutTime = dur(avgRaw(sleep)), dur(workoutMin)
+	t.AvgSleepScore, t.AvgRecovery, t.AvgReadiness = avg(sleepScore), avg(recovery), avg(readiness)
 	t.AvgWeightKg, t.WeighIns = round1(avgRaw(weights)), len(weights)
 	if foodKcal > 0 {
 		t.NOVAShare, t.NutriShare = shares(nova, foodKcal), shares(nutri, foodKcal)

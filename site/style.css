@@ -293,6 +293,31 @@ main.dim { opacity: .6; }
 .meter i.over { background: var(--over); }
 .meter.s3 { background: color-mix(in oklab, var(--s3) 22%, var(--surface)); }
 .meter.s3 i { background: var(--s3); }
+.today-scores { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.today-scores[hidden] { display: none; }
+.score-chip { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-2); color: var(--ink); font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.score-chip:hover { border-color: var(--axis); }
+.sc-ring { position: relative; flex: none; width: 44px; height: 44px; display: grid; place-items: center; }
+.sc-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.sc-ring b { position: relative; font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.sc-fill { fill: none; stroke-linecap: round; transition: stroke-dashoffset .8s var(--ease); }
+.sc-fill.s1 { stroke: var(--s1); } .sc-fill.s2 { stroke: var(--s2); } .sc-fill.s3 { stroke: var(--s3); }
+.sc-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.sc-label { font-weight: 600; font-size: 13px; }
+.sc-word { font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; }
+.sc-flag { font-size: 11.5px; color: var(--over); }
+.score-panel { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+/* Narrow boxes: the detail goes under the label. */
+.score-box .day-item.metric-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0; }
+.score-box .metric-row .amt { grid-column: 1; grid-row: 2; text-align: left; white-space: normal; }
+.score-box .metric-row .val { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+.score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px 28px; margin-top: 6px; }
+.sb-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.sb-head div { display: flex; flex-direction: column; line-height: 1.3; }
+.sb-head .muted { font-size: 12.5px; }
+.sb-flag { margin: 4px 0; font-size: 12.5px; color: var(--over); }
+.sb-note { margin: 6px 0 0; font-size: 12px; }
+.sc-own { font-size: 12px; }
 .today-meals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .meal-chip {
   font: inherit; text-align: left; color: inherit; cursor: pointer;
@@ -715,6 +740,10 @@ main.loading .tiles .tile { box-shadow: none; }
   .ring-wrap { width: 190px; height: 190px; }
   .ring-center .big { font-size: 44px; }
   .today-meals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .today-scores { gap: 6px; }
+  .score-chip { flex-direction: column; gap: 4px; padding: 8px 4px; text-align: center; }
+  .sc-text { align-items: center; }
+  .sc-word { font-size: 11px; white-space: normal; }
   /* Bottom sheet */
   .sheet { top: auto; left: 0; right: 0; bottom: 0; margin: 0; width: 100%; height: 94vh; max-height: 94vh; border-radius: 22px 22px 0 0; animation-name: slide-up; padding-bottom: env(safe-area-inset-bottom); }
   .sheet::before { content: ""; display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--axis); margin: 8px auto 0; }
@@ -774,6 +803,9 @@ main.loading .tiles .tile { box-shadow: none; }
 }
 .training-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px 28px; margin-top: 20px; }
 .training-map { height: 320px; margin-top: 6px; }
+.training-trends .trend-note { margin: 6px 0 0; font-size: 12px; }
+.load-zone-band { fill: var(--wash); }
+.key.load-zone { width: 10px; height: 10px; border-radius: 3px; background: var(--wash); box-shadow: inset 0 0 0 1px var(--border); }
 #nights-after { margin-top: 18px; }
 #nights-after .table-wrap { margin-top: 4px; max-height: none; }
 table.compare tbody th { position: static; font-weight: 500; color: var(--ink); }
@@ -1240,7 +1272,7 @@ a.q-badges:focus-visible { outline: none; }
 .value-pill text { fill: #fff; font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .value-pill.ghost rect { fill: var(--surface); stroke: var(--s1); stroke-width: 1.2; }
 .value-pill.ghost text { fill: var(--s1); }
-.enter .fade-area, .enter .forecast-line, .enter .forecast-pin, .enter .value-pill, .enter .future-band, .enter .future-label { animation: fade-in .5s ease-out both; animation-delay: .5s; }
+.enter .fade-area, .enter .forecast-line, .enter .forecast-pin, .enter .value-pill, .enter .future-band, .enter .future-label, .enter .load-zone-band { animation: fade-in .5s ease-out both; animation-delay: .5s; }
 
 /* Daily values under their 7-day average (Calories). */
 .mark-line.soft { stroke-width: 1.3; opacity: .4; }

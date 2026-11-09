@@ -484,6 +484,40 @@ func (c *Client) Dailies(ctx context.Context, from, to time.Time) (map[string]*D
 	return out, nil
 }
 
+// VO2 is Fitbit's daily VO2 max estimate (ml/kg/min, the "cardio fitness
+// score") and its rating, e.g. "AVERAGE".
+type VO2 struct {
+	Value float64
+	Level string
+}
+
+// VO2Max returns the daily VO2 max for the dates in [from, to), keyed by
+// date. Days Fitbit has no estimate for are missing.
+func (c *Client) VO2Max(ctx context.Context, from, to time.Time) (map[string]VO2, error) {
+	f := fmt.Sprintf(`daily_vo2_max.date >= "%s" AND daily_vo2_max.date < "%s"`, from.Format(time.DateOnly), to.Format(time.DateOnly))
+	raw, err := c.List(ctx, "daily-vo2-max", "", f, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]VO2{}
+	for _, r := range raw {
+		var p struct {
+			V *struct {
+				Date   gdate   `json:"date"`
+				VO2Max float64 `json:"vo2Max"`
+				Level  string  `json:"cardioFitnessLevel"`
+			} `json:"dailyVo2Max"`
+		}
+		if err := json.Unmarshal(r, &p); err != nil {
+			return out, fmt.Errorf("daily-vo2-max: %w", err)
+		}
+		if p.V != nil && p.V.VO2Max > 0 {
+			out[p.V.Date.String()] = VO2{Value: p.V.VO2Max, Level: p.V.Level}
+		}
+	}
+	return out, nil
+}
+
 // Flexible Convert float64
 type FlexibleFloat64 float64
 

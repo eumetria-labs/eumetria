@@ -35,6 +35,12 @@ type HealthDay struct {
 	// ZoneMinutes are the active zone minutes in the fat burn, cardio and
 	// peak zones (Fitbit counts cardio and peak minutes double).
 	ZoneMinutes *[3]float64 `json:"zone_minutes,omitempty"`
+	// VO2Max is Fitbit's estimate of the maximal oxygen uptake, ml/kg/min
+	// (the "cardio fitness score"); only some days have one.
+	VO2Max float64 `json:"vo2max,omitempty"`
+	// VO2Level is Fitbit's rating of it for age and sex: POOR, FAIR,
+	// AVERAGE, GOOD, VERY_GOOD or EXCELLENT.
+	VO2Level string `json:"vo2_level,omitempty"`
 
 	Workouts []Workout `json:"workouts,omitempty"`
 }

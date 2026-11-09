@@ -21,6 +21,7 @@ type healthSource interface {
 	Sleeps(ctx context.Context, from, to time.Time) ([]google.SleepSession, error)
 	Dailies(ctx context.Context, from, to time.Time) (map[string]*google.Daily, error)
 	DailyTotals(ctx context.Context, from, to time.Time) (map[string]*google.Totals, error)
+	VO2Max(ctx context.Context, from, to time.Time) (map[string]google.VO2, error)
 	Devices(ctx context.Context) ([]store.Device, error)
 }
 
@@ -90,6 +91,12 @@ func syncHealth(ctx context.Context, src healthSource, h *store.History, from, t
 	if totalsErr != nil {
 		dailyErr = errors.Join(dailyErr, totalsErr)
 	}
+	// VO2 max is optional like the devices: a failure keeps the stored
+	// values and doesn't fail the sync.
+	vo2, vo2Err := src.VO2Max(ctx, from, to)
+	if vo2Err != nil {
+		log.Printf("google health: VO2 max skipped: %v", vo2Err)
+	}
 	// Battery and last sync for the page header. Optional: the API does not
 	// document the scope it needs, so a failure only skips it.
 	if devs, err := src.Devices(ctx); err != nil {
@@ -146,12 +153,23 @@ func syncHealth(ctx context.Context, src healthSource, h *store.History, from, t
 		d := day(date)
 		d.TotalKcal, d.ZoneMinutes = v.Kcal, v.ZoneMinutes
 	}
+	for date, v := range vo2 {
+		d := day(date)
+		d.VO2Max, d.VO2Level = v.Value, v.Level
+	}
 
 	// Replace the window: days without data in it are dropped, except when a
 	// daily data type failed and its values would be lost.
 	for t := from; t.Before(to); t = t.AddDate(0, 0, 1) {
 		date := t.Format(time.DateOnly)
 		nd, ok := days[date]
+		if prev := h.Health[date]; vo2Err != nil && prev != nil && prev.VO2Max > 0 {
+			if !ok {
+				nd, ok = &store.HealthDay{Date: date, FetchedAt: now}, true
+				days[date] = nd
+			}
+			nd.VO2Max, nd.VO2Level = prev.VO2Max, prev.VO2Level
+		}
 		if dailyErr != nil {
 			if prev := h.Health[date]; prev != nil {
 				if !ok {

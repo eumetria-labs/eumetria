@@ -23,6 +23,8 @@ const nfQty = new Intl.NumberFormat(NUM_LOCALE, { maximumFractionDigits: 1 });
 const nf2 = new Intl.NumberFormat(NUM_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const compact = new Intl.NumberFormat(NUM_LOCALE, { notation: 'compact', maximumFractionDigits: 1 });
 export const fmt = (v, digits = 0) => (v == null || Number.isNaN(v) ? '–' : (digits ? nf1 : nf0).format(v));
+// Ratios with two decimals (1,30 vs. 1,34).
+export const fmtRatio = (v) => (v == null || Number.isNaN(v) ? '–' : nf2.format(v));
 export const signed = (v, digits = 0) => (v > 0 ? '+' : v < 0 ? '−' : '±') + fmt(Math.abs(v), digits);
 
 // Dates are handled as UTC midnights so DST never shifts a day.

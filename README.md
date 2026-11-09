@@ -143,7 +143,15 @@ Each sync fetches the last 3 days again (they may still change) and any missing 
 
 ## ⌚ Fitbit / Google Health
 
-Optional. With a Fitbit or Pixel Watch the page also shows workouts (heart rate by zone, splits, route, elevation), sleep stages, resting heart rate, HRV, breathing rate, blood oxygen, skin temperature, the calories Fitbit counts and active zone minutes. Scores that are computed in the Fitbit app (readiness, sleep score, cardio load) aren't in the API and aren't imitated.
+Optional. With a Fitbit or Pixel Watch the page also shows workouts (heart rate by zone, splits, route, elevation), sleep stages, resting heart rate, HRV, breathing rate, blood oxygen, skin temperature, the calories Fitbit counts, active zone minutes and VO2 max with Fitbit's rating (Fitbit's cardio fitness estimate). The Training card shows the training load: the zone minutes of the last 7 days against the last 28, as a plain ratio.
+
+Scores computed in the Fitbit app (readiness, sleep score, cardio load) aren't in the API and aren't imitated. Eumetria has **scores of its own** instead, each from 0 to 100, with a breakdown in the day's Sleep tab:
+
+- **Sleep:** duration against your sleep goal (50 points), time asleep in bed (15), deep and REM share (15) and how regular the night was compared with the last 14 (20).
+- **Recovery:** HRV, resting and sleeping heart rate and breathing rate against your own last 30 days. A usual morning scores about 80, each usual swing better or worse about 10 points. It needs 14 days of data first. A skin temperature clearly above Fitbit's baseline caps it at 60 and says so.
+- **Readiness:** half Recovery, 30 % Sleep, 20 % training load. 90 and up: ready for a hard session; below 75: take it easy.
+
+The sleep goal is under **Settings → Google → Scores** (default 8 h). The formulas are in [`internal/scores`](internal/scores/scores.go).
 
 **One-time setup in the [Google Cloud console](https://console.cloud.google.com/):**
 

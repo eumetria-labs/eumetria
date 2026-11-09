@@ -101,6 +101,8 @@ func addHealth(d *Day, hd *store.HealthDay, opt Options) {
 	d.SleepHR = hd.SleepHR
 	d.Respiratory = round(hd.Respiratory, 1)
 	d.SpO2 = round(hd.SpO2, 1)
+	d.VO2Max = round(hd.VO2Max, 1)
+	d.VO2Level = hd.VO2Level
 	if hd.SkinTemp != 0 && hd.SkinBaseline != 0 {
 		t := round(hd.SkinTemp-hd.SkinBaseline, 1)
 		d.SkinTemp = &t

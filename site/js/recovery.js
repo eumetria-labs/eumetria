@@ -1,6 +1,6 @@
 // Sleep and recovery: the "Sleep & recovery" card on the page and the Sleep
-// tab of the day sheet. Only measured values from Fitbit are shown; no
-// scores are derived from them.
+// tab of the day sheet. The measurements are Fitbit's; the scores above them
+// are Eumetria's own (scores.js), never named after Fitbit's.
 
 import { addDays, avgOf, fmt, iso, logged, parse, signed } from './format.js';
 import { median, nightsAfter } from './insights.js';
@@ -9,6 +9,7 @@ import { $, h, svg, showTip, hideTip } from './dom.js';
 import { state } from './state.js';
 import { timeChart, bucketTitle, drawStacks, fadeArea, smoothPath, valuePill } from './charts.js';
 import { t, tn } from './i18n.js';
+import { scoresChart, scoresPanel } from './scores.js';
 
 export const hasRecovery = (d) => !!(d && (d.sleep || d.rhr || d.hrv));
 
@@ -28,6 +29,7 @@ export function renderRecovery(s) {
   if (hrv) parts.push(`HRV ${fmt(hrv)} ms`);
   $('#recovery-sub').textContent = (parts.join(' · ') || t('No sleep data in this range')) + (weekly ? ' · ' + t('weekly averages') : '');
 
+  scoresChart(s);
   sleepChart(s);
   // Second lines: the heart rate while asleep (outside REM) and the HRV of
   // deep sleep, both measured by Fitbit like the first.
@@ -238,7 +240,12 @@ export function sleepPanel(day) {
     }
     if (day.temp != null) body.append(metricRow(t('Skin temperature'), `${signed(day.temp, 1)} °C`, t('vs your baseline')));
   }
-  return wrap;
+  // The scores sit above the night and its measurements.
+  const scores = scoresPanel(day);
+  if (!scores) return wrap;
+  const outer = h('div');
+  outer.append(scores, wrap);
+  return outer;
 }
 
 function metricRow(label, value, note) {

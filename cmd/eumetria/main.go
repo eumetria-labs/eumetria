@@ -301,6 +301,7 @@ func baseOptions(cfg config) stats.Options {
 		CreditUSD:    cfg.values.CreditUSD,
 		PhotoPath:    "photos/",
 		SyncInterval: cfg.interval,
+		SleepGoal:    float64(cfg.values.SleepGoal),
 	}
 }
 

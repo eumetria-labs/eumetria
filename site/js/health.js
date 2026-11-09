@@ -186,3 +186,16 @@ export function personalBests(days) {
   }
   return [...best.values()];
 }
+
+// The usual training load (package scores): the ratio of the last 7 days'
+// zone minutes to the last 28 days'.
+export const LOAD_ZONE = [0.8, 1.3];
+
+// The words for a load ratio.
+export function loadLabel(ratio) {
+  if (ratio < 0.5) return t('much lighter than usual');
+  if (ratio < LOAD_ZONE[0]) return t('lighter than usual');
+  if (ratio <= LOAD_ZONE[1]) return t('balanced');
+  if (ratio <= 1.5) return t('ramping up');
+  return t('sharp increase');
+}

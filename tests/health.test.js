@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayActivities, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares } from '../site/js/health.js';
+import { dayActivities, loadLabel, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares } from '../site/js/health.js';
 
 test('zoneOf uses the lower bounds of moderate, vigorous and peak', () => {
   const limits = [109, 133, 163];
@@ -87,4 +87,10 @@ test('personalBests keeps the best workout per record and type', () => {
   ];
   const got = Object.fromEntries(personalBests(days).map((b) => [b.key, b.w.id]));
   assert.deepEqual(got, { dur: 'c', energy: 'c', 'dist:Walking': 'b', elev: 'b', azm: 'c' });
+});
+
+test('loadLabel names the training load', () => {
+  assert.equal(loadLabel(1), 'balanced');
+  assert.equal(loadLabel(1.6), 'sharp increase');
+  assert.equal(loadLabel(0.6), 'lighter than usual');
 });

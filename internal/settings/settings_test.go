@@ -201,7 +201,7 @@ func TestSaveChecks(t *testing.T) {
 	for key, value := range map[string]string{
 		"title": " ", "language": "fr", "timezone": "Mars/Base", "sync_interval": "4m",
 		"refresh_days": "0", "since": "yesterday", "yazio_email": "nope", "ai_effort": "huge",
-		"ai_credit_usd": "-1", "review": "maybe", "yazio_password": "",
+		"ai_credit_usd": "-1", "review": "maybe", "yazio_password": "", "sleep_goal": "120",
 	} {
 		var bad BadValue
 		if err := s.Save(ctx, map[string]string{key: value}, nil); !errors.As(err, &bad) || bad.Key != key {
@@ -220,8 +220,14 @@ func TestSaveChecks(t *testing.T) {
 	if err := s.Save(ctx, map[string]string{"title": "New", "since": "nope"}, nil); err == nil {
 		t.Fatal("refused nothing")
 	}
-	if v, _ := s.Values(ctx); v.Title != "Eumetria" {
-		t.Errorf("title = %q", v.Title)
+	if v, _ := s.Values(ctx); v.Title != "Eumetria" || v.SleepGoal != 480 {
+		t.Errorf("title = %q, sleep goal %d", v.Title, v.SleepGoal)
+	}
+	if err := s.Save(ctx, map[string]string{"sleep_goal": "450"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := s.Values(ctx); v.SleepGoal != 450 {
+		t.Errorf("sleep goal = %d", v.SleepGoal)
 	}
 }
 

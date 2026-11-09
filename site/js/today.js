@@ -8,6 +8,7 @@ import { ring, sparkline } from './charts.js';
 import { openDay } from './sheet.js';
 import { highlights, macroGoal } from './insights.js';
 import { t, tn } from './i18n.js';
+import { renderTodayScores } from './scores.js';
 
 export function renderToday() {
   const { data } = state;
@@ -60,6 +61,7 @@ export function renderToday() {
     chip.addEventListener('click', () => openDay(day.date, key));
     return chip;
   }));
+  renderTodayScores(day);
   $('#today-open').onclick = () => openDay(day.date);
   renderHighlights();
 }

@@ -65,6 +65,13 @@ func healthDay(r *rand.Rand, day time.Time, t float64, act *store.Activity) *sto
 		}
 	}
 	hd.ZoneMinutes = &azm
+	// VO2 max climbs slowly with the training; no random draw, so the rest
+	// of the demo data stays as it was.
+	hd.VO2Max = math.Round((41.5+2.5*t+0.4*math.Sin(float64(day.YearDay())/5))*10) / 10
+	hd.VO2Level = "AVERAGE"
+	if hd.VO2Max >= 43 {
+		hd.VO2Level = "GOOD"
+	}
 	return hd
 }
 

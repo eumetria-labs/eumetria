@@ -262,3 +262,21 @@ func TestBuildFollowsTheScopes(t *testing.T) {
 		t.Errorf("routes alone = %+v", out.Days)
 	}
 }
+
+// The scores come from the Fitbit data, so only readers who see it get them.
+func TestScoresNeedTheHealthScope(t *testing.T) {
+	h := &store.History{Days: map[string]*store.Day{}, Health: map[string]*store.HealthDay{}}
+	for k := range 31 {
+		date := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, k).Format(time.DateOnly)
+		h.Health[date] = &store.HealthDay{Date: date, HRV: 40 + float64(k%3), RestingHR: 60 + float64(k%2)}
+		h.Days[date] = &store.Day{Date: date, Total: store.Macros{Energy: 2000}}
+	}
+	out := Build(h, Options{Health: true, SleepGoal: 450}, time.Now())
+	if d := out.Days[len(out.Days)-1]; d.Scores == nil || d.Scores.Recovery == nil || out.SleepGoal != 450 {
+		t.Errorf("with health: scores %+v, sleep goal %v", d.Scores, out.SleepGoal)
+	}
+	out = Build(h, Options{Nutrition: true}, time.Now())
+	if d := out.Days[len(out.Days)-1]; d.Scores != nil || out.SleepGoal != 0 {
+		t.Errorf("without health: scores %+v, sleep goal %v", d.Scores, out.SleepGoal)
+	}
+}
