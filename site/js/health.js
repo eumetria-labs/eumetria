@@ -199,3 +199,50 @@ export function loadLabel(ratio) {
   if (ratio <= 1.5) return t('ramping up');
   return t('sharp increase');
 }
+
+/* ---------- lifts ---------- */
+
+// Lifts the form suggests; any other name can be typed. CrossFit boxes use
+// the English names in German too.
+export const COMMON_LIFTS = [
+  'Back Squat', 'Front Squat', 'Overhead Squat', 'Deadlift', 'Sumo Deadlift', 'Bench Press',
+  'Strict Press', 'Push Press', 'Push Jerk', 'Split Jerk', 'Clean', 'Power Clean', 'Squat Clean',
+  'Hang Power Clean', 'Clean & Jerk', 'Snatch', 'Power Snatch', 'Squat Snatch', 'Hang Power Snatch',
+  'Thruster', 'Weighted Pull-up',
+];
+
+// Epley's estimate of the one-rep max from a set of reps.
+export const oneRepMax = (kg, reps) => (reps > 1 ? kg * (1 + reps / 30) : kg);
+
+// Round to what a barbell can be loaded to, in half kilos.
+export const loadable = (kg) => Math.round(kg * 2) / 2;
+
+// The personal bests: one row per lift and number of reps (a 5-rep max is a
+// record of its own), the heaviest result first reached. prev is the best
+// before it, for the gain; recent marks a best from the last `days` days.
+// Rows come in the order of the most recent best first.
+export function liftBoard(entries, today, days = 30) {
+  const groups = new Map();
+  for (const e of entries) {
+    const key = e.lift.toLowerCase() + '|' + e.reps;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
+  }
+  const since = today ? iso(addDays(parse(today), -days)) : '';
+  const rows = [...groups.entries()].map(([key, list]) => {
+    list = [...list].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+    let best = list[0];
+    for (const e of list) if (e.kg > best.kg) best = e;
+    let prev = null;
+    for (const e of list) if (e.date < best.date && (!prev || e.kg > prev.kg)) prev = e;
+    return {
+      key, lift: list.at(-1).lift, reps: best.reps, best, prev, entries: list,
+      gain: prev ? best.kg - prev.kg : null,
+      recent: !!since && best.date > since,
+    };
+  });
+  return rows.sort((a, b) => b.best.date.localeCompare(a.best.date) || a.lift.localeCompare(b.lift));
+}
+
+// The weights at 50 to 95 % of a one-rep max, for the day's sets.
+export const percentages = (max) => [50, 60, 65, 70, 75, 80, 85, 90, 95].map((pct) => ({ pct, kg: loadable((max * pct) / 100) }));

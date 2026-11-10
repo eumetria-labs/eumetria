@@ -1,12 +1,15 @@
-// The Training card: this week's volume next to the 4-week average, the
-// training load and VO2 max trends, the personal bests, and every GPS route
-// of the selected range on one map.
+// The Training card, in three tabs so the page stays short: the overview
+// (this week's volume next to the 4-week average, the training load and VO2
+// max trends), the personal bests (lifts people note themselves, lifts.js,
+// and the records of the Fitbit workouts), and every GPS route of the
+// selected range on one map.
 
 import { actLabel, avgOf, dfShort, fmt, fmtDistance, fmtDuration, fmtRatio, parse, signed } from './format.js';
 import { LOAD_ZONE, loadLabel, personalBests, speedLabel, trainingWeek, workoutIcon, workoutName } from './health.js';
-import { $, h, svg, nameCell } from './dom.js';
+import { $, h, svg, nameCell, panelTabs } from './dom.js';
 import { timeChart, bucketTitle, fadeArea, smoothPath, valuePill } from './charts.js';
-import { state } from './state.js';
+import { state, store } from './state.js';
+import { hasLifts, renderLifts } from './lifts.js';
 import { openDay } from './sheet.js';
 import { loadLeaflet, loadRoute, mapControls, openWorkout } from './workout.js';
 import { t, tn } from './i18n.js';
@@ -14,12 +17,33 @@ import { t, tn } from './i18n.js';
 export function renderTraining(s) {
   const card = $('#training-card');
   const days = state.data.days;
-  card.hidden = !days.some((d) => d.workouts?.length);
+  const workouts = days.some((d) => d.workouts?.length);
+  card.hidden = !workouts && !hasLifts();
   if (card.hidden) return;
-  renderWeek(days);
-  renderTrends(s);
+  const routes = days.some((d) => d.workouts?.some((w) => w.route_src || w.route?.length > 1));
+  panelTabs($('#training-tabs'), [
+    workouts && ['overview', t('Overview'), '📈'],
+    ['bests', t('Personal bests'), '🏆'],
+    routes && ['routes', t('Routes'), '🗺️'],
+  ].filter(Boolean), store.get('trainingTab'), (key) => store.set('trainingTab', key));
+  if (workouts) {
+    renderWeek(days);
+    renderTrends(s);
+  } else {
+    $('#training-sub').textContent = t('Personal bests you noted');
+  }
+  renderLifts();
+  $('#workout-bests-part').hidden = !workouts;
   renderBests(days);
-  renderRoutes(s.rows);
+  if (routes) renderRoutes(s.rows);
+}
+
+// After the lifts changed without new data: only the list is drawn again
+// (the map keeps its zoom), unless the card appears or goes.
+export function refreshLifts(s) {
+  const hide = !state.data.days.some((d) => d.workouts?.length) && !hasLifts();
+  if (hide !== $('#training-card').hidden) return renderTraining(s);
+  if (!hide) renderLifts();
 }
 
 /* ---------- this week ---------- */
@@ -217,14 +241,24 @@ function showWorkout(date, id) {
 
 /* ---------- routes ---------- */
 
-let map = null, layer = null, pending = null, drawn = 0;
+let map = null, layer = null, pending = null, drawn = 0, unfitted = false;
+
+function fitRoutes() {
+  unfitted = !$('#training-map').clientWidth;
+  if (!unfitted && layer.getLayers().length) map.fitBounds(layer.getBounds(), { padding: [20, 20], maxZoom: 15 });
+}
 
 function renderRoutes(rows) {
   const routes = [];
   for (const r of rows) for (const w of r.workouts || []) if (w.route?.length > 1 || w.route_src) routes.push({ date: r.date, w });
-  const part = $('#training-routes');
-  part.hidden = !routes.length;
-  if (!routes.length) return;
+  const empty = !routes.length;
+  $('#training-routes-empty').hidden = !empty;
+  $('#training-map').hidden = empty;
+  $('#training-legend').hidden = empty;
+  if (empty) {
+    $('#training-routes-sub').textContent = '';
+    return;
+  }
   const n = routes.length;
   $('#training-routes-sub').textContent = tn(n, '{n} route in this range · select one to open it', '{n} routes in this range · select one to open it');
   pending = routes;
@@ -257,7 +291,11 @@ async function initMap(host) {
     attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
   }).addTo(map);
   layer = L.featureGroup().addTo(map);
-  new ResizeObserver(() => map.invalidateSize()).observe(host);
+  // A map drawn in a hidden tab has no size: it fits the routes once shown.
+  new ResizeObserver(() => {
+    map.invalidateSize();
+    if (unfitted && host.clientWidth) fitRoutes();
+  }).observe(host);
   drawRoutes();
 }
 
@@ -285,7 +323,7 @@ async function drawRoutes() {
     line.on('click', () => showWorkout(date, w.id));
     layer.addLayer(line);
   }
-  if (layer.getLayers().length) map.fitBounds(layer.getBounds(), { padding: [20, 20], maxZoom: 15 });
+  fitRoutes();
   $('#training-legend').replaceChildren(...types.map((type, i) => {
     const li = h('li');
     li.append(h('span', { class: 'key line ' + ['s1', 's2', 's3'][i % 3] }), actLabel(type));

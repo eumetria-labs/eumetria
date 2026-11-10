@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayActivities, loadLabel, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares } from '../site/js/health.js';
+import { dayActivities, liftBoard, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares } from '../site/js/health.js';
 
 test('zoneOf uses the lower bounds of moderate, vigorous and peak', () => {
   const limits = [109, 133, 163];
@@ -93,4 +93,33 @@ test('loadLabel names the training load', () => {
   assert.equal(loadLabel(1), 'balanced');
   assert.equal(loadLabel(1.6), 'sharp increase');
   assert.equal(loadLabel(0.6), 'lighter than usual');
+});
+
+test('liftBoard keeps one best per lift and rep count, with its gain', () => {
+  const e = (id, lift, kg, reps, date) => ({ id, lift, kg, reps, date });
+  const rows = liftBoard([
+    e(1, 'Power Clean', 70, 1, '2026-05-01'),
+    e(2, 'power clean', 75, 1, '2026-08-01'),
+    e(3, 'Power Clean', 72.5, 1, '2026-10-01'), // not a best: after it, and lighter
+    e(4, 'Power Clean', 75, 1, '2026-11-01'), // equals the best: the first one counts
+    e(5, 'Back Squat', 100, 5, '2026-11-05'),
+    e(6, 'Back Squat', 130, 1, '2026-02-01'),
+  ], '2026-11-10');
+  assert.deepEqual(rows.map((r) => [r.lift, r.reps, r.best.kg, r.best.date, r.gain, r.recent]), [
+    ['Back Squat', 5, 100, '2026-11-05', null, true],
+    ['Power Clean', 1, 75, '2026-08-01', 5, false],
+    ['Back Squat', 1, 130, '2026-02-01', null, false],
+  ]);
+  // The latest spelling names the lift.
+  assert.equal(rows[1].lift, 'Power Clean');
+  assert.equal(rows[1].entries.length, 4);
+  assert.deepEqual(liftBoard([], '2026-11-10'), []);
+});
+
+test('one-rep max estimate and percentages', () => {
+  assert.equal(oneRepMax(100, 1), 100);
+  assert.equal(Math.round(oneRepMax(100, 3) * 1e6) / 1e6, 110);
+  const p = percentages(83);
+  assert.deepEqual(p[0], { pct: 50, kg: 41.5 });
+  assert.deepEqual(p.at(-1), { pct: 95, kg: 79 });
 });

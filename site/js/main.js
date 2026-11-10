@@ -17,12 +17,13 @@ import { renderMovement, renderZoneMinutes } from './movement.js';
 import { renderFoods, renderTopActivities } from './foods.js';
 import { renderSources } from './sources.js';
 import { renderRecovery } from './recovery.js';
-import { renderTraining } from './training.js';
+import { refreshLifts, renderTraining } from './training.js';
 import { renderDevice, renderNotices } from './device.js';
 import { initAdmin } from './admin.js';
 import { account, forgetData, initAccount, onUserChange, reason, signedIn } from './account.js';
 import { openSettings } from './settings.js';
 import { loadNotes } from './notes.js';
+import { loadLifts } from './lifts.js';
 import { renderTable } from './table.js';
 import { renderFoodQuality } from './foodquality.js';
 import { renderReview } from './weekly.js';
@@ -99,9 +100,16 @@ async function load() {
     const recent = await res.json();
     // The site's language, until this visitor picked one.
     if (recent.language && recent.language !== LANG && !store.get('lang')) return setLang(recent.language);
-    // Notes change between syncs, and every window reads them when it opens.
-    await loadNotes(recent);
-    if (state.data && recent.generated_at === state.data.generated_at) return;
+    // Notes and lifts change between syncs: notes show when a window opens,
+    // lifts are drawn again here when nothing else changed.
+    await Promise.all([loadNotes(recent), loadLifts(recent)]);
+    if (state.data && recent.generated_at === state.data.generated_at) {
+      if (state.data.days.length) {
+        refreshLifts(slice());
+        syncSections();
+      }
+      return;
+    }
     const next = await withArchive(recent);
     const first = !state.data;
     state.animateNext = true;

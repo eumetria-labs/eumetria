@@ -105,6 +105,7 @@ Everything but the sign-in page needs an account, and each account has one role.
 | `view.review` | the weekly review |
 | `view.notes` | workout notes (needs `view.health`) |
 | `edit.notes` | add, change and delete notes (needs `view.notes`) |
+| `edit.lifts` | add, change and delete personal bests in lifts (needs `view.health`) |
 | `sync` | the sync button, with **Full refresh** in its menu |
 | `admin` | everything, including the audit log and the credit warning |
 
@@ -144,6 +145,10 @@ Each sync fetches the last 3 days again (they may still change) and any missing 
 ## ⌚ Fitbit / Google Health
 
 Optional. With a Fitbit or Pixel Watch the page also shows workouts (heart rate by zone, splits, route, elevation), sleep stages, resting heart rate, HRV, breathing rate, blood oxygen, skin temperature, the calories Fitbit counts, active zone minutes and VO2 max with Fitbit's rating (Fitbit's cardio fitness estimate). The Training card shows the training load: the zone minutes of the last 7 days against the last 28, as a plain ratio.
+
+The Training card has three tabs: **Overview** (this week, training load, VO2 max), **Personal bests** and **Routes**; Sleep & Recovery has **Sleep** (scores and stages), **Heart** (heart rate and HRV) and **Patterns**. The page remembers the tab you picked.
+
+**Lifts.** Under **Personal bests** you note your results in lifts such as Power Clean, Strict Press or Split Jerk: weight, reps (1 for a one-rep max), date and an optional note, with **Add result**. Each lift and rep count keeps its heaviest result as the best, with the gain over the one before; selecting it shows every result and the training weights from 50 to 95 % of the one-rep max (estimated from a 3- or 5-rep max with Epley's formula). Everyone with `view.health` sees them, `edit.lifts` writes them. They live in `app.db`, so they are backed up.
 
 Scores computed in the Fitbit app (readiness, sleep score, cardio load) aren't in the API and aren't imitated. Eumetria has **scores of its own** instead, each from 0 to 100, with a breakdown in the day's Sleep tab:
 

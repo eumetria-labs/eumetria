@@ -23,6 +23,7 @@ import (
 
 	"eumetria/internal/auth"
 	"eumetria/internal/imgmeta"
+	"eumetria/internal/lifts"
 	"eumetria/internal/notes"
 )
 
@@ -48,6 +49,10 @@ import (
 //	DELETE /api/notes/{key}   deletes it                                           edit.notes
 //	POST   /api/notes/{key}/images  {image}: stores one, answers its address       edit.notes
 //	GET    /note-images/{name}  an image in a note                                 signed in, view.notes
+//	GET    /api/lifts         personal bests in lifts, lifts.go                   signed in, view.health
+//	POST   /api/lifts         {lift, kg, reps, date, note}: a new entry            edit.lifts
+//	PUT    /api/lifts/{id}    the same: changes one                                edit.lifts
+//	DELETE /api/lifts/{id}    deletes one                                          edit.lifts
 //	GET    /avatars/{id}      a user's picture                                     signed in
 //	GET    /api/me            who is signed in, with their scopes                  signed in
 //	POST   /api/logout        ends this session                                    session
@@ -94,7 +99,7 @@ import (
 //
 // "Signed in" is a session or an API token with the read scope; "admin" a
 // session of a role with the admin scope; "edit.notes" a session of a role
-// with that scope; "sync" a session of a role with the sync scope, or such a
+// with that scope, "edit.lifts" likewise; "sync" a session of a role with the sync scope, or such a
 // user's token with the sync scope. Admin and sync rights, and notes written
 // with them, count only once the user has a second factor. API tokens
 // are sent as "Authorization: Bearer eum_…" and made in the profile or with
@@ -110,6 +115,7 @@ const (
 	adminOnly                    // a session with the admin scope
 	syncAccess                   // a session with the sync scope, or a token with "sync"
 	noteWriter                   // a session with the edit.notes scope
+	liftWriter                   // a session with the edit.lifts scope
 )
 
 type route struct {
@@ -160,6 +166,7 @@ type app struct {
 	runner   *runner
 	store    *auth.Store
 	notes    *notes.Store
+	lifts    *lifts.Store
 	data     *published
 	photoDir string
 	// Images in notes (internal/notes, images.go).
@@ -183,6 +190,7 @@ func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, a
 		runner:     r,
 		store:      store,
 		notes:      &notes.Store{DB: store.DB, Now: store.Now},
+		lifts:      &lifts.Store{DB: store.DB, Now: store.Now},
 		data:       data,
 		photoDir:   photoDir,
 		noteImages: noteImages,
@@ -218,6 +226,10 @@ func (a *app) routes() []route {
 		{"DELETE", "/api/notes/{key}", noteWriter, a.noteDelete},
 		{"POST", "/api/notes/{key}/images", noteWriter, a.noteImagePost},
 		{"GET", "/note-images/{name}", signedIn, scoped(auth.ViewNotes, a.noteImage)},
+		{"GET", "/api/lifts", signedIn, scoped(auth.ViewHealth, a.liftsList)},
+		{"POST", "/api/lifts", liftWriter, a.liftPost},
+		{"PUT", "/api/lifts/{id}", liftWriter, a.liftPut},
+		{"DELETE", "/api/lifts/{id}", liftWriter, a.liftDelete},
 		{"GET", "/avatars/{id}", signedIn, a.avatar},
 		{"GET", "/api/me", signedIn, a.me},
 		{"POST", "/api/logout", ownSession, a.logout},
@@ -298,7 +310,7 @@ func (a *app) guard(rt route) http.Handler {
 			writeError(w, http.StatusUnauthorized, "signin")
 			return
 		}
-		if p.session != nil && p.user.Elevated() && (rt.access == adminOnly || rt.access == syncAccess || rt.access == noteWriter) {
+		if p.session != nil && p.user.Elevated() && (rt.access == adminOnly || rt.access == syncAccess || rt.access == noteWriter || rt.access == liftWriter) {
 			// Admin and sync rights need the second factor; reading doesn't.
 			f, err := a.store.Factors(req.Context(), p.user)
 			if err != nil || !f.Any() {
@@ -318,6 +330,8 @@ func (a *app) guard(rt route) http.Handler {
 			ok = p.can(auth.ScopeSync)
 		case noteWriter:
 			ok = p.can(auth.EditNotes)
+		case liftWriter:
+			ok = p.can(auth.EditLifts)
 		}
 		if !ok {
 			writeError(w, http.StatusForbidden, "forbidden")

@@ -307,6 +307,8 @@ func TestRoles(t *testing.T) {
 		"edit.notes view.health":            ErrBadScope, // writing needs reading
 		"edit.notes view.notes view.health": nil,
 		"admin edit.notes":                  nil,
+		"edit.lifts":                        ErrBadScope, // lifts show with the workouts
+		"edit.lifts view.health":            nil,
 		"view.everything":                   ErrBadScope,
 	} {
 		if err := s.SaveRole(ctx, "Coach", strings.Fields(scopes)); !errors.Is(err, want) {

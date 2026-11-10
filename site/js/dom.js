@@ -86,6 +86,41 @@ export function tabKeys(e, list) {
   next.click();
 }
 
+// Tabs that switch between a card's panels (its [role="tabpanel"] children
+// with data-tab), so a long card shows one part at a time. tabs are [key,
+// label, icon]; panels without a tab stay hidden. A single tab hides the
+// row. onPick hears the new key, e.g. to remember it.
+export function panelTabs(list, tabs, wanted, onPick) {
+  const panels = [...list.parentElement.querySelectorAll(':scope > [role="tabpanel"][data-tab]')];
+  let tab = tabs.some(([k]) => k === wanted) ? wanted : tabs[0][0];
+  const show = () => {
+    for (const b of list.children) {
+      const on = b.dataset.tab === tab;
+      b.setAttribute('aria-selected', String(on));
+      b.tabIndex = on ? 0 : -1;
+    }
+    for (const p of panels) p.hidden = p.dataset.tab !== tab;
+  };
+  list.hidden = tabs.length < 2;
+  list.replaceChildren(...tabs.map(([key, label, icon]) => {
+    const b = tabButton(key, label, icon);
+    const p = panels.find((x) => x.dataset.tab === key);
+    b.id = p.id + '-tab';
+    b.setAttribute('aria-controls', p.id);
+    p.setAttribute('aria-labelledby', b.id);
+    return b;
+  }));
+  list.onclick = (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.dataset.tab === tab) return;
+    tab = b.dataset.tab;
+    onPick?.(tab);
+    show();
+  };
+  list.onkeydown = (e) => tabKeys(e, list);
+  show();
+}
+
 export function hbar(name, value, note, frac, cls, ai, icon) {
   const row = h('div', { class: 'hbar' });
   row.append(nameCell(name, ai, icon));

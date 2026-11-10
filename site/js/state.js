@@ -5,6 +5,8 @@ export const state = {
   byDate: new Map(),
   notes: new Map(), // workout id → its note (notes.js)
   notesLoaded: false, // the server's list arrived: a workout not in it has no note
+  lifts: [], // personal bests in lifts, every entry (lifts.js)
+  liftsLoaded: false,
   range: '30', // '7', '30', '90', '365', 'all' or 'custom'
   from: null, // first and last day of a custom range, ISO dates
   to: null,

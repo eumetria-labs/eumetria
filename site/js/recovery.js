@@ -5,8 +5,8 @@
 import { addDays, avgOf, fmt, iso, logged, parse, signed } from './format.js';
 import { median, nightsAfter } from './insights.js';
 import { RESTLESS, STAGES, fmtSleep, nightBreaks, stageRow } from './health.js';
-import { $, h, svg, showTip, hideTip } from './dom.js';
-import { state } from './state.js';
+import { $, h, svg, showTip, hideTip, panelTabs } from './dom.js';
+import { state, store } from './state.js';
 import { timeChart, bucketTitle, drawStacks, fadeArea, smoothPath, valuePill } from './charts.js';
 import { t, tn } from './i18n.js';
 import { scoresChart, scoresPanel } from './scores.js';
@@ -37,7 +37,12 @@ export function renderRecovery(s) {
   metricChart($('#chart-hrv'), s, { key: 'hrv', label: 'HRV', key2: 'hrv_deep', label2: t('deep sleep HRV'), unit: 'ms', digits: 1, aria: t('Heart rate variability per night, overall and in deep sleep') });
   $('#leg-sleep-hr').hidden = !s.complete.some((r) => r.sleep_hr);
   $('#leg-hrv-deep').hidden = !s.complete.some((r) => r.hrv_deep);
-  renderNightsAfter(s);
+  const patterns = renderNightsAfter(s);
+  panelTabs($('#recovery-tabs'), [
+    ['sleep', t('Sleep'), '😴'],
+    ['heart', t('Heart'), '❤️'],
+    patterns && ['patterns', t('Patterns'), '🔍'],
+  ].filter(Boolean), store.get('recoveryTab'), (key) => store.set('recoveryTab', key));
 }
 
 // The night after high- vs. lower-calorie days and after workout vs. rest
@@ -53,10 +58,8 @@ function renderNightsAfter(s) {
   const active = (r) => r.workouts?.length || r.activities?.length;
   pairs.push([[t('Workout days'), t('Rest days')], nightsAfter(rows, state.byDate, (r) => (active(r) ? 0 : logged(r) || r.sleep ? 1 : null))]);
 
-  const host = $('#nights-after');
   const shown = pairs.filter(([, c]) => c.ok);
-  host.hidden = !shown.length;
-  if (!shown.length) return;
+  if (!shown.length) return false;
   const table = h('table', { class: 'compare' });
   const head = h('tr');
   [t('The night after'), t('Nights'), 'HRV', t('Sleeping HR'), t('Asleep')].forEach((c) => head.append(h('th', { scope: 'col' }, c)));
@@ -76,6 +79,7 @@ function renderNightsAfter(s) {
     });
   }
   $('#nights-after-table').replaceChildren(table);
+  return true;
 }
 
 // Stacked bars: deep at the bottom, then light, REM and awake time on top.

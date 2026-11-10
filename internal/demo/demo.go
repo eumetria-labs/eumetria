@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"eumetria/internal/lifts"
 	"eumetria/internal/store"
 )
 
@@ -335,4 +336,36 @@ func addRecipes(h *store.History) {
 			}
 		}
 	}
+}
+
+// Lifts are personal bests in a few CrossFit lifts, each improving now and
+// then over the last year, as someone would note them in the Training card.
+func Lifts(today time.Time) []lifts.Entry {
+	r := rand.New(rand.NewPCG(7, 11))
+	start := []struct {
+		name string
+		kg   float64
+		reps int
+	}{
+		{"Back Squat", 110, 1}, {"Front Squat", 92.5, 1}, {"Deadlift", 140, 1}, {"Power Clean", 72.5, 1},
+		{"Squat Clean", 80, 1}, {"Split Jerk", 75, 1}, {"Strict Press", 50, 1}, {"Push Press", 65, 1},
+		{"Snatch", 55, 1}, {"Back Squat", 95, 5},
+	}
+	var out []lifts.Entry
+	id := int64(0)
+	for _, s := range start {
+		kg := s.kg
+		day := today.AddDate(0, 0, -330-r.IntN(30))
+		for day.Before(today) {
+			id++
+			out = append(out, lifts.Entry{
+				ID: id, Lift: s.name, Kg: kg, Reps: s.reps, Date: day.Format(time.DateOnly),
+				CreatedBy: "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day,
+			})
+			kg += 2.5 * float64(1+r.IntN(2))
+			day = day.AddDate(0, 0, 40+r.IntN(80))
+		}
+	}
+	out[len(out)-1].Note = "Belt, felt smooth"
+	return out
 }

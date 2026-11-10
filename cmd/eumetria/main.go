@@ -62,6 +62,7 @@ import (
 	"eumetria/internal/demo"
 	"eumetria/internal/google"
 	"eumetria/internal/imgmeta"
+	"eumetria/internal/lifts"
 	"eumetria/internal/settings"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
@@ -318,6 +319,15 @@ func syncOnce(ctx context.Context, cfg config) error {
 			return fmt.Errorf("writing %s: %w", cfg.outPath, err)
 		}
 		log.Printf("wrote %d days to %s", len(out.Days), cfg.outPath)
+		// The page reads lifts from the server; from plain files it reads
+		// lifts.json instead: sample ones with -demo, else none.
+		lifted := []lifts.Entry{}
+		if cfg.demo {
+			lifted = demo.Lifts(cfg.now())
+		}
+		if err := store.WriteJSON(filepath.Join(filepath.Dir(cfg.outPath), "lifts.json"), lifted, false); err != nil {
+			return err
+		}
 	}
 	return err
 }
