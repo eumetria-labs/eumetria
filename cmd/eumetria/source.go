@@ -67,7 +67,7 @@ func sources(cfg config, opts stats.Options) []Source {
 	}
 	// Last: the weekly review reads what the others brought in.
 	if v := cfg.values; v.Review && v.AnthropicKey != "" {
-		srcs = append(srcs, reviewSource{opts: opts, model: v.Model, effort: v.Effort, write: writer(v.AnthropicKey)})
+		srcs = append(srcs, reviewSource{opts: opts, dbPath: cfg.dbPath, model: v.Model, effort: v.Effort, write: writer(v.AnthropicKey)})
 	}
 	return srcs
 }
@@ -271,6 +271,7 @@ func writer(apiKey string) func(context.Context, string, string, review.Week) (*
 // recorded and tried again on the next sync (refused requests cost nothing).
 type reviewSource struct {
 	opts          stats.Options
+	dbPath        string // what people noted (loadNoted)
 	model, effort string
 	write         func(ctx context.Context, model, effort string, w review.Week) (*review.Result, error)
 }
@@ -285,7 +286,8 @@ func (s reviewSource) Sync(ctx context.Context, h *store.History, w window) erro
 	}
 	out := stats.Build(h, s.opts.Everything(), w.now)
 	week := review.BuildWeek(out, monday, w.today.Format(time.DateOnly))
-	if week.Summary.DaysLogged == 0 && week.Summary.Workouts == 0 {
+	loadNoted(ctx, s.dbPath).addTo(&week)
+	if week.Summary.DaysLogged == 0 && week.Summary.Workouts == 0 && len(week.Lifts) == 0 && len(week.Benchmarks) == 0 {
 		return nil // nothing to write about
 	}
 	log.Printf("weekly review: asking %s to write the week of %s", s.model, key)

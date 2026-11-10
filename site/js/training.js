@@ -1,15 +1,16 @@
 // The Training card, in three tabs so the page stays short: the overview
 // (this week's volume next to the 4-week average, the training load and VO2
-// max trends), the personal bests (lifts people note themselves, lifts.js,
-// and the records of the Fitbit workouts), and every GPS route of the
+// max trends), the personal bests (lifts and benchmark workouts people note
+// themselves, lifts.js and wods.js, and the records of the Fitbit workouts), and every GPS route of the
 // selected range on one map.
 
-import { actLabel, avgOf, dfShort, fmt, fmtDistance, fmtDuration, fmtRatio, parse, signed } from './format.js';
-import { LOAD_ZONE, loadLabel, personalBests, speedLabel, trainingWeek, workoutIcon, workoutName } from './health.js';
-import { $, h, svg, nameCell, panelTabs } from './dom.js';
-import { timeChart, bucketTitle, fadeArea, smoothPath, valuePill } from './charts.js';
+import { actLabel, addDays, avgOf, dfLong, dfMonth, dfShort, fmt, fmtDistance, fmtDuration, fmtRatio, iso, parse, signed } from './format.js';
+import { LOAD_ZONE, bestDays, loadLabel, personalBests, speedLabel, trainingDays, trainingSummary, trainingWeek, wodBestDays, workoutIcon, workoutName } from './health.js';
+import { $, h, svg, nameCell, panelTabs, showTip, hideTip } from './dom.js';
+import { timeChart, bucketTitle, fadeArea, smoothPath, valuePill, resizer } from './charts.js';
 import { state, store } from './state.js';
 import { hasLifts, renderLifts } from './lifts.js';
+import { hasWods, renderWods } from './wods.js';
 import { openDay } from './sheet.js';
 import { loadLeaflet, loadRoute, mapControls, openWorkout } from './workout.js';
 import { t, tn } from './i18n.js';
@@ -18,12 +19,13 @@ export function renderTraining(s) {
   const card = $('#training-card');
   const days = state.data.days;
   const workouts = days.some((d) => d.workouts?.length);
-  card.hidden = !workouts && !hasLifts();
+  card.hidden = !workouts && !hasLifts() && !hasWods();
   if (card.hidden) return;
   const routes = days.some((d) => d.workouts?.some((w) => w.route_src || w.route?.length > 1));
   panelTabs($('#training-tabs'), [
     workouts && ['overview', t('Overview'), '📈'],
     ['bests', t('Personal bests'), '🏆'],
+    ['calendar', t('Calendar'), '📅'],
     routes && ['routes', t('Routes'), '🗺️'],
   ].filter(Boolean), store.get('trainingTab'), (key) => store.set('trainingTab', key));
   if (workouts) {
@@ -33,17 +35,23 @@ export function renderTraining(s) {
     $('#training-sub').textContent = t('Personal bests you noted');
   }
   renderLifts();
+  renderWods();
   $('#workout-bests-part').hidden = !workouts;
   renderBests(days);
+  renderCalendar();
   if (routes) renderRoutes(s.rows);
 }
 
-// After the lifts changed without new data: only the list is drawn again
+// After lifts or benchmark workouts changed without new data: only the list is drawn again
 // (the map keeps its zoom), unless the card appears or goes.
 export function refreshLifts(s) {
-  const hide = !state.data.days.some((d) => d.workouts?.length) && !hasLifts();
+  const hide = !state.data.days.some((d) => d.workouts?.length) && !hasLifts() && !hasWods();
   if (hide !== $('#training-card').hidden) return renderTraining(s);
-  if (!hide) renderLifts();
+  if (!hide) {
+    renderLifts();
+    renderWods();
+    renderCalendar();
+  }
 }
 
 /* ---------- this week ---------- */
@@ -329,4 +337,80 @@ async function drawRoutes() {
     li.append(h('span', { class: 'key line ' + ['s1', 's2', 's3'][i % 3] }), actLabel(type));
     return li;
   }));
+}
+
+/* ---------- the training calendar ---------- */
+
+// Every day trained over the last year, as wide as the card allows (the
+// latest weeks on a narrow screen): a cell darker the longer the day's
+// workouts, noted lifts and benchmark workouts counting too, and a dot on
+// the days a best got better. A day opens its window.
+function renderCalendar() {
+  const host = $('#train-cal');
+  if (!host) return;
+  const { byDate } = state;
+  const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date)];
+  const trained = trainingDays(state.data.days, noted, [...bestDays(state.lifts), ...wodBestDays(state.wods.workouts, state.wods.results)]);
+  const end = parse(state.today || state.data.days.at(-1).date);
+  const draw = () => {
+    const W = host.clientWidth;
+    if (!W) return;
+    const left = 30, top = 18, gap = 3;
+    // A year where it fits with cells of at least 9 px, else what fits.
+    const weeks = Math.max(8, Math.min(53, Math.floor((W - left) / 12)));
+    const start = addDays(end, -((end.getUTCDay() + 6) % 7) - (weeks - 1) * 7);
+    const size = Math.max(6, Math.min(18, Math.floor((W - left) / weeks) - gap));
+    const H = top + 7 * (size + gap);
+    const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img', 'aria-label': t('Calendar of the days trained') });
+    const axis = svg('g', { class: 'axis' });
+    [t('Mon'), t('Wed'), t('Fri')].forEach((l, k) => axis.append(svg('text', { x: 0, y: top + (k * 2) * (size + gap) + size - 1 }, l)));
+    root.append(axis);
+    let lastMonth = -1, lastLabelX = -99;
+    for (let d = start; d <= end; d = addDays(d, 1)) {
+      const col = Math.floor((d - start) / 864e5 / 7), row = (d.getUTCDay() + 6) % 7;
+      const x = left + col * (size + gap), y = top + row * (size + gap);
+      if (d.getUTCMonth() !== lastMonth && x - lastLabelX > 28) {
+        axis.append(svg('text', { x, y: 11 }, dfMonth.format(d)));
+        lastMonth = d.getUTCMonth();
+        lastLabelX = x;
+      }
+      const date = iso(d), day = trained.get(date);
+      const tier = !day ? 'none' : day.min >= 60 ? 't3' : day.min >= 30 ? 't2' : 't1';
+      const cell = svg('rect', { x, y, width: size, height: size, rx: Math.min(4, size / 4), class: `cell cal-cell ${tier}` });
+      cell.dataset.date = date;
+      root.append(cell);
+      if (day?.pb) {
+        const dot = svg('circle', { cx: x + size / 2, cy: y + size / 2, r: Math.max(1.5, size / 5), class: 'cal-pb' });
+        dot.dataset.date = date;
+        root.append(dot);
+      }
+    }
+    root.addEventListener('pointermove', (e) => {
+      const date = e.target.dataset?.date;
+      if (!date) return hideTip();
+      const day = trained.get(date);
+      const rows = !day ? [{ value: t('Rest day'), label: '' }] : [
+        day.sessions ? { value: fmtDuration(day.min), label: tn(day.sessions, '{n} workout', '{n} workouts') } : null,
+        day.noted ? { value: day.pb ? t('New best') : t('Results noted'), label: '' } : null,
+      ].filter(Boolean);
+      showTip(e.clientX, e.clientY, dfLong.format(parse(date)), rows, byDate.has(date) ? t('Click for day details') : '');
+    });
+    root.addEventListener('pointerleave', hideTip);
+    root.addEventListener('click', (e) => {
+      const date = e.target.dataset?.date;
+      if (date && byDate.has(date)) { hideTip(); openDay(date, trained.get(date)?.noted ? 'bests' : 'activities'); }
+    });
+    host.replaceChildren(root);
+    const from = iso(start), sum = trainingSummary(trained, from, iso(end));
+    $('#train-cal-sub').textContent = t('since {date}', { date: dfShort.format(start) + (start.getUTCFullYear() !== end.getUTCFullYear() ? ` ${start.getUTCFullYear()}` : '') });
+    $('#train-cal-summary').textContent = [
+      tn(sum.days, '{n} day trained', '{n} days trained'),
+      t('{n} per week', { n: fmt(sum.perWeek, 1) }),
+      sum.longestWeeks > 1 ? t('{n} weeks in a row at most', { n: sum.longestWeeks }) : '',
+      sum.pbs ? tn(sum.pbs, '{n} day with a new best', '{n} days with a new best') : '',
+    ].filter(Boolean).join(' · ');
+  };
+  host._draw = draw;
+  resizer.observe(host);
+  draw();
 }

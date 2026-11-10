@@ -40,10 +40,11 @@ export async function loadNotes(data) {
   state.notesLoaded = true;
 }
 
-// Without a second factor the server refuses a role that needs one.
+// Without a second factor the server refuses a role that needs one, except
+// with -demo.
 function mayEdit() {
   const u = account.user;
-  return !!u?.scopes?.includes('edit.notes') && !u.needs_second_factor;
+  return !!u?.scopes?.includes('edit.notes') && (!u.needs_second_factor || !!u.demo);
 }
 
 const byline = (n) => t('by {name}, {date}', { name: n.updated_by, date: dfNote.format(new Date(n.updated_at)) });

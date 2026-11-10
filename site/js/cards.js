@@ -1,6 +1,6 @@
 // The share cards (share.js draws them): a meal, a recipe, a whole day, a
-// workout, a night's sleep and the weight chart, and the buttons that open
-// the share window for them.
+// workout, a night's sleep, a day's personal bests and the weight chart,
+// and the buttons that open the share window for them.
 
 import { MACROS, MEALS, MEAL_ICONS, actIcon, actLabel, actName, activityDetail, addDays, dfLong, dfShort, dfMonthYear, fmt, fmtAmount, fmtDistance, fmtDuration, fmtQty, iso, mealThumb, parse, recipeShare, recipeTotals, signed } from './format.js';
 import { RESTLESS, STAGES, ZONES, dayActivities, fmtSleep, speedLabel, workoutDetail, workoutIcon, workoutName, zoneOf, zoneShares } from './health.js';
@@ -8,13 +8,14 @@ import { svg } from './dom.js';
 import { state } from './state.js';
 import { noteLines } from './markdown.js';
 import { noteOf } from './notes.js';
-import { niceTicks } from './charts.js';
+import { drawProgress, niceTicks } from './charts.js';
 import { drawWeight, forecastFor, weightRows } from './weight.js';
 import { weightGoalAt, weightGoalLine, weightTrendAt } from './insights.js';
 import { drawHeartRate, loadRoute } from './workout.js';
 import { drawHypnogram } from './recovery.js';
 import { recipeOf } from './recipe.js';
-import { chart, legendRow, list, meterBlock, openShare, photo, photoData, photoStrip, shareButton, splitBar, textLines, textW, tiles } from './share.js';
+import { notedOn } from './wods.js';
+import { chart, legendRow, list, meterBlock, openShare, photo, photoData, photoStrip, shareButton, shareTools, splitBar, textLines, textW, tiles } from './share.js';
 import { t } from './i18n.js';
 
 const sum = (items, k) => items.reduce((a, it) => a + (it[k] || 0), 0);
@@ -187,6 +188,38 @@ export function sleepCard(day) {
   };
 }
 
+/* ---------- personal bests ---------- */
+
+// The lifts and benchmark workouts noted on a day, the new bests marked
+// with what they beat, and the history of the first two as charts.
+export function bestsCard(day) {
+  const items = notedOn(day.date);
+  const pbs = items.filter((x) => x.pb).length;
+  return {
+    icon: '🏆', title: t('Personal bests'), sub: dfLong.format(parse(day.date)), accent: 's3',
+    blocks: [
+      tiles([
+        [t('Results'), fmt(items.length), ''],
+        [t('New bests'), fmt(pbs), ''],
+      ]),
+      list(items.map((x) => ({
+        icon: x.icon,
+        name: [x.name, x.tag].filter(Boolean).join(' · '),
+        note: x.pb ? [t('New PB'), x.gain].filter(Boolean).join(' · ') : x.note,
+        value: x.value,
+      })), '', { rowH: 34, minRows: 3 }),
+      // The history of the first two (new bests first), where there is room.
+      ...[...items].sort((a, b) => b.pb - a.pb).slice(0, 2).map((x) => {
+        const { series, opts } = x.progress();
+        if (series[0].points.length < 2) return null;
+        const block = chart((g, box) => drawProgress(g, series, box.w, box.h, opts), { h: 150, min: 110, max: 200, title: [x.name, x.tag].filter(Boolean).join(' · ') });
+        block.optional = true;
+        return block;
+      }).filter(Boolean),
+    ],
+  };
+}
+
 /* ---------- weight ---------- */
 
 // The chart's frame in box (w × h): y grid with labels and about five date
@@ -249,35 +282,41 @@ export function weightCard(rows) {
 
 /* ---------- buttons ---------- */
 
-// The day window's button: the whole day, each meal, each Fitbit workout
-// and the night, starting with what the open tab shows.
-export function dayShareButton(day, currentTab) {
-  return shareButton((btn) => {
-    const options = [{ key: 'day', label: t('Whole day'), name: `day-${day.date}`, build: () => dayCard(day) }];
+// The day window's buttons: the whole day, each meal, each Fitbit workout,
+// the personal bests noted and the night, starting with what the open tab
+// shows.
+export function dayShareTools(day, currentTab) {
+  const options = () => {
+    const out = [{ key: 'day', label: t('Whole day'), name: `day-${day.date}`, build: () => dayCard(day) }];
     for (const [k, name] of MEALS) {
       if (day.meals?.[k] > 0 || (day.foods || []).some((f) => f.m === k)) {
-        options.push({ key: k, label: name, name: `${k}-${day.date}`, build: () => mealCard(day, k) });
+        out.push({ key: k, label: name, name: `${k}-${day.date}`, build: () => mealCard(day, k) });
       }
     }
     for (const w of day.workouts || []) {
-      options.push({ key: 'w:' + w.id, label: actLabel(workoutName(w.type)), name: `workout-${day.date}`, route: hasRoute(w), note: !!noteOf(w.id), build: (o) => workoutCard(day, w, o) });
+      out.push({ key: 'w:' + w.id, label: actLabel(workoutName(w.type)), name: `workout-${day.date}`, route: hasRoute(w), note: !!noteOf(w.id), build: (o) => workoutCard(day, w, o) });
     }
-    if (day.sleep) options.push({ key: 'sleep', label: t('Sleep'), name: `sleep-${day.date}`, build: () => sleepCard(day) });
+    if (notedOn(day.date).length) out.push({ key: 'bests', label: t('Personal bests'), name: `bests-${day.date}`, build: () => bestsCard(day) });
+    if (day.sleep) out.push({ key: 'sleep', label: t('Sleep'), name: `sleep-${day.date}`, build: () => sleepCard(day) });
+    return out;
+  };
+  const current = () => {
     const tab = currentTab();
-    const firstWorkout = options.find((o) => o.key.startsWith('w:'))?.key;
-    openShare(options, tab === 'activities' ? firstWorkout || 'day' : tab, btn);
-  });
+    return tab === 'activities' ? (day.workouts?.length ? 'w:' + day.workouts[0].id : 'day') : tab;
+  };
+  return shareTools(options, current);
 }
 
-export function recipeShareButton(day, f) {
-  return shareButton((btn) => openShare([{ key: 'recipe', label: '', name: `recipe-${day.date}`, build: () => recipeCard(day, f) }], 'recipe', btn));
+export function recipeShareTools(day, f) {
+  return shareTools(() => [{ key: 'recipe', label: '', name: `recipe-${day.date}`, build: () => recipeCard(day, f) }]);
 }
 
-export function workoutShareButton(day, w) {
-  return shareButton((btn) => openShare([{ key: 'w', label: '', name: `workout-${day.date}`, route: hasRoute(w), note: !!noteOf(w.id), build: (o) => workoutCard(day, w, o) }], 'w', btn));
+export function workoutShareTools(day, w) {
+  return shareTools(() => [{ key: 'w', label: '', name: `workout-${day.date}`, route: hasRoute(w), note: !!noteOf(w.id), build: (o) => workoutCard(day, w, o) }]);
 }
 
-// On the Weight card, next to "Save as image": the range the card shows.
+// On the Weight card, next to "Save as image": the range the card shows,
+// with its own share card (data-share="custom": snapshot.js adds none).
 export function addWeightShare() {
   const snap = document.querySelector('#weight-card .snap-btn');
   if (!snap || document.querySelector('#weight-card .share-btn')) return;

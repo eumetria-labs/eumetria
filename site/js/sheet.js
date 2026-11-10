@@ -10,9 +10,10 @@ import { openWorkout, closeWorkout } from './workout.js';
 import { sleepPanel, hasRecovery } from './recovery.js';
 import { closeRecipe, openRecipe, recipeOf } from './recipe.js';
 import { closeHistory, foodName } from './history.js';
-import { dayShareButton } from './cards.js';
+import { dayShareTools } from './cards.js';
 import { closeShare } from './share.js';
 import { t } from './i18n.js';
+import { linkedNames, notedRows } from './wods.js';
 
 let win = null;
 
@@ -44,6 +45,9 @@ export function openDay(date, tabKey, focusNav) {
   })));
   const acts = dayActivities(day);
   if (acts.length) tabs.push({ key: 'activities', label: t('Activities'), tab: t('Activities|tab'), items: acts, photos: [], type: 'activities' });
+  // Lifts and benchmark workouts noted that day.
+  const noted = notedRows(day.date);
+  if (noted.length) tabs.push({ key: 'bests', label: t('Personal bests'), tab: t('Bests|tab'), items: noted, photos: [], type: 'bests', icon: '🏆' });
   if (hasRecovery(day)) tabs.push({ key: 'sleep', label: t('Sleep'), items: [], photos: [], type: 'sleep', icon: '😴' });
 
   const sheet = h('div', { class: 'sheet' });
@@ -56,7 +60,7 @@ export function openDay(date, tabKey, focusNav) {
   next.disabled = idx >= days.length - 1;
   prev.onclick = () => openDay(days[idx - 1].date, current, 'prev');
   next.onclick = () => openDay(days[idx + 1].date, current, 'next');
-  head.append(prev, next, dayShareButton(day, () => current), close);
+  head.append(prev, next, ...dayShareTools(day, () => current), close);
 
   const sum = h('div', { class: 'sheet-sum' });
   const goal = day.energy_goal || day.energy_base;
@@ -101,6 +105,10 @@ export function openDay(date, tabKey, focusNav) {
     }
     if (tab?.type === 'sleep') {
       panel.append(sleepPanel(day));
+      return;
+    }
+    if (tab?.type === 'bests') {
+      panel.append(...tab.items);
       return;
     }
     if (!tab || !tab.items.length) {
@@ -151,6 +159,8 @@ export function openDay(date, tabKey, focusNav) {
         const row = h('button', { class: 'day-item workout-row', type: 'button', 'aria-label': t('{name}, {detail}: show heart rate and zones', { name, detail }) });
         const cell = nameCell(name, false, a ? actIcon(key) : workoutIcon(w.type));
         if (!a) cell.append(h('span', { class: 'src-badge', title: t('Recorded by Fitbit, not logged in Yazio') }, 'Fitbit'));
+        // The benchmark workouts done in it.
+        for (const name of linkedNames(w.id)) cell.append(h('span', { class: 'lift-rm wod-tag' }, '⏱️ ' + name));
         row.append(cell, h('span', { class: 'amt' }, detail), h('span', { class: 'val' }, kcal ? `${fmt(kcal)} kcal` : '–'), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
         row.addEventListener('click', () => openWorkout(day, w.id, row));
         panel.append(row);

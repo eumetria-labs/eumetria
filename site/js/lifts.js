@@ -5,14 +5,18 @@
 // day; a lift's best is its heaviest, the rest is its history.
 
 import { NUM_LOCALE, dfLong, dfShort, dfMonthYear, parse } from './format.js';
-import { COMMON_LIFTS, liftBoard, loadable, oneRepMax, percentages } from './health.js';
+import { COMMON_LIFTS, bestDays, bestsReadiness, liftBoard, loadable, oneRepMax, percentages, platesFor, wodBestDays } from './health.js';
 import { $, emoji, h, nameCell } from './dom.js';
+import { drawProgress, progressChart } from './charts.js';
+import { chart, list, shareTools, tiles } from './share.js';
+import { weightTrendAt } from './insights.js';
 import { openDialog } from './dialog.js';
 import { account, api, reason } from './account.js';
-import { state } from './state.js';
+import { state, store } from './state.js';
 import { t } from './i18n.js';
 
 const nfKg = new Intl.NumberFormat(NUM_LOCALE, { maximumFractionDigits: 2 });
+const nfX = new Intl.NumberFormat(NUM_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const fmtKg = (kg) => `${nfKg.format(kg)} kg`;
 const gainKg = (kg) => (kg > 0 ? '+' : '−') + fmtKg(Math.abs(kg));
 
@@ -47,10 +51,20 @@ export async function loadLifts(data) {
   state.liftsLoaded = true;
 }
 
-// Without a second factor the server refuses a role that needs one.
+// Without a second factor the server refuses a role that needs one, except
+// with -demo.
 export function mayEditLifts() {
   const u = account.user;
-  return !!u?.scopes?.includes('edit.lifts') && !u.needs_second_factor;
+  return !!u?.scopes?.includes('edit.lifts') && (!u.needs_second_factor || !!u.demo);
+}
+
+// Run when lifts or benchmark workouts changed here, for what shows bests
+// elsewhere (the Today card's highlights).
+const listeners = new Set();
+export const onBestsChange = (fn) => listeners.add(fn);
+export function notifyBests() {
+  renderReadiness();
+  for (const fn of listeners) fn();
 }
 
 // Whether the tab has anything to show or to add.
@@ -66,6 +80,10 @@ export function renderLifts() {
   add.hidden = !mayEditLifts();
   add.onclick = () => openLiftForm({ returnFocus: add });
   $('#lifts-sub').textContent = rows.length ? t('heaviest result per lift') : '';
+  renderReadiness();
+  // Viewers see the part only when there is something in it, or nothing
+  // else in the tab.
+  $('#lifts-part').hidden = !rows.length && !mayEditLifts() && state.wods.workouts.length > 0;
   if (!rows.length) {
     host.replaceChildren(h('p', { class: 'empty-tab' }, !state.liftsLoaded ? t('The lifts could not be loaded.')
       : mayEditLifts() ? t('No lifts yet. Add your first personal best.') : t('No lifts noted yet.')));
@@ -83,13 +101,28 @@ export function renderLifts() {
   }));
 }
 
+// Whether new bests (lifts and benchmark workouts) came on ready mornings:
+// their average Readiness against every morning in the same time.
+function renderReadiness() {
+  const host = $('#bests-ready');
+  if (!host) return;
+  const dates = [...bestDays(state.lifts), ...wodBestDays(state.wods.workouts, state.wods.results)];
+  const r = bestsReadiness(dates, state.byDate || new Map());
+  host.hidden = !r;
+  if (!r) return;
+  host.replaceChildren(emoji('🔋'), h('span', {}, t('Your {n} new bests came on mornings with a Readiness of {avg} on average; all mornings in that time: {usual}.', r)));
+}
+
+// The morning Readiness of a day, if it has one.
+const readinessOn = (date) => state.byDate?.get(date)?.scores?.readiness?.value ?? null;
+
 /* ---------- one lift's window ---------- */
 
 let win = null;
 
 // The window of one lift and rep count: its best, the percentages to train
 // with, and every result.
-function openLift(key, returnFocus) {
+export function openLift(key, returnFocus) {
   win?.close(true);
   const close = h('button', { class: 'sheet-close', type: 'button', 'aria-label': t('Close') }, '×');
   const head = h('div', { class: 'sheet-head wo-head' });
@@ -97,25 +130,88 @@ function openLift(key, returnFocus) {
   const title = h('h2', { id: 'lift-title' });
   const sub = h('p', { class: 'muted' });
   titles.append(title, sub);
-  head.append(titles, close);
+  // The picture of the lift as it is now, also after a change here.
+  const row = () => liftBoard(state.lifts, state.today).find((x) => x.key === key);
+  head.append(titles, ...shareTools(() => [{ key: 'lift', label: '', name: `lift-${key.replace(/[^a-z0-9]+/g, '-')}`, build: () => liftCard(row()) }]), close);
   const body = h('div', { class: 'wo-body' });
   const panel = h('div', { class: 'wo-panel lift-panel' });
   panel.append(head, body);
   win = openDialog({ cls: 'wo-overlay', labelledBy: 'lift-title', content: [panel], returnFocus });
   close.onclick = () => win.close();
+  close.focus(); // not the first button, which saves the picture
 
   const draw = () => {
     const r = liftBoard(state.lifts, state.today).find((x) => x.key === key);
     if (!r) return win.close(); // its last entry was deleted
     title.replaceChildren(emoji('🏋️', 'lift-emoji'), rowName(r));
-    sub.textContent = t('Best {value} on {date}', { value: fmtKg(r.best.kg), date: dfLong.format(parse(r.best.date)) });
-    body.replaceChildren(...[percentSection(r), historySection(r, draw)].filter(Boolean));
+    const bw = bodyweight(r.best);
+    sub.textContent = [t('Best {value} on {date}', { value: fmtKg(r.best.kg), date: dfLong.format(parse(r.best.date)) }), bw ? t('{x}× bodyweight', { x: nfX.format(bw) }) : ''].filter(Boolean).join(' · ');
+    const plates = plateSection(r.best.kg);
+    body.replaceChildren(...[progressSection(r), percentSection(r, plates.show), plates.sec, historySection(r, draw)].filter(Boolean));
   };
   draw();
 }
 
-// The weights at a share of the one-rep max, estimated from a rep max.
-function percentSection(r) {
+// A result as a multiple of the bodyweight that week (the average of the
+// weigh-ins of the 7 days up to it), or null without any.
+export function bodyweight(e) {
+  const w = state.byDate ? weightTrendAt(state.byDate, e.date) : null;
+  return w ? e.kg / w : null;
+}
+
+// A lift's results for the progress chart, the new bests marked.
+function liftPoints(r) {
+  let best = 0;
+  return r.entries.map((e) => {
+    const pb = best > 0 && e.kg > best;
+    best = Math.max(best, e.kg);
+    return { date: e.date, value: e.kg, pb };
+  });
+}
+
+// The share picture of a lift: its best, gain, bodyweight multiple and
+// estimated 1 RM, the progress and the latest results.
+function liftCard(r) {
+  const bw = bodyweight(r.best);
+  const points = liftPoints(r);
+  const pbs = new Set(points.map((p, i) => (p.pb ? r.entries[i].id : null)));
+  return {
+    icon: '🏋️', title: rowName(r), sub: t('Best {value} on {date}', { value: fmtKg(r.best.kg), date: dfLong.format(parse(r.best.date)) }), accent: 's3',
+    blocks: [
+      tiles([
+        [t('Best'), nfKg.format(r.best.kg), 'kg'],
+        r.gain != null && [t('Gain'), '+' + nfKg.format(r.gain), 'kg'],
+        bw && [t('Bodyweight'), nfX.format(bw) + '×', ''],
+        r.reps > 1 && [t('Est. 1 RM'), nfKg.format(loadable(oneRepMax(r.best.kg, r.reps))), 'kg'],
+      ]),
+      points.length > 1 && chart((g, box) => drawProgress(g, [{ points }], box.w, box.h, { yFmt: (v) => nfKg.format(v) }), { h: 180, min: 120, max: 260, title: t('Progress') }),
+      list([...r.entries].reverse().map((e) => ({
+        name: dfLong.format(parse(e.date)), note: [pbs.has(e.id) ? 'PB' : '', e.note].filter(Boolean).join(' · '), value: fmtKg(e.kg),
+      })), t('History'), { rowH: 28, minRows: 2 }),
+    ].filter(Boolean),
+  };
+}
+
+// Every result over time, the new bests bigger; from two results on.
+function progressSection(r) {
+  if (r.entries.length < 2) return null;
+  const sec = h('section', { class: 'wo-sec' });
+  const hd = h('div', { class: 'wo-sec-head' });
+  hd.append(h('h3', {}, t('Progress')), h('span', { class: 'muted' }, t('big dots: new bests')));
+  const host = h('div', { class: 'prog-chart' });
+  sec.append(hd, host);
+  const points = liftPoints(r);
+  // Drawn once the window is laid out.
+  requestAnimationFrame(() => progressChart(host, [{ points }], {
+    yFmt: (v) => nfKg.format(v),
+    aria: t('{lift}: {n} results from {from} to {to}, best {value}', { lift: rowName(r), n: points.length, from: fmtKg(points[0].value), to: fmtKg(points.at(-1).value), value: fmtKg(r.best.kg) }),
+  }));
+  return sec;
+}
+
+// The weights at a share of the one-rep max, estimated from a rep max. A
+// weight picked here shows its plates (pick).
+function percentSection(r, pick) {
   const max = oneRepMax(r.best.kg, r.reps);
   const sec = h('section', { class: 'wo-sec' });
   const hd = h('div', { class: 'wo-sec-head' });
@@ -124,13 +220,78 @@ function percentSection(r) {
     : t('share of your 1 RM')));
   const grid = h('div', { class: 'lift-pct' });
   for (const p of percentages(max)) {
-    const cell = h('div', { class: 'lift-pct-cell' });
+    const cell = h('button', { class: 'lift-pct-cell', type: 'button', 'aria-label': t('{pct} %: {value}. Show the plates', { pct: p.pct, value: fmtKg(p.kg) }) });
     cell.append(h('span', { class: 'k' }, `${p.pct} %`), h('span', { class: 'v' }, fmtKg(p.kg)));
+    cell.onclick = () => pick(p.kg);
     grid.append(cell);
   }
   sec.append(hd, grid);
   return sec;
 }
+
+const BARS = [20, 15, 10];
+
+// Which plates go on each side of the bar for a weight: the bar (remembered)
+// and the weight can change; the picture shows one side, the heaviest plate
+// next to the collar.
+function plateSection(start) {
+  const sec = h('section', { class: 'wo-sec' });
+  const hd = h('div', { class: 'wo-sec-head' });
+  hd.append(h('h3', {}, t('Plates')), h('span', { class: 'muted' }, t('per side')));
+  let bar = BARS.includes(store.get('bar')) ? store.get('bar') : 20;
+  const controls = h('div', { class: 'plate-controls' });
+  const weight = h('input', { class: 'field', type: 'number', min: '0', max: '500', step: '0.5', inputmode: 'decimal', value: start, 'aria-label': t('Weight (kg)') });
+  const wrap = h('label', { class: 'plate-weight' });
+  wrap.append(weight, h('span', {}, 'kg'));
+  const bars = h('div', { class: 'seg plate-bars', role: 'radiogroup', 'aria-label': t('Bar') });
+  for (const b of BARS) {
+    const btn = h('button', { class: 'seg-btn', type: 'button', role: 'radio', 'data-bar': b }, t('{kg} kg bar', { kg: b }));
+    btn.onclick = () => {
+      bar = b;
+      store.set('bar', b);
+      draw();
+    };
+    bars.append(btn);
+  }
+  controls.append(wrap, bars);
+  const out = h('div', { class: 'plate-out' });
+  sec.append(hd, controls, out);
+
+  const draw = () => {
+    for (const b of bars.children) b.setAttribute('aria-checked', String(Number(b.dataset.bar) === bar));
+    const kg = Number(weight.value);
+    if (!(kg > 0)) {
+      out.replaceChildren();
+      return;
+    }
+    const { side, loaded } = platesFor(kg, bar);
+    const pic = h('div', { class: 'plate-pic', 'aria-hidden': 'true' });
+    pic.append(h('span', { class: 'plate-sleeve' }));
+    for (const p of side) {
+      const plate = h('span', { class: 'plate', 'data-kg': p });
+      plate.style.setProperty('--h', `${plateHeight(p)}%`); // not a style attribute: the CSP refuses those
+      pic.append(plate);
+    }
+    const words = h('p', { class: 'plate-words' });
+    words.textContent = kg < bar ? t('Less than the bar.')
+      : side.length ? side.map((p) => nfKg.format(p)).join(' + ') + ' kg' : t('Just the bar.');
+    if (Math.abs(loaded - kg) > 1e-9 && kg >= bar) words.append(h('span', { class: 'muted' }, ' · ' + t('loads {value}', { value: fmtKg(loaded) })));
+    out.replaceChildren(pic, words);
+  };
+  weight.oninput = draw;
+  draw();
+  return {
+    sec,
+    show: (kg) => {
+      weight.value = kg;
+      draw();
+      sec.scrollIntoView({ block: 'nearest' });
+    },
+  };
+}
+
+// Bumpers are all one size; change plates get smaller with their weight.
+const plateHeight = (kg) => (kg >= 10 ? 100 : kg >= 5 ? 78 : kg >= 2.5 ? 62 : 50);
 
 // Every result, the newest first, each with the change to the best before.
 function historySection(r, redraw) {
@@ -155,7 +316,9 @@ function historySection(r, redraw) {
     const name = h('span', { class: 'name' });
     name.append(h('span', { class: 'txt' }, dfLong.format(parse(e.date))));
     if (pb) name.append(h('span', { class: 'lift-new pb' }, 'PB'));
-    const note = [gain != null && pb ? gainKg(gain) : '', e.note].filter(Boolean).join(' · ');
+    const ready = readinessOn(e.date);
+    const bw = bodyweight(e);
+    const note = [gain != null && pb ? gainKg(gain) : '', bw ? t('{x}× BW', { x: nfX.format(bw) }) : '', ready != null ? t('Readiness {value}', { value: ready }) : '', e.note].filter(Boolean).join(' · ');
     row.append(name, h('span', { class: 'amt' }, note), h('span', { class: 'val' }, fmtKg(e.kg)));
     if (mayEditLifts()) {
       const edit = h('button', { class: 'icon-btn lift-edit', type: 'button', 'aria-label': t('Change the result of {date}', { date: dfLong.format(parse(e.date)) }), title: t('Edit') }, '✎');
@@ -236,6 +399,7 @@ export function openLiftForm({ entry, preset, returnFocus, after }) {
       await update(res);
       dlg.close();
       renderLifts();
+      notifyBests();
       after?.();
       return;
     }

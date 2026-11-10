@@ -1,7 +1,7 @@
 // Hand-built SVG charts: time charts (lines, areas, bars), sparklines, the
 // calorie ring and the calendar heatmap.
 
-import { compact, dfLong, dfMonth, dfShort, fmt, hasDetail, iso, logged, parse, addDays, signed } from './format.js';
+import { compact, dfLong, dfMonth, dfMonthYear, dfShort, fmt, hasDetail, iso, logged, parse, addDays, signed } from './format.js';
 import { $, h, svg, countUp, showTip, hideTip, textWidth } from './dom.js';
 import { t } from './i18n.js';
 import { state, reduceMotion } from './state.js';
@@ -387,6 +387,55 @@ export function sparkline(host, values) {
   draw();
 }
 
+// Results over time (a lift's or a benchmark workout's): one line per
+// series ({ points: [{ date, value, pb }], cls }), the x axis by date, each
+// result a dot and a new best a bigger one. invert puts the lower values on
+// top, so better is up for times too. yFmt writes the axis labels.
+export function progressChart(host, series, opts = {}) {
+  const draw = () => {
+    const W = host.clientWidth, H = host.clientHeight || 150;
+    const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': opts.aria || '' });
+    if (!W || !drawProgress(root, series, W, H, opts)) { host.replaceChildren(); return; }
+    host.replaceChildren(root);
+  };
+  host._draw = draw;
+  resizer.observe(host);
+  draw();
+}
+
+// Draws that chart into g at W × H (also a share card's); false with fewer
+// than two results.
+export function drawProgress(g, series, W, H, { invert = false, yFmt = (v) => fmt(v) } = {}) {
+  const all = series.flatMap((s) => s.points);
+  if (all.length < 2) return false;
+  const ts = all.map((p) => parse(p.date).getTime());
+  let t0 = Math.min(...ts), t1 = Math.max(...ts);
+  if (t1 === t0) { t0 -= 864e5; t1 += 864e5; }
+  const vs = all.map((p) => p.value);
+  const pad = (Math.max(...vs) - Math.min(...vs)) * 0.08 || 1;
+  const ticks = niceTicks(Math.min(...vs) - pad, Math.max(...vs) + pad, H < 140 ? 3 : 4);
+  const labels = ticks.map(yFmt);
+  const m = { t: 10, r: 12, b: 22, l: Math.max(...labels.map((l) => textWidth(l, 11))) + 14 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+  const d0 = ticks[0], d1 = ticks.at(-1);
+  const y = (v) => (invert ? m.t + ((v - d0) / (d1 - d0)) * ph : m.t + ph - ((v - d0) / (d1 - d0)) * ph);
+  const x = (date) => m.l + ((parse(date).getTime() - t0) / (t1 - t0)) * pw;
+  const axis = svg('g', { class: 'axis' });
+  ticks.forEach((v, k) => {
+    axis.append(svg('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: k === (invert ? ticks.length - 1 : 0) ? 'baseline' : 'gridline' }));
+    axis.append(svg('text', { x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end' }, labels[k]));
+  });
+  axis.append(svg('text', { x: m.l, y: H - 6, 'text-anchor': 'start' }, dfMonthYear.format(new Date(t0))));
+  if (pw > 160) axis.append(svg('text', { x: W - m.r, y: H - 6, 'text-anchor': 'end' }, dfMonthYear.format(new Date(t1))));
+  g.append(axis);
+  for (const s of series) {
+    if (!s.points.length) continue;
+    g.append(svg('path', { d: s.points.map((p, i) => `${i ? 'L' : 'M'}${x(p.date).toFixed(1)},${y(p.value).toFixed(1)}`).join(''), class: `prog-line ${s.cls || ''}` }));
+    for (const p of s.points) g.append(svg('circle', { cx: x(p.date), cy: y(p.value), r: p.pb ? 4.5 : 3, class: `prog-dot ${s.cls || ''}${p.pb ? ' pb' : ''}` }));
+  }
+  return true;
+}
+
 // Calorie ring: the fill is eaten / goal; past the goal it turns to the "over" color.
 export function ring(host, eaten, goal) {
   const R = 96, C = 2 * Math.PI * R;
@@ -423,15 +472,17 @@ export function heatmap(s) {
     const W = host.clientWidth;
     if (!W) return;
     // At least the range and ~6 months, more as far as the width allows
-    // cells of about 16 px (a year on a wide screen); never before the
-    // first synced day.
+    // cells of about 16 px (a year on a wide screen).
     const weeksFit = Math.max(26, Math.floor((W - 30) / 19));
     // A long range on a narrow screen shows its latest weeks, with cells of
     // at least 6 px, rather than running out of the card.
     const weeksMax = Math.floor((W - 30) / 9) - 1;
-    const from = new Date(Math.max(first, addDays(s.end, -(weeksMax * 7 - 1)), Math.min(s.start, addDays(s.end, -(weeksFit * 7 - 1)))));
-    const year = from.getUTCFullYear() !== s.end.getUTCFullYear() ? `, ${from.getUTCFullYear()}` : '';
-    $('#heatmap-sub').textContent = t("Each day's intake compared with its goal, since {date}", { date: dfShort.format(from) + year });
+    // A short history still fills the width: the weeks before the first
+    // synced day are drawn faint.
+    const from = new Date(Math.max(addDays(s.end, -(weeksMax * 7 - 1)), Math.min(s.start, addDays(s.end, -(weeksFit * 7 - 1)))));
+    const since = new Date(Math.max(first, from));
+    const year = since.getUTCFullYear() !== s.end.getUTCFullYear() ? `, ${since.getUTCFullYear()}` : '';
+    $('#heatmap-sub').textContent = t("Each day's intake compared with its goal, since {date}", { date: dfShort.format(since) + year });
     const start = addDays(from, -((from.getUTCDay() + 6) % 7));
     const weeks = Math.ceil((s.end - start) / 864e5 / 7 + 1 / 7);
     const left = 30, top = 18, gap = 3;
@@ -453,6 +504,10 @@ export function heatmap(s) {
         lastLabelX = x;
       }
       if (d < from) continue;
+      if (d < first) {
+        root.append(svg('rect', { x, y: top + row * (size + gap), width: size, height: size, rx: Math.min(4, size / 4), class: 'before' }));
+        continue;
+      }
       const r = byDate.get(iso(d));
       const goal = r?.energy_goal || data.goals?.energy;
       const cell = svg('rect', { x, y: top + row * (size + gap), width: size, height: size, rx: Math.min(4, size / 4), class: 'cell' });

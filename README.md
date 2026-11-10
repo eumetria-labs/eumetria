@@ -13,7 +13,7 @@ Eumetria puts the data of the apps you already use onto one page on your own ser
 - 🏋️ Workout details: heart rate by zone, splits, route map, elevation
 - 🤖 An optional weekly review written by Claude
 - 🥫 Nutri-Score and NOVA badges from Open Food Facts
-- 📤 Export as CSV/JSON, a printable report, share cards for Instagram & co.
+- 📤 Export as CSV/JSON (with workout notes, lifts, benchmark workouts, weekly reviews and goal changes), a printable report with scores and training, share cards for Instagram & co.
 - 🌗 Light and dark mode, English and German, installable on your phone, works offline
 
 It runs as one small Docker container that serves the page and syncs on a timer.
@@ -105,7 +105,7 @@ Everything but the sign-in page needs an account, and each account has one role.
 | `view.review` | the weekly review |
 | `view.notes` | workout notes (needs `view.health`) |
 | `edit.notes` | add, change and delete notes (needs `view.notes`) |
-| `edit.lifts` | add, change and delete personal bests in lifts (needs `view.health`) |
+| `edit.lifts` | add, change and delete personal bests: lifts and benchmark workouts (needs `view.health`) |
 | `sync` | the sync button, with **Full refresh** in its menu |
 | `admin` | everything, including the audit log and the credit warning |
 
@@ -148,7 +148,13 @@ Optional. With a Fitbit or Pixel Watch the page also shows workouts (heart rate 
 
 The Training card has three tabs: **Overview** (this week, training load, VO2 max), **Personal bests** and **Routes**; Sleep & Recovery has **Sleep** (scores and stages), **Heart** (heart rate and HRV) and **Patterns**. The page remembers the tab you picked.
 
-**Lifts.** Under **Personal bests** you note your results in lifts such as Power Clean, Strict Press or Split Jerk: weight, reps (1 for a one-rep max), date and an optional note, with **Add result**. Each lift and rep count keeps its heaviest result as the best, with the gain over the one before; selecting it shows every result and the training weights from 50 to 95 % of the one-rep max (estimated from a 3- or 5-rep max with Epley's formula). Everyone with `view.health` sees them, `edit.lifts` writes them. They live in `app.db`, so they are backed up.
+**Lifts.** Under **Personal bests** you note your results in lifts such as Power Clean, Strict Press or Split Jerk: weight, reps (1 for a one-rep max), date and an optional note, with **Add result**. Each lift and rep count keeps its heaviest result as the best, with the gain over the one before; selecting it shows every result and the training weights from 50 to 95 % of the one-rep max (estimated from a 3- or 5-rep max with Epley's formula); selecting a weight shows the plates for each side of a 20, 15 or 10 kg bar. The window also charts the results over time and shows each one as a multiple of your bodyweight that week (from the Yazio weigh-ins). Everyone with `view.health` sees them, `edit.lifts` writes them. They live in `app.db`, so they are backed up.
+
+**Benchmark workouts.** Next to the lifts, **New workout** creates a workout you do again and again: a famous one like Fran, Cindy or Murph (typing its name fills in the rest) or one your box repeats. It has a name, how it is scored (for time, rounds and reps, reps or weight) and the workout as written; each result then gets a date, an optional note and **Scaled** when you did it lighter or easier, which keeps its own best. A workout for time can have a time cap: a result that didn't finish in it is noted as the reps done and ranks below every finished time. A result can belong to the Fitbit workout it was done in: open the workout (day window → **Activities**), pick the benchmark workout under **Benchmark workout** (or create it there) and add the result. It takes the workout's date, the day's activity row shows the WOD's name, and in the WOD's history the result links back to its workout. How a workout is scored can't change once it has results. Its window charts the results (faster is up for times). Same scopes as lifts.
+
+**Bests elsewhere.** A lift or workout whose best got better in the last 7 days shows as a chip on the Today card. Each result shows that morning's Readiness, and the tab compares the mornings of all your new bests with every morning in that time. The weekly review gets the week's results, with new bests marked, so the coach can mention them. The day window lists what was noted that day under **Bests**, search finds lifts and workouts by name, and the export adds `lifts`, `benchmark_results` and `benchmark_workouts` tables.
+
+**Calendar.** The Training card's **Calendar** tab shows the last year (as much as the screen fits) with every day trained, darker the longer the workouts were, walks aside; a day with a noted result counts too, and a dot marks a new best. Below it: days trained, per week, the longest run of weeks with training and the days with a new best. A day opens its window.
 
 Scores computed in the Fitbit app (readiness, sleep score, cardio load) aren't in the API and aren't imitated. Eumetria has **scores of its own** instead, each from 0 to 100, with a breakdown in the day's Sleep tab:
 
@@ -221,7 +227,8 @@ All commands run on the server in `/srv/eumetria`.
 # at http://localhost:8080 (passkeys don't work on 127.0.0.1)
 go run ./cmd/eumetria -demo -serve :8080 -site site -data /tmp/eumetria-demo
 # -site serves the page from the folder: edits show on reload. Its own -data
-# keeps the demo account out of your real data folder.
+# keeps the demo account out of your real data folder. With -demo, notes and
+# lifts can be written without a second factor; admin rights still need one.
 
 # the page from plain files, without a server or sign-in: -out writes all of
 # the data next to it (any static file server works)

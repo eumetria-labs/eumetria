@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"eumetria/internal/lifts"
 	"eumetria/internal/stats"
+	"eumetria/internal/wods"
 )
 
 func TestMonday(t *testing.T) {
@@ -93,6 +95,56 @@ func TestDur(t *testing.T) {
 	for in, want := range map[float64]string{0: "", 37: "37 min", 59.6: "1 h", 438: "7 h 18 min", 180: "3 h"} {
 		if got := dur(in); got != want {
 			t.Errorf("dur(%v) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestAddLifts(t *testing.T) {
+	w := Week{From: "2026-10-19", To: "2026-10-25", Days: []Day{{Date: "2026-10-19"}, {Date: "2026-10-20"}}}
+	w.AddLifts([]lifts.Entry{
+		{ID: 1, Lift: "Power Clean", Kg: 80, Reps: 1, Date: "2026-10-01"},
+		{ID: 2, Lift: "power clean", Kg: 82.5, Reps: 1, Date: "2026-10-20", Note: "finally"}, // a best, later in the list
+		{ID: 3, Lift: "Power Clean", Kg: 75, Reps: 1, Date: "2026-10-19"},                    // not one
+		{ID: 4, Lift: "Back Squat", Kg: 100, Reps: 5, Date: "2026-10-19"},                    // the first
+		{ID: 5, Lift: "Back Squat", Kg: 120, Reps: 5, Date: "2026-10-22"},                    // after today
+		{ID: 6, Lift: "Snatch", Kg: 50, Reps: 1, Date: "2026-10-12"},                         // the week before
+	})
+	want := []Lift{
+		{Date: "2026-10-19", Lift: "Power Clean", Kg: 75, Reps: 1},
+		{Date: "2026-10-19", Lift: "Back Squat", Kg: 100, Reps: 5, First: true},
+		{Date: "2026-10-20", Lift: "power clean", Kg: 82.5, Reps: 1, Best: true, PrevKg: 80, Note: "finally"},
+	}
+	if len(w.Lifts) != len(want) {
+		t.Fatalf("lifts = %+v", w.Lifts)
+	}
+	for i := range want {
+		if w.Lifts[i] != want[i] {
+			t.Errorf("lift %d = %+v, want %+v", i, w.Lifts[i], want[i])
+		}
+	}
+}
+
+func TestAddBenchmarks(t *testing.T) {
+	w := Week{From: "2026-10-19", To: "2026-10-25", Days: []Day{{Date: "2026-10-19"}, {Date: "2026-10-20"}}}
+	w.AddBenchmarks([]wods.Workout{{ID: 1, Name: "Fran", Scoring: wods.Time}, {ID: 2, Name: "Cindy", Scoring: wods.Rounds}}, []wods.Result{
+		{ID: 1, Workout: 1, Value: 300, Date: "2026-10-01"},
+		{ID: 2, Workout: 1, Value: 280, Date: "2026-10-19"},               // faster: a best
+		{ID: 3, Workout: 1, Value: 200, Scaled: true, Date: "2026-10-19"}, // scaled: its own first
+		{ID: 4, Workout: 2, Value: 12, Reps: 5, Date: "2026-10-10"},
+		{ID: 5, Workout: 2, Value: 12, Reps: 3, Date: "2026-10-20"}, // fewer reps: not one
+		{ID: 6, Workout: 9, Value: 1, Date: "2026-10-20"},           // no such workout
+	})
+	want := []Benchmark{
+		{Date: "2026-10-19", Workout: "Fran", Scoring: "time", Result: "4:40", Best: true, Prev: "5:00"},
+		{Date: "2026-10-19", Workout: "Fran", Scoring: "time", Result: "3:20", Scaled: true, First: true},
+		{Date: "2026-10-20", Workout: "Cindy", Scoring: "rounds", Result: "12 rounds + 3 reps"},
+	}
+	if len(w.Benchmarks) != len(want) {
+		t.Fatalf("benchmarks = %+v", w.Benchmarks)
+	}
+	for i := range want {
+		if w.Benchmarks[i] != want[i] {
+			t.Errorf("benchmark %d = %+v, want %+v", i, w.Benchmarks[i], want[i])
 		}
 	}
 }

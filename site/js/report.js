@@ -5,7 +5,9 @@
 import { LOCALE, MACROS, MEALS, actLabel, addDays, dfShort, fmt, fmtDuration, iso, logged, mean, parse, signed } from './format.js';
 import { h, svg, textWidth } from './dom.js';
 import { state } from './state.js';
-import { drawGoalMarks, goalMarks, goalValue, niceTicks, stepPath } from './charts.js';
+import { drawGoalMarks, goalMarks, goalValue, linePath, niceTicks, stepPath } from './charts.js';
+import { bestDays, trainingDays, trainingSummary, wodBestDays } from './health.js';
+import { notedOn } from './wods.js';
 import { drawWeight, forecastFor } from './weight.js';
 import { goalChangesIn, rangeSummary, weightGoalAt, weightGoalLine, weightTrendAt } from './insights.js';
 import { t, tn } from './i18n.js';
@@ -48,7 +50,7 @@ export function buildReport(from, to) {
   el.append(...charts.filter(Boolean));
   const split = macroSection(sum);
   if (split) el.append(split);
-  for (const sec of [sleepSection(buckets, weekly, sum), stepsSection(buckets, weekly, sum), weeksSection(sum), listsSection(sum), goalsSection(from, to)]) {
+  for (const sec of [sleepSection(buckets, weekly, sum), scoresSection(buckets, weekly), stepsSection(buckets, weekly, sum), trainingSection(rows), weeksSection(sum), listsSection(sum), goalsSection(from, to)]) {
     if (sec) el.append(sec);
   }
   el.append(h('p', { class: 'rp-foot' }, t('Created with Eumetria from YAZIO and Fitbit data. Calorie and macro averages count the days with food logged; weights are 7-day averages.')));
@@ -271,6 +273,63 @@ function stepsSection(buckets, weekly, sum) {
   });
   const items = goal ? [['s3', t('Goal reached')], ['s3-soft', t('Below the goal')]] : [['s3', t('Steps')]];
   return section(t('Steps'), weekly ? t('Weekly averages') : t('Per day'), legend(items), svgEl);
+}
+
+// Eumetria's own scores (0–100) as three lines, with their averages.
+const SCORE_LINES = [['readiness', () => t('Readiness'), 's3'], ['sleep', () => t('Sleep|score'), 's2'], ['recovery', () => t('Recovery'), 's1']];
+function scoresSection(buckets, weekly) {
+  const series = SCORE_LINES.map(([key, label, cls]) => ({ label: label(), cls, values: buckets.map((b) => bucketAvg(b, (r) => r.scores?.[key]?.value)) }));
+  if (!series.some((s) => s.values.some((v) => v != null))) return null;
+  const all = series.flatMap((s) => s.values).filter((v) => v != null);
+  const svgEl = chart({
+    n: buckets.length, dates: buckets.map((b) => b.start), lo: Math.max(0, Math.floor(Math.min(...all) / 10) * 10 - 10), hi: 100, height: 150,
+    aria: t('Eumetria’s scores over time'),
+    draw: (g, { x, y }) => {
+      for (const s of series) g.append(svg('path', { d: linePath(s.values, x, y), class: 'rp-line ' + s.cls }));
+    },
+  });
+  const avg = (s) => mean(s.values.filter((v) => v != null));
+  const items = series.filter((s) => avg(s) != null).map((s) => [s.cls, `${s.label} ${fmt(avg(s))}`]);
+  return section(t('Scores'), (weekly ? t('Weekly averages') : t('Per day')) + ' · ' + t('Eumetria’s own, 0 to 100; the legend shows the averages'), legend(items), svgEl);
+}
+
+// Training: the days trained (Fitbit workouts without walks, and days with
+// a noted lift or benchmark result), zone minutes, VO2 max and every result
+// noted in the range, the new bests marked.
+function trainingSection(rows) {
+  const from = rows[0].date, to = rows.at(-1).date;
+  const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date)];
+  const trained = trainingDays(state.data.days, noted, [...bestDays(state.lifts), ...wodBestDays(state.wods.workouts, state.wods.results)]);
+  const sum = trainingSummary(trained, from, to);
+  const results = rows.flatMap((r) => notedOn(r.date).map((x) => ({ date: r.date, ...x })));
+  if (!sum.days && !results.length) return null;
+  const weeks = rows.length / 7;
+  const azm = rows.reduce((a, r) => a + (r.azm ? r.azm[0] + r.azm[1] + r.azm[2] : 0), 0);
+  const vo2 = rows.filter((r) => r.vo2max != null);
+  const load = rows.findLast((r) => r.scores?.load?.ratio != null)?.scores.load.ratio;
+  const items = [
+    kpi(t('Days trained'), fmt(sum.days), '', t('{n} per week', { n: fmt(sum.perWeek, 1) }), 's3'),
+    azm > 0 && kpi(t('Zone minutes'), fmt(azm / Math.max(1, weeks)), t('per week'), t('WHO: 150 per week'), 'z4'),
+    vo2.length && kpi(t('VO2 max'), fmt(vo2.at(-1).vo2max, 1), '', vo2.length > 1 ? t('{diff} since {date}', { diff: signed(vo2.at(-1).vo2max - vo2[0].vo2max, 1), date: dfShort.format(parse(vo2[0].date)) }) : '', 's2'),
+    load != null ? kpi(t('Training load'), fmt(load, 2), '', t('7 days vs. 28 days; usual {lo}–{hi}', { lo: fmt(0.8, 1), hi: fmt(1.3, 1) }), 's1')
+      : results.length && kpi(t('New bests'), fmt(results.filter((x) => x.pb).length), '', tn(results.length, '{n} result noted', '{n} results noted'), 's1'),
+  ].filter(Boolean);
+  const grid = h('div', { class: 'rp-kpis rp-kpis-in' });
+  grid.append(...items);
+  const content = [grid];
+  if (results.length) {
+    const most = 30;
+    content.push(h('h3', {}, t('Results noted')), table([
+      [t('Date'), (r) => dfDate.format(parse(r.date))],
+      [t('Lift or workout'), (r) => [r.name, r.tag].filter(Boolean).join(' · ')],
+      [t('Result'), (r) => r.value, true],
+      [t('Note'), (r) => [r.pb ? [t('New PB'), r.gain].filter(Boolean).join(' ') : '', r.note].filter(Boolean).join(' · ')],
+    ], results.slice(-most), 'rp-results'));
+    if (results.length > most) content.push(h('p', { class: 'rp-note' }, t('The latest {n} of {total} results.', { n: most, total: results.length })));
+  }
+  const sec = section(t('Training'), t('Days trained: Fitbit workouts (walks aside) and days with a noted result'), ...content);
+  if (results.length > 12) sec.classList.add('rp-long');
+  return sec;
 }
 
 /* ---------- tables ---------- */

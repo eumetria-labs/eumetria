@@ -1,11 +1,12 @@
 // The export of a date range: one table per kind of data (days, foods,
-// recipes, activities, workouts, sleep), written as CSV or JSON files with
+// recipes, activities, workouts, sleep, goal changes, weekly reviews, and
+// what people wrote: workout notes, lifts and benchmark workouts), written as CSV or JSON files with
 // the same columns and rows and bundled as a ZIP. GPS routes and photos are
 // left out. No DOM access, so Node can test this file.
 
 import { MEALS, addDays, iso, parse } from './format.js';
-import { RESTLESS, STAGES } from './health.js';
-import { macroGoal } from './insights.js';
+import { RESTLESS, STAGES, bestEntries, wodBestResults } from './health.js';
+import { goalChangesIn, macroGoal, weightTrendAt } from './insights.js';
 
 // Sleep stage names by code; nights without stage tracking say "asleep" (4).
 const stageName = (code) => [...STAGES, RESTLESS].find((st) => st.code === code)?.key ?? 'asleep';
@@ -27,14 +28,16 @@ function clockPlus(hhmm, mins) {
 // row must also work on an empty item ({d: {}, f: {}, ...}), which gives the
 // columns of a table without rows.
 const TABLES = [
-  ['days', (days) => days.map((d) => ({ d })), ({ d }) => [
+  // weight_trend_kg: the average of the weigh-ins of the 7 days up to the
+  // date, as the dashboard and the report use it.
+  ['days', (days) => days.map((d) => ({ d })), ({ d }, data) => [
     ['date', d.date],
     ['kcal_eaten', d.energy], ['kcal_goal', d.energy_goal], ['kcal_goal_base', d.energy_base],
     ['protein_g', d.protein], ['protein_goal_g', macroGoal(d, 'protein')],
     ['carbs_g', d.carb], ['carbs_goal_g', macroGoal(d, 'carb')],
     ['fat_g', d.fat], ['fat_goal_g', macroGoal(d, 'fat')],
     ...MEALS.map(([m]) => [`kcal_${m}`, d.meals?.[m]]),
-    ['water_ml', d.water], ['steps', d.steps], ['weight_kg', d.weight],
+    ['water_ml', d.water], ['steps', d.steps], ['weight_kg', d.weight], ['weight_trend_kg', d.date && data.byDate ? weightTrendAt(data.byDate, d.date) : null],
     ['kcal_activities', d.activity_energy], ['kcal_burned_fitbit', d.kcal_burned], ['resting_hr', d.rhr],
     ['zone_min_fat_burn', d.azm?.[0]], ['zone_min_cardio', d.azm?.[1]], ['zone_min_peak', d.azm?.[2]],
     ['zone_minutes', d.azm && sum(d.azm)], ['vo2max', d.vo2max], ['vo2max_rating', d.vo2_level],
@@ -117,15 +120,73 @@ const EMPTY = { d: {}, f: {}, r: {}, it: {}, a: {}, w: {}, s: {} };
 // exportTables returns the tables of the days from..to (ISO dates,
 // inclusive) as [name, columns, rows], each row an object. The days table
 // has a row for every date in the range, logged or not.
-export function exportTables(data, from, to) {
+// extras are what the page loads besides data, each table only with it:
+// { lifts, wods } (the lifts and benchmark tables) and notes (a Map of the
+// workout notes, as state.notes).
+export function exportTables(data, from, to, extras = null) {
   const byDate = new Map(data.days.map((d) => [d.date, d]));
   const days = [];
   for (let d = parse(from); d <= parse(to); d = addDays(d, 1)) days.push(byDate.get(iso(d)) || { date: iso(d) });
-  return TABLES.map(([name, items, row]) => [
+  const withDates = { ...data, byDate };
+  const tables = TABLES.map(([name, items, row]) => [
     name,
     row(EMPTY, {}).map(([k]) => k),
-    items(days, data).map((it) => Object.fromEntries(row(it, data).map(([k, v]) => [k, value(v)]))),
+    items(days, withDates).map((it) => Object.fromEntries(row(it, withDates).map(([k, v]) => [k, value(v)]))),
   ]);
+  tables.push(...textTables(data, from, to, byDate, extras?.notes));
+  return extras?.lifts || extras?.wods ? [...tables, ...bestTables(extras, from, to)] : tables;
+}
+
+// The goal changes of the range, the weekly reviews of the weeks that touch
+// it, and the notes of its workouts (only when given).
+function textTables(data, from, to, byDate, notes) {
+  const table = (name, columns, rows) => [name, columns, rows.map((r) => Object.fromEntries(columns.map((k) => [k, value(r[k] ?? null)])))];
+  const weekEnd = (monday) => iso(addDays(parse(monday), 6));
+  const out = [
+    table('goal_changes', ['date', 'goal', 'before', 'after'],
+      goalChangesIn(data.goal_changes, from, to).flatMap(([date, ch]) => Object.values(ch).map((c) => ({ date, goal: c.goal, before: c.from, after: c.to })))),
+    table('weekly_reviews', ['week_start', 'week_end', 'model', 'written_at', 'text', 'text_de'],
+      (data.reviews || []).filter((r) => r.week <= to && weekEnd(r.week) >= from).sort((a, b) => a.week.localeCompare(b.week))
+        .map((r) => ({ week_start: r.week, week_end: weekEnd(r.week), model: r.model, written_at: r.created_at, text: r.text, text_de: r.text_de }))),
+  ];
+  if (notes) {
+    // A note's date is its workout's.
+    const workouts = new Map();
+    for (let d = parse(from); d <= parse(to); d = addDays(d, 1)) {
+      for (const w of byDate.get(iso(d))?.workouts || []) workouts.set(w.id, { date: iso(d), w });
+    }
+    out.push(table('workout_notes', ['date', 'workout_id', 'workout_type', 'markdown', 'written_by', 'updated_at'],
+      [...notes.values()].filter((n) => workouts.has(n.workout_id)).map((n) => ({
+        date: workouts.get(n.workout_id).date, workout_id: n.workout_id, workout_type: workouts.get(n.workout_id).w.type,
+        markdown: n.markdown, written_by: n.updated_by, updated_at: n.updated_at,
+      })).sort((a, b) => a.date.localeCompare(b.date))));
+  }
+  return out;
+}
+
+// The lifts and benchmark results of the range, and every benchmark
+// workout. personal_best: better than every earlier result of its kind.
+// A result's value is seconds (time; reps done when capped), rounds (with
+// reps_after_rounds), reps or kg, by the workout's scoring.
+function bestTables({ lifts = [], wods = { workouts: [], results: [] } }, from, to) {
+  const inRange = (x) => x.date >= from && x.date <= to;
+  const liftPb = new Set(bestEntries(lifts).map((e) => e.id));
+  const wodPb = new Set(wodBestResults(wods.workouts, wods.results).map((r) => r.id));
+  const byId = new Map(wods.workouts.map((w) => [w.id, w]));
+  const table = (name, columns, rows) => [name, columns, rows.map((r) => Object.fromEntries(columns.map((k) => [k, value(r[k] ?? null)])))];
+  const byDate = (a, b) => a.date.localeCompare(b.date) || a.id - b.id;
+  return [
+    table('lifts', ['date', 'lift', 'kg', 'reps', 'personal_best', 'note'],
+      lifts.filter(inRange).sort(byDate).map((e) => ({ ...e, personal_best: liftPb.has(e.id), note: e.note || null }))),
+    table('benchmark_results', ['date', 'workout', 'scoring', 'value', 'reps_after_rounds', 'scaled', 'capped', 'personal_best', 'fitbit_workout', 'note'],
+      wods.results.filter((r) => inRange(r) && byId.has(r.workout)).sort(byDate).map((r) => ({
+        date: r.date, workout: byId.get(r.workout).name, scoring: byId.get(r.workout).scoring, value: r.value,
+        reps_after_rounds: byId.get(r.workout).scoring === 'rounds' ? r.reps || 0 : null, scaled: !!r.scaled, capped: !!r.capped,
+        personal_best: wodPb.has(r.id), fitbit_workout: r.fitbit_workout || null, note: r.note || null,
+      }))),
+    table('benchmark_workouts', ['name', 'scoring', 'time_cap_s', 'description'],
+      wods.workouts.map((w) => ({ name: w.name, scoring: w.scoring, time_cap_s: w.time_cap || null, description: w.description || null }))),
+  ];
 }
 
 export function toCSV(columns, rows) {
@@ -139,13 +200,13 @@ export function toCSV(columns, rows) {
 
 // exportFiles returns the export as [path, text] pairs in a folder of its
 // own: an info file with the range and goals, then one file per table.
-export function exportFiles(data, from, to, format, now = new Date()) {
+export function exportFiles(data, from, to, format, now = new Date(), extras = null) {
   const dir = `eumetria-${from}-to-${to}/`;
   const info = {
     title: data.title, timezone: data.timezone, from, to, exported_at: now.toISOString(),
     ...Object.fromEntries(Object.entries(data.goals || {}).map(([k, v]) => [`goal_${k}`, value(v)])),
   };
-  const tables = exportTables(data, from, to);
+  const tables = exportTables(data, from, to, extras);
   if (format === 'json') {
     const json = (v) => JSON.stringify(v, null, 2) + '\n';
     return [[dir + 'info.json', json(info)], ...tables.map(([name, , rows]) => [`${dir}${name}.json`, json(rows)])];

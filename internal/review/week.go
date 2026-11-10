@@ -6,9 +6,14 @@ package review
 import (
 	"fmt"
 	"math"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
+	"eumetria/internal/lifts"
 	"eumetria/internal/stats"
+	"eumetria/internal/wods"
 )
 
 // Monday returns the Monday of the calendar week that contains day.
@@ -28,6 +33,40 @@ type Week struct {
 	Days     []Day  `json:"days"`
 	Summary  Totals `json:"this_week"`
 	Previous Totals `json:"previous_week"`
+	// Results the person noted themselves (the Training card's Personal
+	// bests), not measured by a device.
+	Lifts      []Lift      `json:"lifts_noted,omitempty"`
+	Benchmarks []Benchmark `json:"benchmark_workouts_noted,omitempty"`
+}
+
+// Benchmark is one noted result of a benchmark workout, written as people
+// say it ("4:12", "12 rounds + 5 reps").
+type Benchmark struct {
+	Date    string `json:"date"`
+	Workout string `json:"workout"`
+	Scoring string `json:"scored_by"`
+	Result  string `json:"result"`
+	Scaled  bool   `json:"scaled,omitempty"`
+	// Better than every earlier result of this workout, Rx and scaled
+	// counted apart; the first result is neither a best nor compared.
+	Best  bool   `json:"new_personal_best,omitempty"`
+	Prev  string `json:"previous_best,omitempty"`
+	First bool   `json:"first_result_noted,omitempty"`
+	Note  string `json:"note,omitempty"`
+}
+
+// Lift is one noted result: kg lifted reps times.
+type Lift struct {
+	Date string  `json:"date"`
+	Lift string  `json:"lift"`
+	Kg   float64 `json:"kg"`
+	Reps int     `json:"reps"`
+	// Heavier than every earlier result of this lift and rep count; the
+	// first result of one is neither a best nor compared.
+	Best   bool    `json:"new_personal_best,omitempty"`
+	PrevKg float64 `json:"previous_best_kg,omitempty"`
+	First  bool    `json:"first_result_noted,omitempty"`
+	Note   string  `json:"note,omitempty"`
 }
 
 type Goals struct {
@@ -395,3 +434,78 @@ func dur(min float64) string {
 }
 func round(v float64) float64  { return math.Round(v) }
 func round1(v float64) float64 { return math.Round(v*10) / 10 }
+
+// AddLifts adds the week's results from all noted ones, each compared with
+// the best before it (same lift, case aside, and rep count).
+func (w *Week) AddLifts(all []lifts.Entry) {
+	last := w.To
+	if len(w.Days) > 0 {
+		last = w.Days[len(w.Days)-1].Date
+	}
+	sorted := append([]lifts.Entry(nil), all...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].Date != sorted[j].Date {
+			return sorted[i].Date < sorted[j].Date
+		}
+		return sorted[i].ID < sorted[j].ID
+	})
+	best := map[string]float64{}
+	for _, e := range sorted {
+		key := strings.ToLower(e.Lift) + "|" + strconv.Itoa(e.Reps)
+		prev, seen := best[key]
+		if e.Date >= w.From && e.Date <= last {
+			l := Lift{Date: e.Date, Lift: e.Lift, Kg: e.Kg, Reps: e.Reps, Note: e.Note, First: !seen}
+			if seen && e.Kg > prev {
+				l.Best, l.PrevKg = true, prev
+			}
+			w.Lifts = append(w.Lifts, l)
+		}
+		if e.Kg > prev {
+			best[key] = e.Kg
+		}
+	}
+}
+
+// AddBenchmarks adds the week's results of benchmark workouts, each compared
+// with the best before it. results come the oldest first (wods.Store).
+func (w *Week) AddBenchmarks(workouts []wods.Workout, results []wods.Result) {
+	last := w.To
+	if len(w.Days) > 0 {
+		last = w.Days[len(w.Days)-1].Date
+	}
+	byID := map[int64]wods.Workout{}
+	for _, wd := range workouts {
+		byID[wd.ID] = wd
+	}
+	sorted := append([]wods.Result(nil), results...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].Date != sorted[j].Date {
+			return sorted[i].Date < sorted[j].Date
+		}
+		return sorted[i].ID < sorted[j].ID
+	})
+	type key struct {
+		wod    int64
+		scaled bool
+	}
+	best := map[key]wods.Result{}
+	for _, r := range sorted {
+		wd, ok := byID[r.Workout]
+		if !ok {
+			continue
+		}
+		k := key{r.Workout, r.Scaled}
+		prev, seen := best[k]
+		better := !seen || wods.Better(wd.Scoring, r, prev)
+		if r.Date >= w.From && r.Date <= last {
+			b := Benchmark{Date: r.Date, Workout: wd.Name, Scoring: wd.Scoring, Result: wods.Format(wd.Scoring, r), Scaled: r.Scaled, Note: r.Note, First: !seen}
+			if seen && better {
+				b.Best, b.Prev = true, wods.Format(wd.Scoring, prev)
+			}
+			w.Benchmarks = append(w.Benchmarks, b)
+		}
+		if better {
+			best[k] = r
+		}
+	}
+}

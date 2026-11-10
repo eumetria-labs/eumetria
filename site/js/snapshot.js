@@ -1,18 +1,25 @@
-// "Save as image" on every card with charts: the card's title, legend and
-// charts redrawn as one SVG in the current theme and saved as a PNG at twice
-// the size. Styles are copied from the page, since an SVG drawn as an image
-// sees no stylesheet; the font is embedded for the same reason (share.js).
+// "Save as image" and "Share as image" on every card with charts. Saving
+// draws the card's title, legend and charts as one SVG in the current theme
+// and saves it as a PNG at twice the size. Styles are copied from the page,
+// since an SVG drawn as an image sees no stylesheet; the font is embedded for
+// the same reason (share.js). Sharing opens the share window (post or story,
+// light or dark) with the charts drawn again at the card's width; a card
+// with a share card of its own (data-share="custom", cards.js) adds that
+// instead.
 
 import { dfShort, parse } from './format.js';
 import { download, h, svg, textWidth } from './dom.js';
 import { state } from './state.js';
 import { rangeDays } from './query.js';
 import { t } from './i18n.js';
-import { fontFace, toPng } from './share.js';
+import { PAD as SHARE_PAD, W as SHARE_W, chart as chartBlock, fontFace, openShare, shareButton, textW, toPng } from './share.js';
 
 const PROPS = ['fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity',
   'opacity', 'font-size', 'font-weight', 'font-family', 'font-variant-numeric', 'letter-spacing', 'text-transform', 'paint-order', 'stop-color', 'stop-opacity'];
 const PAD = 24;
+
+// The charts of the card's open tab, if it has tabs.
+const shownCharts = (card) => [...card.querySelectorAll('.chart')].filter((c) => !c.closest('[hidden]'));
 
 export function addSnapButtons() {
   for (const card of document.querySelectorAll('.card')) {
@@ -34,8 +41,121 @@ export function addSnapButtons() {
     };
     title.parentElement.classList.add('has-snap');
     title.after(b);
+    const share = card.dataset.share === 'custom' ? null
+      : shareButton((btn) => openShare([{ key: 'card', label: '', name: `${card.id.replace(/-card$/, '')}-${state.today || ''}`, build: () => shareCard(card) }], 'card', btn), 'snap-btn');
+    if (share) b.after(share);
+    // A tab without charts has nothing to save or share.
+    const sync = () => {
+      b.hidden = !shownCharts(card).length;
+      if (share) share.hidden = b.hidden;
+    };
+    card.addEventListener('panelchange', sync);
+    sync();
   }
 }
+
+/* ---------- sharing ---------- */
+
+const CW = SHARE_W - SHARE_PAD * 2;
+
+// The range the page shows, for the footer and the share card.
+function rangeText() {
+  const days = state.data.days;
+  const { start, end } = rangeDays(state.range, parse(days[0].date), parse(days.at(-1).date), state.from, state.to);
+  return `${dfShort.format(start)} – ${dfShort.format(end)} ${end.getUTCFullYear()}`;
+}
+
+// A chart drawn again at width w (and height h, if given) and copied with
+// its classes, so the share card's own styles (light or dark) colour it;
+// then drawn back.
+function chartAt(host, w, h) {
+  if (!host._draw) return host.querySelector('svg')?.cloneNode(true);
+  const old = [host.style.width, host.style.height];
+  host.style.width = `${w}px`;
+  if (h) host.style.height = `${h}px`;
+  host._draw();
+  const copy = host.querySelector('svg')?.cloneNode(true);
+  [host.style.width, host.style.height] = old;
+  host._draw();
+  return copy;
+}
+
+// A heading over a chart.
+const headingBlock = (text) => ({ h: 20, draw: (g, y) => g.append(svg('text', { x: SHARE_PAD, y: y + 14, class: 'c-head' }, text)) });
+
+// The page's legend keys as share-card colours: a dashed or dotted key, a
+// dot, or the colour class of a line or area.
+const COLOURS = ['s1', 's2', 's3', 'over', 'ink', 'z1', 'z2', 'z3', 'z4', 'st-deep', 'st-light', 'st-rem', 'st-awake', 'st-restless'];
+function legendItems(lis) {
+  return lis.map((li) => {
+    const key = li.querySelector('.key, .rp-key');
+    const cls = key ? [...key.classList] : [];
+    const kind = cls.includes('dash') || cls.includes('dotted') ? 'dash' : cls.includes('dot') ? 'dot' : COLOURS.find((c) => cls.includes(c)) || 'ink2';
+    return [kind, li.textContent.trim()];
+  });
+}
+
+// A legend that wraps onto more lines.
+function legendBlock(items) {
+  const rows = [];
+  let x = 0;
+  for (const [kind, name] of items) {
+    const w = 17 + textW(name, 12.5, 400) + 16;
+    if (!rows.length || (x > 0 && x + w > CW)) { rows.push([]); x = 0; }
+    rows.at(-1).push([kind, name, x]);
+    x += w;
+  }
+  return {
+    h: rows.length * 18,
+    draw(g, y) {
+      rows.forEach((row, k) => {
+        const ry = y + k * 18;
+        for (const [kind, name, dx] of row) {
+          const lx = SHARE_PAD + dx;
+          if (kind === 'dash') g.append(svg('line', { x1: lx, x2: lx + 12, y1: ry + 8, y2: ry + 8, class: 'goal-line' }));
+          else if (kind === 'dot') g.append(svg('circle', { cx: lx + 5, cy: ry + 8, r: 4, class: 'mark-dot s1-soft' }));
+          else g.append(svg('rect', { x: lx, y: ry + 6.5, width: 12, height: 3, rx: 1.5, class: 'c-fill ' + kind }));
+          g.append(svg('text', { x: lx + 17, y: ry + 12, class: 'c-note' }, name));
+        }
+      });
+    },
+  };
+}
+
+// The share card of a card: its title (and open tab), the range, and each
+// chart shown with its heading and legend; charts after the first give way
+// when the format has no room for them.
+function shareCard(card) {
+  const name = card.querySelector('.card-head h2').textContent.trim();
+  const tab = card.querySelector(':scope > .tabs [aria-selected="true"] .tab-label')?.textContent.trim();
+  const blocks = [];
+  const hosts = shownCharts(card);
+  const headLegend = [...card.querySelectorAll('.card-head .legend li')].filter((li) => !li.hidden);
+  if (headLegend.length) blocks.push(legendBlock(legendItems(headLegend)));
+  hosts.forEach((host, i) => {
+    // A card's only chart gets the room of the picture.
+    const copy = chartAt(host, CW, hosts.length === 1 ? 440 : 0);
+    if (!copy) return;
+    const part = host.parentElement !== card ? host.parentElement : null;
+    const lis = part ? [...part.querySelectorAll('.legend li')].filter((li) => !li.hidden && !li.closest('.card-head')) : [];
+    const title = part?.querySelector('.mini-title')?.childNodes[0]?.textContent.trim();
+    if (title) blocks.push(headingBlock(title));
+    if (lis.length) blocks.push(legendBlock(legendItems(lis)));
+    const vb = copy.viewBox.baseVal;
+    const ch = vb.height || host.clientHeight || 200;
+    const block = chartBlock((g, box) => {
+      copy.setAttribute('width', box.w);
+      copy.setAttribute('height', box.h);
+      copy.removeAttribute('tabindex');
+      g.append(copy);
+    }, { h: ch, min: Math.round(ch * 0.7), max: ch });
+    if (i > 0) block.optional = true;
+    blocks.push(block);
+  });
+  return { title: tab && tab !== name ? `${name} · ${tab}` : name, sub: rangeText(), accent: 's1', blocks };
+}
+
+/* ---------- saving ---------- */
 
 // A copy of a chart's SVG with every element's look written onto it.
 function inlined(src) {
@@ -107,10 +227,8 @@ async function snap(card) {
     y += vb.height + 8;
   }
   // Footer: where it comes from and the range shown.
-  const days = state.data.days;
-  const { start, end } = rangeDays(state.range, parse(days[0].date), parse(days.at(-1).date), state.from, state.to);
   y += 14;
-  text(`Eumetria · ${dfShort.format(start)} – ${dfShort.format(end)} ${end.getUTCFullYear()}`, 11, 500, css.muted);
+  text(`Eumetria · ${rangeText()}`, 11, 500, css.muted);
   const H = y + PAD - 6;
 
   const out = svg('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: `0 0 ${W} ${H}`, width: W * 2, height: H * 2, style: `font-family:${root.getPropertyValue('--font')}` });

@@ -12,6 +12,7 @@ import (
 
 	"eumetria/internal/lifts"
 	"eumetria/internal/store"
+	"eumetria/internal/wods"
 )
 
 var activities = []struct {
@@ -167,8 +168,13 @@ func History(today time.Time, n int) *store.History {
 		d.Water = math.Round(math.Max(750, 2100+r.NormFloat64()*450)/250) * 250
 
 		d.ConsumeActivityEnergy = &consume
-		if r.Float64() < 0.45 {
+		// Two days ago was a session at the box, where Fran went well (Wods).
+		box := d.Date == today.AddDate(0, 0, -2).Format(time.DateOnly)
+		if r.Float64() < 0.45 || box {
 			acts := activities[r.IntN(len(activities))]
+			if box {
+				acts = activities[len(activities)-1]
+			}
 			e := acts.energy * (0.8 + r.Float64()*0.4)
 			dur := acts.duration * (0.8 + r.Float64()*0.4)
 			a := store.Activity{Name: acts.name, Energy: math.Round(e), Duration: math.Round(dur)}
@@ -367,5 +373,68 @@ func Lifts(today time.Time) []lifts.Entry {
 		}
 	}
 	out[len(out)-1].Note = "Belt, felt smooth"
+	// A best two days ago, for the Today card's highlights.
+	best := 0.0
+	for _, e := range out {
+		if e.Lift == "Power Clean" && e.Kg > best {
+			best = e.Kg
+		}
+	}
+	day := today.AddDate(0, 0, -2)
+	out = append(out, lifts.Entry{
+		ID: id + 1, Lift: "Power Clean", Kg: best + 2.5, Reps: 1, Date: day.Format(time.DateOnly), Note: "Finally!",
+		CreatedBy: "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day,
+	})
 	return out
+}
+
+// Wods are sample benchmark workouts with results over the last year: the
+// famous ones and one of the box's own, with a new best in Fran two days ago.
+func Wods(today time.Time) ([]wods.Workout, []wods.Result) {
+	r := rand.New(rand.NewPCG(13, 17))
+	stamp := func(w *wods.Workout) {
+		w.CreatedBy, w.UpdatedBy, w.CreatedAt, w.UpdatedAt = "demo", "demo", today, today
+	}
+	workouts := []wods.Workout{
+		{ID: 1, Name: "Fran", Scoring: wods.Time, Description: "21-15-9\nThrusters 43 kg\nPull-ups"},
+		{ID: 2, Name: "Cindy", Scoring: wods.Rounds, Description: "20 min AMRAP\n5 Pull-ups\n10 Push-ups\n15 Air Squats"},
+		{ID: 3, Name: "Grace", Scoring: wods.Time, Description: "30 Clean & Jerks for time, 61 kg"},
+		{ID: 4, Name: "Friday Chipper", Scoring: wods.Time, TimeCap: 20 * 60, Description: "50 Wall Balls\n40 Box Jumps\n30 Kettlebell Swings 24 kg\n20 Burpees\n10 Muscle-ups"},
+	}
+	for i := range workouts {
+		stamp(&workouts[i])
+	}
+	var results []wods.Result
+	capped := false
+	add := func(wod int64, value float64, reps int, scaled bool, day time.Time, note string) {
+		results = append(results, wods.Result{
+			ID: int64(len(results) + 1), Workout: wod, Value: value, Reps: reps, Scaled: scaled, Capped: capped, Date: day.Format(time.DateOnly), Note: note,
+			CreatedBy: "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day,
+		})
+	}
+	// Fran: scaled at first, then Rx and faster.
+	add(1, 410, 0, true, today.AddDate(0, 0, -340), "Banded pull-ups, 30 kg")
+	fran := 395.0
+	for d := -280; d < -10; d += 60 + r.IntN(30) {
+		add(1, fran, 0, false, today.AddDate(0, 0, d), "")
+		fran -= float64(8 + r.IntN(15))
+	}
+	add(1, fran-6, 0, false, today.AddDate(0, 0, -2), "Unbroken thrusters")
+	// Done in that day's Fitbit workout (History makes it a HIIT session).
+	results[len(results)-1].FitbitWorkout = "demo-" + today.AddDate(0, 0, -2).Format("20060102")
+	// Cindy: rounds and reps.
+	rounds, reps := 14, 3
+	for d := -320; d < 0; d += 70 + r.IntN(40) {
+		add(2, float64(rounds), reps, false, today.AddDate(0, 0, d), "")
+		rounds, reps = rounds+r.IntN(2), (reps+7+r.IntN(9))%30
+	}
+	// Grace, twice; the box's chipper with a scaled go.
+	add(3, 245, 0, false, today.AddDate(0, 0, -200), "")
+	add(3, 221, 0, false, today.AddDate(0, 0, -45), "Touch and go")
+	capped = true
+	add(4, 142, 0, false, today.AddDate(0, 0, -240), "Stuck on the muscle-ups")
+	capped = false
+	add(4, 1080, 0, true, today.AddDate(0, 0, -150), "Ring rows for muscle-ups")
+	add(4, 1135, 0, false, today.AddDate(0, 0, -30), "")
+	return workouts, results
 }

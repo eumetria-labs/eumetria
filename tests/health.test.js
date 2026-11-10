@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayActivities, liftBoard, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares } from '../site/js/health.js';
+import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares } from '../site/js/health.js';
 
 test('zoneOf uses the lower bounds of moderate, vigorous and peak', () => {
   const limits = [109, 133, 163];
@@ -122,4 +122,81 @@ test('one-rep max estimate and percentages', () => {
   const p = percentages(83);
   assert.deepEqual(p[0], { pct: 50, kg: 41.5 });
   assert.deepEqual(p.at(-1), { pct: 95, kg: 79 });
+});
+
+test('bests count only when they beat an earlier result, and meet that morning’s Readiness', () => {
+  const e = (id, lift, kg, date, reps = 1) => ({ id, lift, kg, reps, date });
+  const entries = [
+    e(1, 'Snatch', 60, '2026-10-01'), e(2, 'snatch', 62, '2026-10-05'), e(3, 'Snatch', 61, '2026-10-06'),
+    e(4, 'Snatch', 65, '2026-10-09'), e(5, 'Back Squat', 100, '2026-10-02', 5), e(6, 'Back Squat', 105, '2026-10-07', 5),
+    e(7, 'Back Squat', 120, '2026-10-03'), // a different rep count: a first result
+  ];
+  assert.deepEqual(bestDays(entries), ['2026-10-05', '2026-10-07', '2026-10-09']);
+  const byDate = new Map();
+  for (let d = 1; d <= 10; d++) {
+    const date = `2026-10-${String(d).padStart(2, '0')}`;
+    byDate.set(date, { date, scores: { readiness: { value: { 5: 90, 7: 86, 9: 88 }[d] || 70 } } });
+  }
+  // Mornings 5 to 9: 90, 70, 86, 70, 88.
+  assert.deepEqual(bestsReadiness(bestDays(entries), byDate), { n: 3, avg: 88, usual: 81 });
+  assert.equal(bestsReadiness(bestDays(entries.slice(0, 4)), byDate), null);
+});
+
+test('benchmark workouts: a best per workout, Rx and scaled apart', () => {
+  const fran = { id: 1, name: 'Fran', scoring: 'time' }, cindy = { id: 2, name: 'Cindy', scoring: 'rounds' }, grace = { id: 3, name: 'Grace', scoring: 'time' };
+  const r = (id, workout, value, date, more = {}) => ({ id, workout, value, date, ...more });
+  const results = [
+    r(1, 1, 300, '2026-09-01'), r(2, 1, 280, '2026-10-01'), r(3, 1, 290, '2026-11-05'),
+    r(4, 1, 200, '2026-11-01', { scaled: true }),
+    r(5, 2, 12, '2026-08-01', { reps: 9 }), r(6, 2, 13, '2026-09-01', { reps: 0 }), r(7, 2, 13, '2026-11-08', { reps: 4 }),
+  ];
+  const rows = wodBoard([fran, cindy, grace], results, '2026-11-10');
+  assert.deepEqual(rows.map((x) => [x.key, x.best?.id ?? null, x.prev?.id ?? null, x.recent]), [
+    ['2|rx', 7, 6, true], ['1|scaled', 4, null, true], ['1|rx', 2, 1, false], ['3|rx', null, null, false],
+  ]);
+  assert.deepEqual(wodBestDays([fran, cindy, grace], results), ['2026-09-01', '2026-10-01', '2026-11-08']);
+  assert.ok(betterResult('time', { value: 1 }, { value: 2 }) && betterResult('load', { value: 2 }, { value: 1 }));
+  assert.ok(!betterResult('rounds', { value: 3, reps: 1 }, { value: 3, reps: 1 }));
+});
+
+test('clock times read and written', () => {
+  assert.deepEqual(['4:12', '1:02:05', '12', ' 0:45 '].map(parseClock), [252, 3725, 720, 45]);
+  assert.deepEqual(['4:72', '4:2', '1:72:00', 'x', '', '1:2:3:4'].map(parseClock), [null, null, null, null, null, null]);
+  assert.deepEqual([252, 3725, 59].map(fmtClock), ['4:12', '1:02:05', '0:59']);
+});
+
+test('plates per side, the heaviest first', () => {
+  assert.deepEqual(platesFor(100), { side: [25, 15], loaded: 100 });
+  assert.deepEqual(platesFor(82.5), { side: [25, 5, 1.25], loaded: 82.5 });
+  assert.deepEqual(platesFor(61, 15), { side: [20, 2.5, 0.5], loaded: 61 });
+  assert.deepEqual(platesFor(20), { side: [], loaded: 20 });
+  assert.deepEqual(platesFor(15), { side: [], loaded: 20 }); // less than the bar
+  assert.deepEqual(platesFor(100.5), { side: [25, 15], loaded: 100 }); // 0,25 a side can't be loaded
+});
+
+test('capped results rank below finished times and count reps', () => {
+  const fin = { value: 1500 }, c180 = { value: 180, capped: true }, c200 = { value: 200, capped: true };
+  assert.ok(betterResult('time', fin, c200) && !betterResult('time', c200, fin));
+  assert.ok(betterResult('time', c200, c180) && !betterResult('time', c180, c200));
+  const chipper = { id: 1, name: 'Chipper', scoring: 'time' };
+  const rs = [{ id: 1, workout: 1, value: 150, capped: true, date: '2026-09-01' }, { id: 2, workout: 1, value: 1190, date: '2026-10-01' }, { id: 3, workout: 1, value: 190, capped: true, date: '2026-11-01' }];
+  assert.deepEqual(wodBestResults([chipper], rs).map((r) => r.id), [2]);
+  assert.deepEqual(bestEntries([{ id: 1, lift: 'Snatch', kg: 60, reps: 1, date: '2026-01-01' }, { id: 2, lift: 'Snatch', kg: 65, reps: 1, date: '2026-02-01' }]).map((e) => e.id), [2]);
+});
+
+test('training days: workouts without walks, noted results and bests', () => {
+  const days = [
+    { date: '2026-11-02', workouts: [{ type: 'WEIGHTS', dur: 3600 }, { type: 'WALKING', dur: 1800 }] },
+    { date: '2026-11-03', workouts: [{ type: 'WALKING', dur: 3600 }] },
+    { date: '2026-11-04', workouts: [{ type: 'RUNNING', dur: 1800 }, { type: 'HIIT', dur: 1200 }] },
+  ];
+  const trained = trainingDays(days, ['2026-11-04', '2026-11-12'], ['2026-11-12']);
+  assert.deepEqual(Object.fromEntries(trained), {
+    '2026-11-02': { min: 60, sessions: 1, noted: false, pb: false },
+    '2026-11-04': { min: 50, sessions: 2, noted: true, pb: false },
+    '2026-11-12': { min: 0, sessions: 0, noted: true, pb: true },
+  });
+  // Two weeks from Monday Nov 2 to Sunday Nov 15: 3 days, both weeks active.
+  assert.deepEqual(trainingSummary(trained, '2026-11-02', '2026-11-15'), { days: 3, perWeek: 1.5, pbs: 1, longestWeeks: 2 });
+  assert.equal(trainingSummary(trained, '2026-10-01', '2026-10-31').days, 0);
 });

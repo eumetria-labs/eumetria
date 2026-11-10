@@ -83,7 +83,7 @@
       <!-- Jumps to the parts of the page; js/sections.js marks the one in view. -->
       <nav class="sections" id="sections" aria-label="Sections" hidden>
         <a href="#today" data-cards="today review-card tiles">Today</a>
-        <a href="#energy-card" data-cards="energy-card heatmap-card macros-card">Nutrition</a>
+        <a href="#energy-card" data-cards="energy-card">Nutrition</a>
         <a href="#weight-card" data-cards="weight-card">Body</a>
         <a href="#recovery-card" data-cards="recovery-card">Sleep</a>
         <a href="#training-card" data-cards="training-card movement-card">Training</a>
@@ -184,40 +184,43 @@
         <article class="card span-2" id="energy-card">
           <header class="card-head">
             <div><h2>Calories</h2><p class="muted" id="cal-sub"></p></div>
-            <ul class="legend">
-              <li><span class="key line s1"></span>Eaten</li>
-              <li id="leg-avg" hidden><span class="key line s1 thick"></span>7-day average</li>
-              <li><span class="key line ink"></span>Goal incl. activity</li>
-              <li id="leg-burned" hidden><span class="key line s2"></span>Burned (Fitbit)</li>
-              <li><span class="key dash"></span>Base goal</li>
-            </ul>
           </header>
-          <div class="chart tall" id="chart-energy"></div>
-          <div class="meal-split" id="meals" aria-label="Average calories per meal"></div>
-          <h3 class="mini-title weekday-title">By weekday <span class="muted">average eaten on logged days · darker: above your overall average</span></h3>
-          <div class="weekday-split" id="weekdays" role="list" aria-label="Average calories per weekday"></div>
-        </article>
-
-        <article class="card span-2" id="heatmap-card">
-          <header class="card-head">
-            <div><h2>Calorie calendar</h2><p class="muted" id="heatmap-sub"></p></div>
-          </header>
-          <div class="heatmap" id="heatmap"></div>
-          <div class="scale" aria-hidden="true">
-            <span>Under</span><i class="d-n3"></i><i class="d-n1"></i><i class="d-0"></i><i class="d-p1"></i><i class="d-p3"></i><span>Over goal</span><i class="none"></i><span>Not logged</span>
+          <div class="tabs" role="tablist" aria-label="Calories" id="energy-tabs"></div>
+          <div class="card-panel" id="energy-chart-panel" role="tabpanel" data-tab="chart">
+            <div id="energy-part">
+              <ul class="legend energy-legend">
+                <li><span class="key line s1"></span>Eaten</li>
+                <li id="leg-avg" hidden><span class="key line s1 thick"></span>7-day average</li>
+                <li><span class="key line ink"></span>Goal incl. activity</li>
+                <li id="leg-burned" hidden><span class="key line s2"></span>Burned (Fitbit)</li>
+                <li><span class="key dash"></span>Base goal</li>
+              </ul>
+              <div class="chart tall" id="chart-energy"></div>
+            </div>
+            <div class="meal-split" id="meals" aria-label="Average calories per meal"></div>
+            <h3 class="mini-title weekday-title">By weekday <span class="muted">average eaten on logged days · darker: above your overall average</span></h3>
+            <div class="weekday-split" id="weekdays" role="list" aria-label="Average calories per weekday"></div>
+          </div>
+          <div class="card-panel" id="energy-calendar" role="tabpanel" data-tab="calendar" hidden>
+            <p class="muted panel-sub" id="heatmap-sub"></p>
+            <div class="heatmap" id="heatmap"></div>
+            <div class="scale" aria-hidden="true">
+              <span>Under</span><i class="d-n3"></i><i class="d-n1"></i><i class="d-0"></i><i class="d-p1"></i><i class="d-p3"></i><span>Over goal</span><i class="none"></i><span>Not logged</span>
+            </div>
+          </div>
+          <div class="card-panel" id="energy-macros" role="tabpanel" data-tab="macros" hidden>
+            <div id="macros-part">
+              <div class="mini-head">
+                <p class="muted panel-sub" id="macro-sub"></p>
+                <ul class="legend mini-legend macro-legend" id="macro-legend"></ul>
+              </div>
+              <div class="chart" id="chart-macros"></div>
+            </div>
+            <div class="stat-row" id="protein-kg" aria-label="Protein per kg of body weight" hidden></div>
           </div>
         </article>
 
-        <article class="card" id="macros-card">
-          <header class="card-head">
-            <div><h2>Macronutrients</h2><p class="muted" id="macro-sub"></p></div>
-          </header>
-          <ul class="legend macro-legend" id="macro-legend"></ul>
-          <div class="chart" id="chart-macros"></div>
-          <div class="stat-row" id="protein-kg" aria-label="Protein per kg of body weight" hidden></div>
-        </article>
-
-        <article class="card" id="weight-card">
+        <article class="card span-2" id="weight-card" data-share="custom">
           <header class="card-head">
             <div><h2>Weight</h2><p class="muted" id="weight-sub"></p></div>
             <ul class="legend">
@@ -323,10 +326,31 @@
               </div>
               <div id="lifts"></div>
             </div>
+            <div id="wods-part">
+              <div class="mini-head">
+                <h3 class="mini-title">Benchmark workouts <span class="muted" id="wods-sub"></span></h3>
+                <button class="pill-btn" id="wod-add" type="button" hidden>New workout</button>
+              </div>
+              <div id="wods"></div>
+            </div>
             <div id="workout-bests-part">
               <h3 class="mini-title">Workouts <span class="muted">all time</span></h3>
               <div id="training-bests"></div>
             </div>
+            <p class="muted lifts-ready" id="bests-ready" hidden></p>
+          </div>
+          <div class="card-panel" id="training-calendar" role="tabpanel" data-tab="calendar" hidden>
+            <div class="mini-head">
+              <h3 class="mini-title">Training days <span class="muted" id="train-cal-sub"></span></h3>
+              <ul class="legend mini-legend" id="train-cal-legend">
+                <li><span class="key cal-key t1"></span>under 30 min</li>
+                <li><span class="key cal-key t2"></span>30–60 min</li>
+                <li><span class="key cal-key t3"></span>over an hour</li>
+                <li><span class="key cal-key pb"></span>new best</li>
+              </ul>
+            </div>
+            <div class="heatmap train-cal" id="train-cal"></div>
+            <p class="muted cal-summary" id="train-cal-summary"></p>
           </div>
           <div class="card-panel" id="training-routes" role="tabpanel" data-tab="routes" hidden>
             <div class="mini-head">

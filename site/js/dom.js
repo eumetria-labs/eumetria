@@ -100,6 +100,8 @@ export function panelTabs(list, tabs, wanted, onPick) {
       b.tabIndex = on ? 0 : -1;
     }
     for (const p of panels) p.hidden = p.dataset.tab !== tab;
+    // Lets the card's image button follow the tab (snapshot.js).
+    list.closest('.card')?.dispatchEvent(new Event('panelchange'));
   };
   list.hidden = tabs.length < 2;
   list.replaceChildren(...tabs.map(([key, label, icon]) => {

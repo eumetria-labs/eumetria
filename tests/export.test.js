@@ -115,3 +115,52 @@ test('crc32 and a ZIP that unzip can read', (t) => {
   assert.equal(readFileSync(join(dir, 'x/a.csv'), 'utf8'), 'a,b\n');
   assert.equal(readFileSync(join(dir, 'x/b.json'), 'utf8'), '{"k":"ü"}\n');
 });
+
+test('lifts and benchmark workouts of the range, with their bests', () => {
+  const bests = {
+    lifts: [
+      { id: 1, lift: 'Snatch', kg: 60, reps: 1, date: '2026-10-01' },
+      { id: 2, lift: 'Snatch', kg: 62.5, reps: 1, date: '2026-10-12', note: 'finally' },
+      { id: 3, lift: 'Snatch', kg: 70, reps: 1, date: '2026-10-20' },
+    ],
+    wods: {
+      workouts: [{ id: 1, name: 'Fran', scoring: 'time', description: '21-15-9' }, { id: 2, name: 'Cindy', scoring: 'rounds' }],
+      results: [
+        { id: 1, workout: 1, value: 300, date: '2026-10-01' },
+        { id: 2, workout: 1, value: 290, date: '2026-10-13' },
+        { id: 3, workout: 2, value: 15, reps: 7, scaled: true, date: '2026-10-14' },
+      ],
+    },
+  };
+  const tables = exportTables(data, '2026-10-11', '2026-10-14', bests);
+  const get = (n) => tables.find(([name]) => name === n);
+  assert.deepEqual(get('lifts')[2], [{ date: '2026-10-12', lift: 'Snatch', kg: 62.5, reps: 1, personal_best: true, note: 'finally' }]);
+  assert.deepEqual(get('benchmark_results')[2], [
+    { date: '2026-10-13', workout: 'Fran', scoring: 'time', value: 290, reps_after_rounds: null, scaled: null, capped: null, personal_best: true, fitbit_workout: null, note: null },
+    { date: '2026-10-14', workout: 'Cindy', scoring: 'rounds', value: 15, reps_after_rounds: 7, scaled: true, capped: null, personal_best: null, fitbit_workout: null, note: null },
+  ]);
+  assert.equal(get('benchmark_workouts')[2].length, 2);
+  // Without them (as before), no such tables.
+  assert.ok(!exportTables(data, '2026-10-11', '2026-10-14').some(([n]) => n === 'lifts'));
+  assert.ok(exportFiles(data, '2026-10-11', '2026-10-14', 'csv', new Date(), bests).some(([p]) => p.endsWith('/benchmark_results.csv')));
+});
+
+test('goal changes, weekly reviews, workout notes and the weight trend', () => {
+  const more = {
+    ...data,
+    days: [{ date: '2026-10-08', weight: 80 }, { date: '2026-10-11', weight: 79 }, ...data.days],
+    goal_changes: [{ date: '2026-10-01', goal: 'energy', from: 2100, to: 2000 }, { date: '2026-10-12', goal: 'weight', from: 80, to: 78 }],
+    reviews: [{ week: '2026-10-12', text: 'Good week', text_de: 'Gute Woche', model: 'claude-opus-5-5', created_at: '2026-10-19T06:00:00Z' }, { week: '2026-09-28', text: 'old' }],
+  };
+  const notes = new Map([['w1', { workout_id: 'w1', markdown: '**Fran** 5:40', updated_by: 'anna', updated_at: '2026-10-12T19:00:00Z' }], ['w9', { workout_id: 'w9', markdown: 'elsewhere' }]]);
+  const tables = exportTables(more, '2026-10-11', '2026-10-14', { notes });
+  const get = (n) => tables.find(([name]) => name === n)?.[2];
+  assert.deepEqual(get('goal_changes'), [{ date: '2026-10-12', goal: 'weight', before: 80, after: 78 }]);
+  assert.deepEqual(get('weekly_reviews').map((r) => [r.week_start, r.week_end, r.text_de]), [['2026-10-12', '2026-10-18', 'Gute Woche']]);
+  assert.deepEqual(get('workout_notes'), [{ date: '2026-10-12', workout_id: 'w1', workout_type: 'BIKING', markdown: '**Fran** 5:40', written_by: 'anna', updated_at: '2026-10-12T19:00:00Z' }]);
+  // The 7-day average of the weigh-ins up to each day.
+  assert.deepEqual(get('days').map((d) => d.weight_trend_kg), [79.5, 79.5, 79.5, 79.5]);
+  // Without notes given, no notes table; the others are always there.
+  const plain = exportTables(more, '2026-10-11', '2026-10-14').map(([n]) => n);
+  assert.ok(!plain.includes('workout_notes') && plain.includes('goal_changes') && plain.includes('weekly_reviews'));
+});

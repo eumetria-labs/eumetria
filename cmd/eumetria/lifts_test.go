@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"eumetria/internal/auth"
 	"eumetria/internal/lifts"
+	"eumetria/site"
 )
 
 // A role that may write lifts.
@@ -94,5 +97,26 @@ func TestLiftsFollowTheScopes(t *testing.T) {
 		if !seen[want] {
 			t.Errorf("no %s in the audit log", want)
 		}
+	}
+}
+
+// With -demo an admin without a second factor may write lifts, as the demo
+// account has none; admin rights still need one.
+func TestDemoWritesLiftsWithoutSecondFactor(t *testing.T) {
+	e := newTestEnv(t, true)
+	e.srv.Close()
+	e.runner.cfg.demo = true
+	dir := t.TempDir()
+	e.srv = httptest.NewTLSServer(newHandler(e.runner, site.Files, e.data, dir, dir, dir, e.store))
+	t.Cleanup(e.srv.Close)
+	newbie := e.signIn(t, "newbie", adminPassword+"!", false)
+	if res, body := e.do(t, newbie, "POST", "/api/lifts", `{"lift":"Snatch","kg":60,"date":"2026-10-20"}`, sameSite); res.StatusCode != 201 {
+		t.Errorf("demo lift = %d %s", res.StatusCode, body)
+	}
+	if res, body := e.do(t, newbie, "GET", "/api/me", ""); !strings.Contains(body, `"demo":true`) {
+		t.Errorf("me = %d %s", res.StatusCode, body)
+	}
+	if res, body := e.do(t, newbie, "GET", "/api/admin/users", ""); res.StatusCode != 403 || !strings.Contains(body, "second_factor_required") {
+		t.Errorf("admin without a factor = %d %s", res.StatusCode, body)
 	}
 }

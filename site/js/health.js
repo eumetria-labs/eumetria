@@ -1,7 +1,7 @@
 // Google Health (Fitbit) helpers: workout names, heart rate zones, sleep
 // stages. No DOM access, so Node can test this file.
 
-import { actIcon, actLabel, addDays, fmtDistance, fmtDuration, iso, nf1, parse } from './format.js';
+import { actIcon, actLabel, addDays, fmtDistance, fmtDuration, iso, mean, nf1, parse } from './format.js';
 import { t } from './i18n.js';
 
 // Zones from easiest to hardest, as the Fitbit app names them.
@@ -242,6 +242,181 @@ export function liftBoard(entries, today, days = 30) {
     };
   });
   return rows.sort((a, b) => b.best.date.localeCompare(a.best.date) || a.lift.localeCompare(b.lift));
+}
+
+// The results that raised a lift's best: heavier than every earlier result
+// of the same lift and rep count. A lift's first result is no comparison.
+export function bestEntries(entries) {
+  const best = new Map(), out = [];
+  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  for (const e of sorted) {
+    const key = e.lift.toLowerCase() + '|' + e.reps;
+    const prev = best.get(key);
+    if (prev != null && e.kg > prev) out.push(e);
+    if (prev == null || e.kg > prev) best.set(key, e.kg);
+  }
+  return out;
+}
+
+// The days of those results.
+export const bestDays = (entries) => bestEntries(entries).map((e) => e.date);
+
+// The morning Readiness on the days with a new best (dates) against every
+// morning from the first of them to the last: whether bests come on ready
+// days. Null with fewer than three such mornings, which says nothing yet.
+export function bestsReadiness(dates, byDate) {
+  const ready = (date) => byDate.get(date)?.scores?.readiness?.value ?? null;
+  dates = [...new Set(dates)].filter((d) => ready(d) != null).sort();
+  if (dates.length < 3) return null;
+  const span = [...byDate.keys()].filter((d) => d >= dates[0] && d <= dates.at(-1)).map(ready).filter((v) => v != null);
+  return { n: dates.length, avg: Math.round(mean(dates.map(ready))), usual: Math.round(mean(span)) };
+}
+
+/* ---------- benchmark workouts ---------- */
+
+// Famous benchmark workouts to start from: picking one by name fills in how
+// it is scored and the workout (weights for men / women).
+export const WOD_PRESETS = [
+  { name: 'Fran', scoring: 'time', description: '21-15-9\nThrusters 43/29 kg\nPull-ups' },
+  { name: 'Grace', scoring: 'time', description: '30 Clean & Jerks for time\n61/43 kg' },
+  { name: 'Isabel', scoring: 'time', description: '30 Snatches for time\n61/43 kg' },
+  { name: 'Diane', scoring: 'time', description: '21-15-9\nDeadlifts 102/70 kg\nHandstand Push-ups' },
+  { name: 'Elizabeth', scoring: 'time', description: '21-15-9\nCleans 61/43 kg\nRing Dips' },
+  { name: 'Helen', scoring: 'time', description: '3 rounds for time\n400 m Run\n21 Kettlebell Swings 24/16 kg\n12 Pull-ups' },
+  { name: 'Karen', scoring: 'time', description: '150 Wall Balls for time\n9/6 kg' },
+  { name: 'Annie', scoring: 'time', description: '50-40-30-20-10\nDouble-Unders\nSit-ups' },
+  { name: 'Jackie', scoring: 'time', description: '1000 m Row\n50 Thrusters 20/15 kg\n30 Pull-ups' },
+  { name: 'Murph', scoring: 'time', description: '1 Mile Run\n100 Pull-ups\n200 Push-ups\n300 Air Squats\n1 Mile Run\nWith a 9/6 kg vest' },
+  { name: 'Cindy', scoring: 'rounds', description: '20 min AMRAP\n5 Pull-ups\n10 Push-ups\n15 Air Squats' },
+  { name: 'Mary', scoring: 'rounds', description: '20 min AMRAP\n5 Handstand Push-ups\n10 Pistols\n15 Pull-ups' },
+  { name: 'Fight Gone Bad', scoring: 'reps', description: '3 rounds, 1 min per station, 1 min rest\nWall Balls 9/6 kg\nSumo Deadlift High Pulls 34/25 kg\nBox Jumps 50 cm\nPush Presses 34/25 kg\nRow (calories)' },
+];
+
+// Whether result a beats b: less time, more rounds (then reps), more reps
+// or more weight. A finished time beats every capped result (not done in
+// the time cap); capped ones count their reps.
+export function betterResult(scoring, a, b) {
+  if (scoring === 'time') {
+    if (!!a.capped !== !!b.capped) return !a.capped;
+    return a.capped ? a.value > b.value : a.value < b.value;
+  }
+  if (scoring === 'rounds') return a.value > b.value || (a.value === b.value && (a.reps || 0) > (b.reps || 0));
+  return a.value > b.value;
+}
+
+const byDateId = (a, b) => a.date.localeCompare(b.date) || a.id - b.id;
+
+// One row per workout, and one more for its scaled results, which have their
+// own best: the best with the one it beat (prev) and every result. A workout
+// without results gets an empty row. Rows with a best come first, the
+// newest best first.
+export function wodBoard(workouts, results, today, days = 30) {
+  const since = today ? iso(addDays(parse(today), -days)) : '';
+  const rows = [];
+  for (const w of workouts) {
+    const mine = results.filter((r) => r.workout === w.id).sort(byDateId);
+    const groups = [false, true].map((scaled) => [scaled, mine.filter((r) => !!r.scaled === scaled)]).filter(([, list]) => list.length);
+    if (!groups.length) rows.push({ key: `${w.id}|rx`, workout: w, scaled: false, best: null, prev: null, entries: [], recent: false });
+    for (const [scaled, list] of groups) {
+      let best = null, prev = null;
+      for (const r of list) if (!best || betterResult(w.scoring, r, best)) { prev = best; best = r; }
+      rows.push({ key: `${w.id}|${scaled ? 'scaled' : 'rx'}`, workout: w, scaled, best, prev, entries: list, recent: !!since && best.date > since });
+    }
+  }
+  return rows.sort((a, b) => (!a.best - !b.best) || (b.best && b.best.date.localeCompare(a.best.date)) || a.workout.name.localeCompare(b.workout.name) || a.scaled - b.scaled);
+}
+
+// The results that made a workout's best better, Rx and scaled apart; a
+// first result is no comparison.
+export function wodBestResults(workouts, results) {
+  const out = [];
+  for (const row of wodBoard(workouts, results)) {
+    let best = null;
+    for (const r of row.entries) {
+      if (best && betterResult(row.workout.scoring, r, best)) out.push(r);
+      if (!best || betterResult(row.workout.scoring, r, best)) best = r;
+    }
+  }
+  return out.sort(byDateId);
+}
+
+// The days of those results.
+export const wodBestDays = (workouts, results) => wodBestResults(workouts, results).map((r) => r.date);
+
+/* ---------- the training calendar ---------- */
+
+// Workouts that are everyday movement rather than training.
+const EVERYDAY = new Set(['Walking']);
+
+// Each day trained: the minutes of its Fitbit workouts (walks aside), how
+// many, whether a result was noted (a lift or benchmark workout counts as
+// training without a recording) and whether a best got better (bestDates).
+export function trainingDays(days, notedDates = [], bestDates = []) {
+  const out = new Map();
+  const at = (date) => {
+    if (!out.has(date)) out.set(date, { min: 0, sessions: 0, noted: false, pb: false });
+    return out.get(date);
+  };
+  for (const d of days) {
+    for (const w of d.workouts || []) {
+      if (EVERYDAY.has(workoutName(w.type))) continue;
+      const x = at(d.date);
+      x.sessions++;
+      x.min += (w.dur || 0) / 60;
+    }
+  }
+  for (const date of notedDates) at(date).noted = true;
+  for (const date of bestDates) at(date).pb = true;
+  return out;
+}
+
+// The days trained from..to (inclusive), per week on average, and the
+// longest run of weeks (Monday to Sunday) with at least one.
+export function trainingSummary(trained, from, to) {
+  const dates = [...trained.keys()].filter((d) => d >= from && d <= to);
+  const weeks = (parse(to) - parse(from)) / 864e5 / 7 + 1 / 7;
+  const monday = (d) => iso(addDays(parse(d), -((parse(d).getUTCDay() + 6) % 7)));
+  const active = new Set(dates.map(monday));
+  let run = 0, longest = 0;
+  for (let m = parse(monday(from)); m <= parse(to); m = addDays(m, 7)) {
+    run = active.has(iso(m)) ? run + 1 : 0;
+    longest = Math.max(longest, run);
+  }
+  return { days: dates.length, perWeek: weeks > 0 ? dates.length / weeks : 0, pbs: dates.filter((d) => trained.get(d).pb).length, longestWeeks: longest };
+}
+
+// "4:12" or "1:02:05" from seconds.
+export function fmtClock(sec) {
+  const s = Math.round(sec), two = (n) => String(n).padStart(2, '0');
+  return s >= 3600 ? `${Math.floor(s / 3600)}:${two(Math.floor(s / 60) % 60)}:${two(s % 60)}` : `${Math.floor(s / 60)}:${two(s % 60)}`;
+}
+
+// Seconds from "4:12", "1:02:05" or whole minutes ("12"); null for
+// anything else.
+export function parseClock(text) {
+  const parts = String(text).trim().split(':');
+  if (parts.length > 3 || parts.some((p) => !/^\d{1,3}$/.test(p))) return null;
+  const n = parts.map(Number);
+  if (n.length === 1) return n[0] * 60; // "12" is minutes
+  if (n.at(-1) > 59 || parts.at(-1).length !== 2 || (n.length === 3 && (n[1] > 59 || parts[1].length !== 2))) return null;
+  return n.length === 2 ? n[0] * 60 + n[1] : (n[0] * 60 + n[1]) * 60 + n[2];
+}
+
+// The plates of a usual box: bumpers and change plates, in kg.
+export const PLATES = [25, 20, 15, 10, 5, 2.5, 2, 1.5, 1.25, 1, 0.5];
+
+// The plates for one side of the bar to load total kg, the heaviest first,
+// with what that loads (the rest can't be made with these plates).
+export function platesFor(total, bar = 20, plates = PLATES) {
+  let side = Math.max(0, (total - bar) / 2);
+  const out = [];
+  for (const p of plates) {
+    while (side >= p - 1e-9) {
+      out.push(p);
+      side -= p;
+    }
+  }
+  return { side: out, loaded: Math.max(bar, bar + 2 * out.reduce((a, b) => a + b, 0)) };
 }
 
 // The weights at 50 to 95 % of a one-rep max, for the day's sets.

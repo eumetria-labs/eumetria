@@ -7,7 +7,7 @@ import { state } from './state.js';
 import { openDialog } from './dialog.js';
 import { openLightbox } from './lightbox.js';
 import { foodName, openFood } from './history.js';
-import { recipeShareButton } from './cards.js';
+import { recipeShareTools } from './cards.js';
 import { t, tn } from './i18n.js';
 
 let win = null;
@@ -34,7 +34,7 @@ export function openRecipe(day, f, returnFocus) {
   // Every day this recipe was eaten, in the food history window on top.
   const history = h('button', { class: 'pill-btn rc-history', type: 'button', title: t('{name}: every time you logged it', { name: f.n }) }, t('History'));
   history.onclick = () => openFood(f.n, history);
-  head.append(titles, history, recipeShareButton(day, f), close);
+  head.append(titles, history, ...recipeShareTools(day, f), close);
 
   const body = h('div', { class: 'wo-body' });
   // The recipe was edited after this day and the version eaten is unknown:

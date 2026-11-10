@@ -1,12 +1,22 @@
-// The Calories card: intake against the goal over time, the split by meal
-// and the average per weekday.
+// The Calories card, in three tabs so the page stays short: intake against
+// the goal over time with the split by meal and the average per weekday,
+// the calendar of every day against its goal (charts.js, heatmap) and the
+// macronutrients (macros.js).
 
 import { MEALS, avgOf, fmt, logged, mean, signed } from './format.js';
-import { $, h, svg, meter } from './dom.js';
-import { state } from './state.js';
+import { $, h, svg, meter, panelTabs } from './dom.js';
+import { state, store } from './state.js';
 import { bucketTitle, drawBars, drawGoalMarks, fadeArea, goalMarks, goalTipRows, linePath, smoothPath, stepPath, timeChart, valuePill } from './charts.js';
 import { trailingMean, weekdayAverages } from './insights.js';
 import { t, tn } from './i18n.js';
+
+export function renderEnergyTabs() {
+  panelTabs($('#energy-tabs'), [
+    ['chart', t('Calories'), '📈'],
+    ['calendar', t('Calendar'), '📅'],
+    ['macros', t('Macros'), '🥗'],
+  ], store.get('energyTab'), (key) => store.set('energyTab', key));
+}
 
 export function renderEnergy(s) {
   const { buckets, weekly, complete } = s;

@@ -407,7 +407,12 @@ main.dim { opacity: .6; }
 .key.s3 { background: var(--s3); }
 .key.ink { background: var(--ink); }
 .key.s1-soft { background: color-mix(in oklab, var(--s1) 60%, var(--surface)); }
-.macro-legend { margin: -6px 0 10px; }
+.macro-legend { margin: 0; }
+.panel-sub { margin: 0 0 10px; font-size: 13px; }
+#energy-macros .mini-head { margin-bottom: 6px; }
+#energy-macros .mini-head .panel-sub { margin: 0; }
+.energy-legend { margin: 0 0 10px; }
+.heatmap rect.before { fill: var(--grid); opacity: .35; }
 
 .chart { position: relative; height: 240px; }
 .chart.tall { height: 280px; }
@@ -478,6 +483,14 @@ main.dim { opacity: .6; }
 .heatmap rect.none { fill: none; stroke: var(--grid); stroke-width: 1; }
 .heatmap rect.cell.logged { cursor: pointer; }
 .heatmap rect.cell:hover, .heatmap rect.cell.active { stroke: var(--ink); stroke-width: 1.5; }
+.train-cal rect.cal-cell { cursor: pointer; }
+.train-cal rect.t1, .cal-key.t1 { fill: color-mix(in oklab, var(--s3) 35%, var(--surface-2)); background: color-mix(in oklab, var(--s3) 35%, var(--surface-2)); }
+.train-cal rect.t2, .cal-key.t2 { fill: color-mix(in oklab, var(--s3) 65%, var(--surface-2)); background: color-mix(in oklab, var(--s3) 65%, var(--surface-2)); }
+.train-cal rect.t3, .cal-key.t3 { fill: var(--s3); background: var(--s3); }
+.train-cal .cal-pb { fill: var(--surface); stroke: var(--ink); stroke-width: 1; pointer-events: all; cursor: pointer; }
+.cal-key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.cal-key.pb { border-radius: 50%; background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.cal-summary { margin: 10px 0 0; font-size: 13px; }
 .scale { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; font-size: 12px; color: var(--muted); margin-top: 12px; }
 .scale span { margin: 0 4px; }
 .scale i { width: 12px; height: 12px; border-radius: 3px; }
@@ -801,7 +814,7 @@ main.loading .tiles .tile { box-shadow: none; }
 @media (max-width: 640px) {
   #training-bests .day-item.workout-row { grid-template-columns: minmax(min-content, 1fr) auto 14px; }
 }
-.training-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px 28px; margin-top: 20px; }
+.training-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 12px 28px; margin-top: 20px; }
 .training-map { height: 320px; margin-top: 6px; }
 .training-trends .trend-note { margin: 6px 0 0; font-size: 12px; }
 /* Cards in tabs (Training, Sleep & Recovery; panelTabs in dom.js): one panel at a time. */
@@ -812,21 +825,70 @@ main.loading .tiles .tile { box-shadow: none; }
 #training-routes .mini-head { margin-top: 4px; }
 
 /* Personal bests in lifts (lifts.js) */
-#lifts-part .mini-head { align-items: center; }
-#lifts-part .mini-head .pill-btn { padding: 4px 12px; font-size: 12.5px; }
+#lifts-part .mini-head, #wods-part .mini-head { align-items: center; }
+#lifts-part .mini-head .pill-btn, #wods-part .mini-head .pill-btn { padding: 4px 12px; font-size: 12.5px; }
+#wods-part[hidden], #lifts-part[hidden] { display: none; }
+#bests-ready { grid-column: 1 / -1; margin-top: 0; }
+.wod-desc { margin: 0; white-space: pre-line; line-height: 1.5; }
+.lift-check { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; font-size: 13px; }
+.lift-check .hint { grid-column: 2; font-size: 12px; }
+.lift-field[hidden] { display: none; }
+.wod-pick { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.wod-pick .field { flex: 1; min-width: 0; }
+.wod-hint { margin: 8px 0 0; font-size: 13px; }
+.wod-link { margin-left: 6px; padding: 0 4px; border: 0; border-radius: 6px; background: var(--surface-2); cursor: pointer; font: inherit; line-height: 20px; }
+.wod-link:hover { background: var(--wash); }
+.wo-wods .link-btn { padding: 0; border: 0; background: none; font: inherit; color: var(--ink); cursor: pointer; text-decoration: underline; text-decoration-color: var(--grid); text-underline-offset: 3px; }
+.wod-tag { white-space: nowrap; }
+.lift-form textarea.field { height: auto; min-height: 7.5em; padding-top: 8px; padding-bottom: 8px; resize: vertical; font: inherit; line-height: 1.45; border-radius: 14px; }
 .lift-row .name { align-items: center; }
 .lift-rm { flex: none; margin-left: 6px; color: var(--ink-2); font-size: 12px; font-weight: 550; font-variant-numeric: tabular-nums; }
 .lift-new {
   flex: none; margin-left: 6px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 700; line-height: 16px; letter-spacing: .03em;
   color: var(--s3); background: color-mix(in oklab, var(--s3) 14%, transparent);
 }
-#lifts .day-item.workout-row { grid-template-columns: minmax(min-content, 1fr) auto 80px 14px; }
+#lifts .day-item.workout-row, #wods .day-item.workout-row { grid-template-columns: minmax(min-content, 1fr) auto 80px 14px; }
+#wods .day-item.workout-row { grid-template-columns: minmax(min-content, 1fr) auto minmax(80px, auto) 14px; }
 @media (max-width: 640px) {
-  #lifts .day-item.workout-row { grid-template-columns: minmax(min-content, 1fr) auto 14px; }
+  #lifts .day-item.workout-row, #wods .day-item.workout-row { grid-template-columns: minmax(min-content, 1fr) auto 14px; }
 }
 .lift-emoji { margin-right: 8px; }
+.prog-chart { height: 150px; }
+.prog-chart svg { display: block; width: 100%; height: 100%; }
+.prog-line { fill: none; stroke: var(--s3); stroke-width: 2; stroke-linejoin: round; }
+.prog-line.scaled { stroke: var(--muted); stroke-dasharray: 4 3; }
+.prog-dot { fill: var(--surface); stroke: var(--s3); stroke-width: 2; }
+.prog-dot.pb { fill: var(--s3); }
+.prog-dot.scaled { stroke: var(--muted); }
+.prog-dot.scaled.pb { fill: var(--muted); }
+.prog-legend { display: flex; gap: 14px; margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--ink-2); }
+.prog-legend .key { display: inline-block; width: 14px; margin-right: 6px; vertical-align: middle; border-top: 2px solid var(--s3); }
+.prog-legend .key.scaled { border-top: 2px dashed var(--muted); }
+.prog-legend .key.pb { width: 8px; height: 8px; border: 0; border-radius: 50%; background: var(--s3); }
+/* The plate calculator: one side of the bar, in the competition colours. */
+.plate-controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.plate-weight { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.plate-weight .field { width: 96px; }
+.plate-bars button[aria-checked="true"] { background: var(--ink); color: var(--surface); }
+.plate-out { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 12px; min-height: 56px; }
+.plate-pic { display: flex; align-items: center; height: 56px; gap: 2px; }
+.plate-sleeve { width: 18px; height: 8px; border-radius: 2px 0 0 2px; background: var(--muted); margin-right: 2px; }
+.plate { width: 10px; height: var(--h); border-radius: 3px; background: var(--plate, #8a8a8a); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .18); }
+.plate[data-kg="25"], .plate[data-kg="2.5"] { --plate: #d63a2f; }
+.plate[data-kg="20"], .plate[data-kg="2"] { --plate: #2f6fd6; }
+.plate[data-kg="15"], .plate[data-kg="1.5"] { --plate: #e8b923; }
+.plate[data-kg="10"], .plate[data-kg="1"] { --plate: #2e9e5b; }
+.plate[data-kg="5"], .plate[data-kg="0.5"] { --plate: #f2f2f0; }
+.plate[data-kg="1.25"] { --plate: #b9bcc2; }
+.plate[data-kg="25"], .plate[data-kg="20"], .plate[data-kg="15"], .plate[data-kg="10"] { width: 14px; }
+.plate-words { margin: 0; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.plate-words .muted { font-weight: 400; font-size: 13px; }
+.lifts-ready { display: flex; gap: 8px; align-items: baseline; margin: 10px 0 0; font-size: 13px; }
+.lifts-ready[hidden] { display: none; }
 .lift-pct { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
 .lift-pct-cell { display: flex; flex-direction: column; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+button.lift-pct-cell { font: inherit; color: inherit; text-align: left; border: 0; cursor: pointer; }
+button.lift-pct-cell:hover { background: var(--wash); }
 .lift-pct-cell .k { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .lift-pct-cell .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .day-item.lift-entry { grid-template-columns: minmax(0, 1fr) auto 80px 28px; align-items: center; }
@@ -1274,6 +1336,9 @@ a.q-badges:focus-visible { outline: none; }
 .rp-bar.s3-soft { fill: color-mix(in oklab, var(--s3) 40%, #fff); }
 .rp-bar.st-deep { fill: var(--st-deep); } .rp-bar.st-rem { fill: var(--st-rem); } .rp-bar.st-light { fill: var(--st-light); }
 .rp-goal { fill: none; stroke: var(--ink); stroke-width: 1.4; }
+.rp-line { fill: none; stroke-width: 1.8; stroke-linejoin: round; }
+.rp-line.s1 { stroke: var(--s1); } .rp-line.s2 { stroke: var(--s2); } .rp-line.s3 { stroke: var(--s3); }
+.rp-kpis-in { margin-bottom: 10px; }
 .rp-dot { fill: color-mix(in oklab, var(--s1) 55%, #fff); }
 .rp .goal-label { font-size: 9.5px; }
 
@@ -1322,7 +1387,7 @@ a.q-badges:focus-visible { outline: none; }
 
 /* ---------- save a card's charts as an image (js/snapshot.js) ---------- */
 
-.card-head .has-snap { display: grid; grid-template-columns: auto auto auto; justify-content: start; align-items: center; column-gap: 6px; }
+.card-head .has-snap { display: grid; grid-template-columns: auto auto auto 1fr; justify-content: start; align-items: center; column-gap: 6px; }
 .card-head .has-snap > :not(h2, .snap-btn) { grid-column: 1 / -1; }
 .snap-btn {
   display: grid; place-items: center; width: 26px; height: 26px; border-radius: 999px; border: 0; padding: 0;
@@ -1331,6 +1396,7 @@ a.q-badges:focus-visible { outline: none; }
 .card:hover .snap-btn, .snap-btn:focus-visible { opacity: 1; }
 .snap-btn:hover { background: var(--wash); color: var(--ink); }
 .snap-btn:disabled { cursor: progress; }
+.snap-btn[hidden] { display: none; }
 /* No hover on touch screens: always there, quietly. */
 @media (hover: none) { .snap-btn { opacity: .7; } }
 @media print { .snap-btn { display: none; } }
@@ -1390,11 +1456,11 @@ a.q-badges:focus-visible { outline: none; }
 .share-actions .pill-btn:disabled { opacity: .5; cursor: progress; }
 .share-main { background: var(--s1); color: #fff; }
 .share-main:hover { background: color-mix(in oklab, var(--s1) 88%, #000); }
-.sheet-head .share-btn svg { display: block; }
+.sheet-head .share-btn svg, .sheet-head .save-btn svg { display: block; }
 @media (max-width: 640px) {
   .share-preview { height: min(46vh, 520px); }
 }
-@media print { .share-btn { display: none; } }
+@media print { .share-btn, .save-btn { display: none; } }
 
 /* ---------- security settings (js/security.js) ---------- */
 

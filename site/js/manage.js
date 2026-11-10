@@ -25,7 +25,7 @@ const SCOPES = {
   'view.notes': () => [t('Read notes'), t('Workout notes')],
   'view.review': () => [t('Weekly review'), t('The review written by Claude')],
   'edit.notes': () => [t('Write notes'), t('Add, change and delete workout notes')],
-  'edit.lifts': () => [t('Write lifts'), t('Add, change and delete personal bests in lifts (needs Fitbit)')],
+  'edit.lifts': () => [t('Write personal bests'), t('Add, change and delete lifts and benchmark workouts (needs Fitbit)')],
   sync: () => [t('Sync'), t('Sync now and refresh everything; needs a second factor')],
   admin: () => [t('Admin'), t('Everything, including users, roles and the audit log; needs a second factor')],
 };
@@ -62,6 +62,8 @@ const ACTIONS = {
   note_added: () => t('added a note'), note_changed: () => t('changed a note'), note_deleted: () => t('deleted a note'),
   note_image_added: () => t('added an image to a note'),
   lift_added: () => t('added a lift result'), lift_changed: () => t('changed a lift result'), lift_deleted: () => t('deleted a lift result'),
+  wod_added: () => t('added a benchmark workout'), wod_changed: () => t('changed a benchmark workout'), wod_deleted: () => t('deleted a benchmark workout'),
+  wod_result_added: () => t('added a workout result'), wod_result_changed: () => t('changed a workout result'), wod_result_deleted: () => t('deleted a workout result'),
   profile_changed: () => t('changed their profile'), picture_changed: () => t('changed their picture'),
   picture_removed: () => t('removed their picture'), token_deleted: () => t('revoked an API token'),
   backup_started: () => t('started a backup'), settings_changed: () => t('changed settings'), reviews_rewritten: () => t('had the reviews written again'),

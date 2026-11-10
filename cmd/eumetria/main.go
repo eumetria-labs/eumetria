@@ -66,6 +66,7 @@ import (
 	"eumetria/internal/settings"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
+	"eumetria/internal/wods"
 	"eumetria/internal/yazio"
 )
 
@@ -326,6 +327,17 @@ func syncOnce(ctx context.Context, cfg config) error {
 			lifted = demo.Lifts(cfg.now())
 		}
 		if err := store.WriteJSON(filepath.Join(filepath.Dir(cfg.outPath), "lifts.json"), lifted, false); err != nil {
+			return err
+		}
+		// Benchmark workouts likewise, in wods.json.
+		benchmarks := struct {
+			Workouts []wods.Workout `json:"workouts"`
+			Results  []wods.Result  `json:"results"`
+		}{[]wods.Workout{}, []wods.Result{}}
+		if cfg.demo {
+			benchmarks.Workouts, benchmarks.Results = demo.Wods(cfg.now())
+		}
+		if err := store.WriteJSON(filepath.Join(filepath.Dir(cfg.outPath), "wods.json"), benchmarks, false); err != nil {
 			return err
 		}
 	}

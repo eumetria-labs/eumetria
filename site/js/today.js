@@ -9,6 +9,9 @@ import { openDay } from './sheet.js';
 import { highlights, macroGoal } from './insights.js';
 import { t, tn } from './i18n.js';
 import { renderTodayScores } from './scores.js';
+import { liftBoard, wodBoard } from './health.js';
+import { fmtKg, onBestsChange, openLift } from './lifts.js';
+import { fmtResult, openWod } from './wods.js';
 
 export function renderToday() {
   const { data } = state;
@@ -69,13 +72,33 @@ export function renderToday() {
 // A date with its year only when that isn't this year.
 const when = (d) => dfShort.format(parse(d)) + (d.slice(0, 4) !== state.today?.slice(0, 4) ? ` ${d.slice(0, 4)}` : '');
 
-// Records of the last 7 days, as chips that open their day.
-function renderHighlights() {
+// Lifts and benchmark workouts whose best got better in the last 7 days:
+// chips that open them.
+function bestChips() {
+  if (!state.today) return [];
+  const chip = (icon, what, value, open) => {
+    const b = h('button', { class: 'highlight', type: 'button', role: 'listitem', title: t('Show the history') });
+    b.append(emoji(icon), h('span', { class: 'hl-text' }, t('New PB: {what}', { what })), h('b', {}, value));
+    b.onclick = () => open(b);
+    return b;
+  };
+  const lifts = liftBoard(state.lifts, state.today, 7).filter((r) => r.recent && r.prev)
+    .map((r) => [r.best.date, chip('🏋️', r.reps > 1 ? `${r.lift} · ${r.reps} RM` : r.lift, fmtKg(r.best.kg), (b) => openLift(r.key, b))]);
+  const wods = wodBoard(state.wods.workouts, state.wods.results, state.today, 7).filter((r) => r.recent && r.prev)
+    .map((r) => [r.best.date, chip('⏱️', r.scaled ? `${r.workout.name} · ${t('Scaled')}` : r.workout.name, fmtResult(r.workout.scoring, r.best), (b) => openWod(r.workout.id, b))]);
+  return [...lifts, ...wods].sort((a, b) => b[0].localeCompare(a[0])).map(([, c]) => c);
+}
+onBestsChange(() => state.data && renderHighlights());
+
+// Records of the last 7 days, as chips that open their day; new personal
+// bests first.
+export function renderHighlights() {
   const { data, byDate } = state;
   const items = highlights(data.days, byDate, data.goals || {}, state.today);
+  const bests = bestChips();
   const host = $('#today-highlights');
-  host.hidden = !items.length;
-  host.replaceChildren(...items.map((x) => {
+  host.hidden = !items.length && !bests.length;
+  host.replaceChildren(...bests, ...items.map((x) => {
     const [icon, text, value] = x.kind === 'best'
       ? ['🏅', t('New record: {what}', { what: x.label }),
         x.key === 'dur' ? fmtDuration(x.value / 60) : x.key === 'energy' ? `${fmt(x.value)} kcal` : x.key === 'azm' ? `${fmt(x.value)} min` : x.key === 'elev' ? `${fmt(x.value)} m` : fmtDistance(x.value)]

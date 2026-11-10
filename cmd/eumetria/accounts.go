@@ -17,6 +17,7 @@ import (
 	"eumetria/internal/db"
 	sample "eumetria/internal/demo"
 	"eumetria/internal/lifts"
+	"eumetria/internal/wods"
 )
 
 // setupAccounts runs when the server starts. Without any account it serves
@@ -36,6 +37,23 @@ func setupAccounts(ctx context.Context, store *auth.Store, demo bool) error {
 		for _, e := range sample.Lifts(store.Now()) {
 			in := lifts.Input{Lift: e.Lift, Kg: e.Kg, Reps: e.Reps, Date: e.Date, Note: e.Note}
 			if _, err := l.Add(ctx, in, u.ID); err != nil {
+				return err
+			}
+		}
+		// And sample benchmark workouts.
+		ws := &wods.Store{DB: store.DB, Now: store.Now}
+		workouts, results := sample.Wods(store.Now())
+		ids := map[int64]int64{}
+		for _, w := range workouts {
+			added, err := ws.AddWorkout(ctx, wods.WorkoutInput{Name: w.Name, Scoring: w.Scoring, TimeCap: w.TimeCap, Description: w.Description}, u.ID)
+			if err != nil {
+				return err
+			}
+			ids[w.ID] = added.ID
+		}
+		for _, r := range results {
+			in := wods.ResultInput{Value: r.Value, Reps: r.Reps, Scaled: r.Scaled, Capped: r.Capped, FitbitWorkout: r.FitbitWorkout, Date: r.Date, Note: r.Note}
+			if _, err := ws.AddResult(ctx, ids[r.Workout], in, u.ID); err != nil {
 				return err
 			}
 		}

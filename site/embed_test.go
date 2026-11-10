@@ -10,7 +10,7 @@ import (
 
 // generated may be written by eumetria next to the page files (locally,
 // for the smoke test) and are private data.
-var generated = []string{"stats.json", "lifts.json", "photos", "routes", "days"}
+var generated = []string{"stats.json", "lifts.json", "wods.json", "photos", "routes", "days"}
 
 func isGenerated(p string) bool {
 	for _, g := range generated {

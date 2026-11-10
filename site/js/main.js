@@ -10,7 +10,7 @@ import { openWorkoutFromHash } from './workout.js';
 import { openRecipeFromHash } from './recipe.js';
 import { openActivity, openFood } from './history.js';
 import { renderToday, renderTiles } from './today.js';
-import { renderEnergy, renderMeals, renderWeekdays } from './energy.js';
+import { renderEnergy, renderEnergyTabs, renderMeals, renderWeekdays } from './energy.js';
 import { renderInsights, renderWeight } from './weight.js';
 import { renderMacros } from './macros.js';
 import { renderMovement, renderZoneMinutes } from './movement.js';
@@ -24,6 +24,7 @@ import { account, forgetData, initAccount, onUserChange, reason, signedIn } from
 import { openSettings } from './settings.js';
 import { loadNotes } from './notes.js';
 import { loadLifts } from './lifts.js';
+import { loadWods } from './wods.js';
 import { renderTable } from './table.js';
 import { renderFoodQuality } from './foodquality.js';
 import { renderReview } from './weekly.js';
@@ -100,12 +101,14 @@ async function load() {
     const recent = await res.json();
     // The site's language, until this visitor picked one.
     if (recent.language && recent.language !== LANG && !store.get('lang')) return setLang(recent.language);
-    // Notes and lifts change between syncs: notes show when a window opens,
-    // lifts are drawn again here when nothing else changed.
-    await Promise.all([loadNotes(recent), loadLifts(recent)]);
+    // Notes, lifts and benchmark workouts change between syncs: notes show
+    // when a window opens, the bests are drawn again here when nothing else
+    // changed.
+    await Promise.all([loadNotes(recent), loadLifts(recent), loadWods(recent)]);
     if (state.data && recent.generated_at === state.data.generated_at) {
       if (state.data.days.length) {
         refreshLifts(slice());
+        renderHighlights();
         syncSections();
       }
       return;
@@ -352,6 +355,7 @@ function render() {
   renderToday();
   renderReview();
   renderTiles(s);
+  renderEnergyTabs();
   renderEnergy(s);
   renderMeals(s);
   renderWeekdays(s);
@@ -405,7 +409,7 @@ function renderUpdated() {
 // Cards of data the user's role doesn't include stay hidden: the server
 // sent none of it, so they would only show zeros.
 const SCOPED = [
-  ['view.nutrition', ['#energy-card', '#heatmap-card', '#macros-card', '#weight-card']],
+  ['view.nutrition', ['#energy-card', '#weight-card']],
   ['view.foods', ['#foods-card', '#sources-card', '#quality-card']],
   ['view.activity', ['#top-activities-card']],
 ];
@@ -415,7 +419,7 @@ function hideOutOfScope() {
 
 // The half-width cards come in pairs of similar height; a card whose
 // partner is hidden takes the full row.
-const PAIRS = [['#macros-card', '#weight-card'], ['#foods-card', '#top-activities-card']];
+const PAIRS = [['#foods-card', '#top-activities-card']];
 function layoutCards() {
   for (const [a, b] of PAIRS.map((p) => p.map((id) => $(id)))) {
     a.classList.toggle('span-2', b.hidden);

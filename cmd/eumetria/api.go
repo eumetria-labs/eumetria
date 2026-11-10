@@ -25,6 +25,7 @@ import (
 	"eumetria/internal/imgmeta"
 	"eumetria/internal/lifts"
 	"eumetria/internal/notes"
+	"eumetria/internal/wods"
 )
 
 // Every route of the server and who may use it. routes() is the only place
@@ -53,6 +54,13 @@ import (
 //	POST   /api/lifts         {lift, kg, reps, date, note}: a new entry            edit.lifts
 //	PUT    /api/lifts/{id}    the same: changes one                                edit.lifts
 //	DELETE /api/lifts/{id}    deletes one                                          edit.lifts
+//	GET    /api/wods          benchmark workouts and results, wods.go             signed in, view.health
+//	POST   /api/wods          {name, scoring, description}: a new workout         edit.lifts
+//	PUT    /api/wods/{id}     the same: changes one                                edit.lifts
+//	DELETE /api/wods/{id}     deletes one with its results                         edit.lifts
+//	POST   /api/wods/{id}/results  {value, reps, scaled, date, note}: a result    edit.lifts
+//	PUT    /api/wod-results/{id}   the same: changes one                           edit.lifts
+//	DELETE /api/wod-results/{id}   deletes one                                     edit.lifts
 //	GET    /avatars/{id}      a user's picture                                     signed in
 //	GET    /api/me            who is signed in, with their scopes                  signed in
 //	POST   /api/logout        ends this session                                    session
@@ -115,7 +123,7 @@ const (
 	adminOnly                    // a session with the admin scope
 	syncAccess                   // a session with the sync scope, or a token with "sync"
 	noteWriter                   // a session with the edit.notes scope
-	liftWriter                   // a session with the edit.lifts scope
+	liftWriter                   // a session with the edit.lifts scope (lifts and benchmark workouts)
 )
 
 type route struct {
@@ -167,6 +175,7 @@ type app struct {
 	store    *auth.Store
 	notes    *notes.Store
 	lifts    *lifts.Store
+	wods     *wods.Store
 	data     *published
 	photoDir string
 	// Images in notes (internal/notes, images.go).
@@ -183,14 +192,20 @@ type app struct {
 	pending      pendingStore // sign-in tickets and WebAuthn ceremonies
 	// One WebAuthn configuration per origin the site is reached at.
 	relyingParties sync.Map
+	// -demo: notes and lifts may be written without a second factor, so
+	// the demo account (demo / demo, guarding nothing) can try them.
+	// Admin and sync rights still need one.
+	demo bool
 }
 
 func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, avatars string, store *auth.Store) http.Handler {
 	a := &app{
 		runner:     r,
+		demo:       r != nil && r.cfg.demo,
 		store:      store,
 		notes:      &notes.Store{DB: store.DB, Now: store.Now},
 		lifts:      &lifts.Store{DB: store.DB, Now: store.Now},
+		wods:       &wods.Store{DB: store.DB, Now: store.Now},
 		data:       data,
 		photoDir:   photoDir,
 		noteImages: noteImages,
@@ -230,6 +245,13 @@ func (a *app) routes() []route {
 		{"POST", "/api/lifts", liftWriter, a.liftPost},
 		{"PUT", "/api/lifts/{id}", liftWriter, a.liftPut},
 		{"DELETE", "/api/lifts/{id}", liftWriter, a.liftDelete},
+		{"GET", "/api/wods", signedIn, scoped(auth.ViewHealth, a.wodsList)},
+		{"POST", "/api/wods", liftWriter, a.wodPost},
+		{"PUT", "/api/wods/{id}", liftWriter, a.wodPut},
+		{"DELETE", "/api/wods/{id}", liftWriter, a.wodDelete},
+		{"POST", "/api/wods/{id}/results", liftWriter, a.wodResultPost},
+		{"PUT", "/api/wod-results/{id}", liftWriter, a.wodResultPut},
+		{"DELETE", "/api/wod-results/{id}", liftWriter, a.wodResultDelete},
 		{"GET", "/avatars/{id}", signedIn, a.avatar},
 		{"GET", "/api/me", signedIn, a.me},
 		{"POST", "/api/logout", ownSession, a.logout},
@@ -310,7 +332,7 @@ func (a *app) guard(rt route) http.Handler {
 			writeError(w, http.StatusUnauthorized, "signin")
 			return
 		}
-		if p.session != nil && p.user.Elevated() && (rt.access == adminOnly || rt.access == syncAccess || rt.access == noteWriter || rt.access == liftWriter) {
+		if p.session != nil && p.user.Elevated() && (rt.access == adminOnly || rt.access == syncAccess || !a.demo && (rt.access == noteWriter || rt.access == liftWriter)) {
 			// Admin and sync rights need the second factor; reading doesn't.
 			f, err := a.store.Factors(req.Context(), p.user)
 			if err != nil || !f.Any() {
@@ -530,6 +552,8 @@ type me struct {
 	// An admin, a role that may sync or a user an admin asked, without a
 	// second factor: the page asks to set one up.
 	NeedsSecondFactor bool `json:"needs_second_factor"`
+	// -demo: notes and lifts can be written without one (app.demo).
+	Demo bool `json:"demo,omitempty"`
 }
 
 func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User) {
@@ -550,7 +574,7 @@ func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User) 
 		}
 	}
 	writeJSON(w, http.StatusOK, me{Name: u.Name, Role: string(u.Role), Avatar: avatar, Scopes: scopes,
-		Sync: u.Can(auth.ScopeSync) && f.Any(), SecondFactor: f.Any(), NeedsSecondFactor: u.NeedsSecondFactor() && !f.Any()})
+		Sync: u.Can(auth.ScopeSync) && f.Any(), SecondFactor: f.Any(), NeedsSecondFactor: u.NeedsSecondFactor() && !f.Any(), Demo: a.demo})
 }
 
 func (a *app) me(w http.ResponseWriter, req *http.Request, p *principal) {

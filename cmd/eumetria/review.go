@@ -9,9 +9,12 @@ import (
 	"sort"
 	"time"
 
+	"eumetria/internal/db"
+	"eumetria/internal/lifts"
 	"eumetria/internal/review"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
+	"eumetria/internal/wods"
 )
 
 type writeFunc = func(context.Context, string, string, review.Week) (*review.Result, error)
@@ -35,6 +38,7 @@ func debugReview(ctx context.Context, cfg config, date string, dryRun bool) erro
 	// Everything the history holds: the review is printed here, not published.
 	out := stats.Build(hist, stats.Options{}.Everything(), now)
 	week := review.BuildWeek(out, review.Monday(day), now.Format(time.DateOnly))
+	loadNoted(ctx, cfg.dbPath).addTo(&week)
 	if len(week.Days) == 0 {
 		return fmt.Errorf("the week of %s hasn't started yet", date)
 	}
@@ -92,6 +96,7 @@ func rewriteReviews(ctx context.Context, cfg config, write writeFunc, progress f
 	today := now.Format(time.DateOnly)
 	out := stats.Build(hist, baseOptions(cfg).Everything(), now)
 	model, effort := cfg.values.Model, cfg.values.Effort
+	noted := loadNoted(ctx, cfg.dbPath)
 	var total float64
 	progress(0, len(weeks))
 	for i, key := range weeks {
@@ -100,7 +105,9 @@ func rewriteReviews(ctx context.Context, cfg config, write writeFunc, progress f
 			return hist, fmt.Errorf("stored review %q: %w", key, err)
 		}
 		log.Printf("asking %s (effort %s) for the week of %s", model, effort, key)
-		r, err := write(ctx, model, effort, review.BuildWeek(out, monday, today))
+		week := review.BuildWeek(out, monday, today)
+		noted.addTo(&week)
+		r, err := write(ctx, model, effort, week)
 		if err != nil {
 			return hist, fmt.Errorf("week of %s: %w (the weeks before it are saved)", key, err)
 		}
@@ -124,4 +131,46 @@ func rewriteReviews(ctx context.Context, cfg config, write writeFunc, progress f
 	}
 	log.Printf("%d reviews rewritten, about $%.3f in total", len(weeks), total)
 	return hist, nil
+}
+
+// noted are the results people entered themselves: lifts and benchmark
+// workouts, for the weekly review.
+type noted struct {
+	lifts    []lifts.Entry
+	workouts []wods.Workout
+	results  []wods.Result
+}
+
+func (n noted) addTo(w *review.Week) {
+	w.AddLifts(n.lifts)
+	w.AddBenchmarks(n.workouts, n.results)
+}
+
+// loadNoted reads them from the database at path. Without a database
+// (plain files, no server) there are none; an error is logged, and the
+// review is written without them.
+func loadNoted(ctx context.Context, path string) (n noted) {
+	if path == "" {
+		return n
+	}
+	if _, err := os.Stat(path); err != nil {
+		return n
+	}
+	d, err := db.Open(ctx, path)
+	if err != nil {
+		log.Printf("weekly review: nothing noted: %v", err)
+		return n
+	}
+	defer d.Close()
+	if n.lifts, err = (&lifts.Store{DB: d, Now: time.Now}).List(ctx); err != nil {
+		log.Printf("weekly review: no lifts: %v", err)
+	}
+	ws := &wods.Store{DB: d, Now: time.Now}
+	if n.workouts, err = ws.Workouts(ctx); err == nil {
+		n.results, err = ws.Results(ctx)
+	}
+	if err != nil {
+		log.Printf("weekly review: no benchmark workouts: %v", err)
+	}
+	return n
 }

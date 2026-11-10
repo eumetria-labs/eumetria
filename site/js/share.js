@@ -463,6 +463,40 @@ export function shareButton(onClick, cls = 'sheet-close') {
   return b;
 }
 
+// The download icon (an arrow onto a line) on a round button.
+export function saveButton(onClick, cls = 'sheet-close') {
+  const b = h('button', { class: cls + ' save-btn', type: 'button', 'aria-label': t('Save as image'), title: t('Save as image') });
+  const icon = svg('svg', { viewBox: '0 0 24 24', width: 17, height: 17, 'aria-hidden': 'true' });
+  icon.append(svg('path', { d: 'M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+  b.append(icon);
+  b.addEventListener('click', () => onClick(b));
+  return b;
+}
+
+// A window's two buttons: save its picture at once (in the format last
+// picked, in the page's style) and open the share window. options() lists
+// what can be shared (as for openShare), current() picks the one to start
+// with.
+export function shareTools(options, current = () => null) {
+  const pick = () => {
+    const os = options();
+    return os.find((o) => o.key === current()) || os[0];
+  };
+  const save = saveButton(async (b) => {
+    b.disabled = true;
+    try {
+      const o = pick();
+      const png = await renderCard(await o.build({ route: false, note: false }), { format: store.get('share-format') || 'post', theme: currentTheme() });
+      download(`eumetria-${o.name}.png`, 'image/png', png);
+    } catch (err) {
+      console.error('saving the image failed', err);
+    } finally {
+      b.disabled = false;
+    }
+  });
+  return [save, shareButton((b) => openShare(options(), current(), b))];
+}
+
 const currentTheme = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 
 // A row of choices, one of them on; returns the row.

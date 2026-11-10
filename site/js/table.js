@@ -142,7 +142,7 @@ function initExport() {
     const r = range();
     if (!r) return;
     const format = $('#export-format').value;
-    download(`eumetria-${r[0]}-to-${r[1]}-${format}.zip`, 'application/zip', zip(exportFiles(state.data, r[0], r[1], format)));
+    download(`eumetria-${r[0]}-to-${r[1]}-${format}.zip`, 'application/zip', zip(exportFiles(state.data, r[0], r[1], format, new Date(), { lifts: state.lifts, wods: state.wods, notes: state.notes })));
   };
   // The report covers the same dates as the export.
   $('#report-print').onclick = () => {

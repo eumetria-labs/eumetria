@@ -6,8 +6,9 @@ import { actLabel, actName, dfLong, fmt, fmtDistance, fmtDuration, parse } from 
 import { ZONES, speedLabel, workoutIcon, workoutName, zoneOf, zoneRuns, zoneShares } from './health.js';
 import { $, h, svg, emoji, showTip, hideTip, setHashParam, textWidth } from './dom.js';
 import { openDialog } from './dialog.js';
-import { workoutShareButton } from './cards.js';
+import { workoutShareTools } from './cards.js';
 import { noteSection } from './notes.js';
+import { wodSection } from './wods.js';
 import { t } from './i18n.js';
 
 let win = null;
@@ -28,10 +29,13 @@ export function openWorkout(day, id, returnFocus) {
   const head = h('div', { class: 'sheet-head wo-head' });
   const titles = h('div', { class: 'wo-titles' });
   titles.append(title, h('p', { class: 'muted' }, sub.join(' · ')));
-  head.append(titles, workoutShareButton(day, w), close);
+  head.append(titles, ...workoutShareTools(day, w), close);
 
   const body = h('div', { class: 'wo-body' });
   body.append(stats(w));
+  // What was done: the benchmark results of this session, then the note.
+  const wods = wodSection(day, w);
+  if (wods) body.append(wods);
   const note = noteSection(w);
   if (note) body.append(note);
   if (w.hr?.length > 1) {

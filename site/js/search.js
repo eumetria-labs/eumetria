@@ -1,10 +1,13 @@
 // Search over the whole history (Ctrl/⌘+K or the magnifier in the header):
-// foods, activities, workout notes and days in one list. Arrow keys move,
+// foods, activities, personal bests (lifts, benchmark workouts), workout
+// notes and days in one list. Arrow keys move,
 // Enter opens the food's or activity's history window, the workout or the
 // day. The input and list follow the WAI-ARIA combobox pattern.
 
 import { actIcon, actLabel, dfLong, fmt, logged, parse } from './format.js';
-import { workoutIcon, workoutName } from './health.js';
+import { liftBoard, wodBoard, workoutIcon, workoutName } from './health.js';
+import { fmtKg, openLift } from './lifts.js';
+import { fmtResult, openWod } from './wods.js';
 import { $, h, emoji } from './dom.js';
 import { state } from './state.js';
 import { openDialog } from './dialog.js';
@@ -71,6 +74,7 @@ function openSearch() {
     const groups = [
       ['foods', t('Foods'), r.foods.map((f) => ({ icon: '🍽️', label: f.name, note: `${fmt(f.n)}×`, open: () => openFood(f.name, document.activeElement) }))],
       ['activities', t('Activities'), r.activities.map((a) => ({ icon: actIcon(a.name), label: actLabel(a.name), note: `${fmt(a.n)}×`, open: () => openActivity(a.name, document.activeElement) }))],
+      ['bests', t('Personal bests'), bestResults(q)],
       ['notes', t('Notes'), noteResults(q)],
       ['days', t('Days'), r.days.map((d) => ({ icon: '📅', label: dfLong.format(parse(d.date)), note: dayNote(d, q), open: () => openDay(d.date) }))],
     ];
@@ -115,6 +119,21 @@ function openSearch() {
   });
   draw();
   input.focus();
+}
+
+// Lifts and benchmark workouts whose name fits the query, the closest
+// first; each opens its window.
+function bestResults(q) {
+  if (!q.trim()) return [];
+  const lifts = liftBoard(state.lifts, state.today).map((r) => ({
+    name: r.lift, icon: '🏋️', label: r.reps > 1 ? `${r.lift} · ${r.reps} RM` : r.lift, note: fmtKg(r.best.kg), open: () => openLift(r.key, document.activeElement),
+  }));
+  // One entry per workout: its Rx best, else its scaled one.
+  const seen = new Set();
+  const wods = wodBoard(state.wods.workouts, state.wods.results, state.today).sort((a, b) => a.scaled - b.scaled).filter((r) => !seen.has(r.workout.id) && seen.add(r.workout.id)).map((r) => ({
+    name: r.workout.name, icon: '⏱️', label: r.workout.name, note: r.best ? fmtResult(r.workout.scoring, r.best, true) : '', open: () => openWod(r.workout.id, document.activeElement),
+  }));
+  return [...lifts, ...wods].map((x) => ({ ...x, rank: matchRank(x.name, q) })).filter((x) => x.rank != null).sort((a, b) => a.rank - b.rank).slice(0, 8);
 }
 
 // The workouts whose notes fit the query.
