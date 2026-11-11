@@ -301,7 +301,10 @@ function askSignIn(note) {
       try {
         done(await passkeySignIn(undefined, remember));
       } catch (err) {
-        if (err.name !== 'AbortError') showError(t('Signing in with a passkey didn’t work. Try again, or use your password.'));
+        if (err.name !== 'AbortError') {
+          console.warn('passkey sign-in:', err.name, err.message);
+          showError(t('Signing in with a passkey didn’t work. Try again, or use your password.'));
+        }
         offerPasskeys();
       }
     };
@@ -317,12 +320,17 @@ function askSignIn(note) {
           const ans = await res.json();
           if (ans.next !== 'second_factor') return done(ans);
           form.hidden = true;
+          // The name field's passkey request would block the key's: a
+          // browser runs one at a time, and refuses the next one outright.
+          autofill?.abort();
+          autofill = null;
           try {
             done(await secondStep(ans));
           } catch {
-            // Back to the first step.
+            // Back to the first step, with its suggestions again.
             form.hidden = false;
             password.select();
+            offerPasskeys();
           }
           return;
         }
@@ -472,13 +480,19 @@ function secondStep({ ticket, methods }) {
         const res = await api('login/key/begin', 'POST', { ticket });
         if (!res.ok) throw Object.assign(new Error(), { res });
         const options = await res.json();
+        // Only one request at a time (see askSignIn).
+        autofill?.abort();
+        autofill = null;
         const cred = await navigator.credentials.get({ publicKey: requestOptions(options) });
         const fin = await api('login/key/finish', 'POST', { ticket, credential: credentialJSON(cred) });
         if (fin.ok) return finish(await fin.json());
         fail(await codeFailure(fin));
       } catch (err) {
         if (err.res) fail(await codeFailure(err.res));
-        else if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') fail(t('The key didn’t answer. Try again.'));
+        else if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') {
+          console.warn('key sign-in:', err.name, err.message);
+          fail(t('The key didn’t answer. Try again.'));
+        }
       }
     };
     recoveryBtn.onclick = () => {
