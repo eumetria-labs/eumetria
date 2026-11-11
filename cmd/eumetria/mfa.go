@@ -704,9 +704,13 @@ func (a *app) keyBegin(w http.ResponseWriter, req *http.Request, p *principal) {
 	}
 	// A passkey if the device can (it then signs in on its own), a plain
 	// security key otherwise. Asked for a security key, nothing is stored on
-	// it and a touch is enough, as most sites register keys: some ways to a
-	// key (the CTAP proxy of Qubes OS, older keys) can't store passkeys, and
-	// the browser then gives up without the key even lighting up.
+	// it, as most sites register keys: some ways to a key (the CTAP proxy of
+	// Qubes OS, older keys) can't store passkeys, and the browser then gives
+	// up without the key even lighting up. Its PIN is asked for once, here
+	// ("preferred"): without it, a key with a PIN that predates CTAP 2.1
+	// can't make a CTAP2 credential, and Chrome falls back to the old U2F
+	// registration, whose handle the Qubes proxy then didn't find when
+	// signing in. Signing in needs only a touch (secondFactorUV).
 	keyOnly := in.Kind == "key"
 	reg := webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementPreferred)
 	if keyOnly {
@@ -714,7 +718,7 @@ func (a *app) keyBegin(w http.ResponseWriter, req *http.Request, p *principal) {
 			AuthenticatorAttachment: protocol.CrossPlatform,
 			ResidentKey:             protocol.ResidentKeyRequirementDiscouraged,
 			RequireResidentKey:      protocol.ResidentKeyNotRequired(),
-			UserVerification:        protocol.VerificationDiscouraged,
+			UserVerification:        protocol.VerificationPreferred,
 		})
 	}
 	opts, sd, err := rp.BeginRegistration(wu, webauthn.WithExclusions(exclude), reg)
