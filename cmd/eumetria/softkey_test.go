@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/protocol/webauthncbor"
 	"github.com/go-webauthn/webauthn/protocol/webauthncose"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -162,5 +163,41 @@ func TestKeyStepAsksForATouchOnly(t *testing.T) {
 	res, body = e.do(t, e.client(), "POST", "/api/login/passkey/begin", "{}", sameSite, host("localhost"))
 	if res.StatusCode != 200 || !strings.Contains(body, `"userVerification":"required"`) {
 		t.Errorf("passkey begin = %d %s", res.StatusCode, body)
+	}
+}
+
+// Security keys come first in a sign-in's list of credentials: the Qubes
+// OS CTAP proxy hands only the first one to the key.
+func TestSecurityKeysAreListedFirst(t *testing.T) {
+	e := newTestEnv(t, true)
+	ctx := context.Background()
+	anna, _ := e.store.UserByName(ctx, "anna")
+	for _, k := range []struct {
+		id        string
+		transport []protocol.AuthenticatorTransport
+	}{
+		{"phone", []protocol.AuthenticatorTransport{protocol.Hybrid, protocol.Internal}},
+		{"laptop", []protocol.AuthenticatorTransport{protocol.Internal}},
+		{"yubikey", []protocol.AuthenticatorTransport{protocol.USB, protocol.NFC}},
+	} {
+		if err := e.store.AddKey(ctx, anna, k.id, &webauthn.Credential{ID: []byte(k.id), Transport: k.transport}, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ans, _ := e.password(t, "anna", viewerPassword)
+	_, body := e.do(t, e.client(), "POST", "/api/login/key/begin", `{"ticket":"`+ans.Ticket+`"}`, sameSite, host("localhost"))
+	var opts struct {
+		Allow []struct {
+			ID string `json:"id"`
+		} `json:"allowCredentials"`
+	}
+	json.Unmarshal([]byte(body), &opts)
+	var got []string
+	for _, a := range opts.Allow {
+		raw, _ := b64.DecodeString(a.ID)
+		got = append(got, string(raw))
+	}
+	if strings.Join(got, ",") != "yubikey,phone,laptop" {
+		t.Errorf("order = %v, want the security key first", got)
 	}
 }

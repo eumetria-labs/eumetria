@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -11,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -262,7 +264,27 @@ func (a *app) waUser(ctx context.Context, u *auth.User) (*waUser, error) {
 	for i := range keys {
 		keys[i].Credential.Authenticator.CloneWarning = false
 	}
+	// Security keys first, passkeys of phones and computers last: the CTAP
+	// proxy of Qubes OS passes only the first credential of a sign-in to
+	// the key and answers "no credentials" when that one isn't the key's,
+	// without trying the others. Browsers and keys don't mind the order.
+	slices.SortStableFunc(keys, func(x, y auth.Key) int { return cmp.Compare(onDevice(x), onDevice(y)) })
 	return &waUser{u: u, handle: handle, keys: keys}, err
+}
+
+// onDevice is 1 for a credential that lives in a phone or computer (its
+// transports are internal or hybrid only), 0 for one on a security key.
+func onDevice(k auth.Key) int {
+	t := k.Credential.Transport
+	if len(t) == 0 {
+		return 0
+	}
+	for _, x := range t {
+		if x != protocol.Internal && x != protocol.Hybrid {
+			return 0
+		}
+	}
+	return 1
 }
 
 /* ---------- signing in ---------- */
