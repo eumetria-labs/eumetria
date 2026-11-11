@@ -82,13 +82,22 @@ func TestAdminManagesUsers(t *testing.T) {
 	}
 	e.do(t, admin, "PATCH", "/api/admin/users/"+bobID, `{"disabled":false}`, sameSite)
 
-	// A new password ends the sessions and replaces the old one.
+	// A new password ends the sessions and the API tokens (pentest F1), and
+	// replaces the old one.
 	bob = e.signIn(t, "bob", coachPassword, false)
+	bobUser, _ := e.store.UserByName(context.Background(), "bob")
+	token, err := e.store.CreateAPIToken(context.Background(), bobUser, "left behind", []string{"read"}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if res, _ := e.do(t, admin, "POST", "/api/admin/users/"+bobID+"/password", `{"password":"`+coachPassword+`!!"}`, sameSite); res.StatusCode != 204 {
 		t.Fatalf("password reset = %d", res.StatusCode)
 	}
 	if res, _ := e.do(t, bob, "GET", "/api/me", ""); res.StatusCode != 401 {
 		t.Error("the session survived the password reset")
+	}
+	if res, _ := e.do(t, e.client(), "GET", "/api/me", "", bearer(token)); res.StatusCode != 401 {
+		t.Error("an API token survived the password reset")
 	}
 	e.signIn(t, "bob", coachPassword+"!!", false)
 
@@ -238,5 +247,61 @@ func TestAdminEndsSessions(t *testing.T) {
 	_, body = e.do(t, admin, "GET", "/api/audit", "")
 	if !strings.Contains(body, `"session_ended"`) {
 		t.Errorf("audit log = %s", body)
+	}
+}
+
+// Admin actions that reach outside (backups, test sign-ins to Yazio and
+// Drive) or end someone's session need a recent sign-in too (pentest F6).
+func TestAdminActionsNeedARecentSignIn(t *testing.T) {
+	e := newTestEnv(t, true)
+	admin := e.signIn(t, "patrick", adminPassword, false)
+	e.now = e.now.Add(time.Hour)
+	for _, rq := range []struct{ method, path string }{
+		{"POST", "/api/admin/backups"},
+		{"POST", "/api/admin/backups/test-drive"},
+		{"POST", "/api/admin/settings/test/yazio"},
+		{"DELETE", "/api/admin/sessions/1"},
+	} {
+		if res, body := e.do(t, admin, rq.method, rq.path, "{}", sameSite); res.StatusCode != 403 || !strings.Contains(body, "reauth") {
+			t.Errorf("%s %s after an hour = %d %s", rq.method, rq.path, res.StatusCode, body)
+		}
+	}
+}
+
+// A disabled account can be deleted for good; what its user wrote stays,
+// without an author.
+func TestAdminDeletesDisabledUsers(t *testing.T) {
+	e := newTestEnv(t, true)
+	trainer := e.writer(t)
+	if res, body := e.do(t, trainer, "PUT", "/api/notes/w1", `{"markdown":"from the trainer"}`, sameSite); res.StatusCode/100 != 2 {
+		t.Fatalf("note = %d %s", res.StatusCode, body)
+	}
+	admin := e.signIn(t, "patrick", adminPassword, false)
+	id := e.userID(t, "trainer")
+	if res, body := e.do(t, admin, "DELETE", "/api/admin/users/"+id, "", sameSite, header("Content-Type", "application/json")); res.StatusCode != 409 || !strings.Contains(body, "not_disabled") {
+		t.Errorf("deleting an active account = %d %s", res.StatusCode, body)
+	}
+	if res, _ := e.do(t, admin, "DELETE", "/api/admin/users/"+e.userID(t, "patrick"), "", sameSite, header("Content-Type", "application/json")); res.StatusCode != 409 {
+		t.Errorf("deleting oneself = %d", res.StatusCode)
+	}
+	e.do(t, admin, "PATCH", "/api/admin/users/"+id, `{"disabled":true}`, sameSite)
+	anna := e.signIn(t, "anna", viewerPassword, false)
+	if res, _ := e.do(t, anna, "DELETE", "/api/admin/users/"+id, "", sameSite, header("Content-Type", "application/json")); res.StatusCode != 403 {
+		t.Errorf("a viewer deleting = %d", res.StatusCode)
+	}
+	if res, body := e.do(t, admin, "DELETE", "/api/admin/users/"+id, "", sameSite, header("Content-Type", "application/json")); res.StatusCode != 204 {
+		t.Fatalf("delete = %d %s", res.StatusCode, body)
+	}
+	if _, err := e.store.UserByName(context.Background(), "trainer"); err == nil {
+		t.Error("the account is still there")
+	}
+	// The note stays, without an author.
+	_, body := e.do(t, admin, "GET", "/api/notes", "")
+	if !strings.Contains(body, "from the trainer") || !strings.Contains(body, `"updated_by":""`) {
+		t.Errorf("notes = %s", body)
+	}
+	log, _ := e.store.AuditLog(context.Background(), 20)
+	if !strings.Contains(jsonOf(t, log), `"user_deleted"`) || !strings.Contains(jsonOf(t, log), `"trainer"`) {
+		t.Errorf("audit = %+v", log)
 	}
 }

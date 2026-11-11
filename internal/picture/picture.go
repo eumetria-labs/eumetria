@@ -13,22 +13,68 @@ import (
 	_ "image/png" // what a pasted screenshot may be
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // MaxSide is the longest side taken; the page scales images down to less. It
 // also keeps a small file from decoding into a huge image.
 const MaxSide = 4096
 
-var ErrBad = errors.New("not a usable image")
+// Pixel budgets. A decoded image takes 4 bytes per pixel twice over (the
+// decoder's copy and the flattened one), so these keep one upload at a few
+// dozen MB however well its file compresses.
+const (
+	AvatarPixels = 4_000_000  // avatars end up 512 px square
+	NotePixels   = 12_000_000 // a 12 MP photo
+)
 
-// Decode reads a JPEG or PNG, on white where it is transparent. Anything else
-// is ErrBad, whatever its name or type claim.
-func Decode(raw []byte) (*image.RGBA, error) {
+var (
+	ErrBad  = errors.New("not a usable image")
+	ErrBusy = errors.New("too many images at once")
+)
+
+// one image is worked on at a time: decoding is what needs the memory, and
+// the container has little of it.
+var (
+	slot     = make(chan struct{}, 1)
+	slotWait = 20 * time.Second
+)
+
+// Clean decodes raw (Decode), hands the pixels to shape when it isn't nil and
+// writes the result as a new JPEG, one image at a time. It gives up with
+// ErrBusy when others keep it waiting too long.
+func Clean(raw []byte, maxPixels int, shape func(*image.RGBA) *image.RGBA) ([]byte, error) {
+	select {
+	case slot <- struct{}{}:
+	case <-time.After(slotWait):
+		return nil, ErrBusy
+	}
+	defer func() { <-slot }()
+	img, err := Decode(raw, maxPixels)
+	if err != nil {
+		return nil, err
+	}
+	if shape != nil {
+		img = shape(img)
+	}
+	return JPEG(img)
+}
+
+// Decode reads a JPEG or PNG of at most maxPixels pixels and 8 bits per
+// channel, on white where it is transparent. Anything else is ErrBad,
+// whatever its name or type claim: a 16-bit PNG would decode into twice the
+// memory, from a file that compresses to almost nothing.
+func Decode(raw []byte, maxPixels int) (*image.RGBA, error) {
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(raw))
 	if err != nil || (format != "jpeg" && format != "png") {
 		return nil, ErrBad
 	}
-	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > MaxSide || cfg.Height > MaxSide {
+	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > MaxSide || cfg.Height > MaxSide ||
+		cfg.Width*cfg.Height > maxPixels {
+		return nil, ErrBad
+	}
+	switch cfg.ColorModel {
+	case color.RGBA64Model, color.NRGBA64Model, color.Gray16Model, color.Alpha16Model:
 		return nil, ErrBad
 	}
 	src, _, err := image.Decode(bytes.NewReader(raw))

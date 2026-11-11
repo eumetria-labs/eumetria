@@ -13,10 +13,13 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
+
+	"eumetria/internal/seal"
 )
 
 /* ---------- authenticator app (TOTP, RFC 6238) ---------- */
@@ -88,10 +91,87 @@ func CheckTOTP(secret, code string, now time.Time, lastStep int64) (int64, bool)
 // SetTOTP turns the authenticator app on with secret; lastStep is the step
 // of the code that confirmed it.
 func (s *Store) SetTOTP(ctx context.Context, u *User, secret string, lastStep int64) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO totp (user_id, secret, last_step, created_at) VALUES (?, ?, ?, ?)
+	stored, err := s.sealTOTP(u.ID, secret)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO totp (user_id, secret, last_step, created_at) VALUES (?, ?, ?, ?)
 		ON CONFLICT (user_id) DO UPDATE SET secret = excluded.secret, last_step = excluded.last_step, created_at = excluded.created_at`,
-		u.ID, secret, lastStep, s.now())
+		u.ID, stored, lastStep, s.now())
 	return err
+}
+
+// An authenticator app's secret is sealed with SETTINGS_KEY when there is
+// one (pentest F15): whoever gets the database or a backup can't make
+// codes. The user's id is authenticated with it, so it can't be moved to
+// another account.
+func totpContext(user int64) string { return "totp:" + strconv.FormatInt(user, 10) }
+
+var ErrTOTPSealed = errors.New("the authenticator app's secret is sealed, but SETTINGS_KEY is missing or another one")
+
+func (s *Store) sealTOTP(user int64, secret string) (string, error) {
+	if s.Box == nil {
+		return secret, nil
+	}
+	return s.Box.Seal(secret, totpContext(user))
+}
+
+func (s *Store) openTOTP(user int64, stored string) (string, error) {
+	if !seal.Sealed(stored) {
+		return stored, nil
+	}
+	if s.Box == nil {
+		return "", ErrTOTPSealed
+	}
+	secret, err := s.Box.Open(stored, totpContext(user))
+	if err != nil {
+		return "", ErrTOTPSealed
+	}
+	return secret, nil
+}
+
+// SealTOTP seals the apps' secrets still kept as they are, once there is a
+// SETTINGS_KEY. It returns how many it sealed.
+func (s *Store) SealTOTP(ctx context.Context) (int, error) {
+	if s.Box == nil {
+		return 0, nil
+	}
+	rows, err := s.DB.QueryContext(ctx, "SELECT user_id, secret FROM totp")
+	if err != nil {
+		return 0, err
+	}
+	plain := map[int64]string{}
+	for rows.Next() {
+		var id int64
+		var secret string
+		if err := rows.Scan(&id, &secret); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if !seal.Sealed(secret) {
+			plain[id] = secret
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	n := 0
+	for id, secret := range plain {
+		sealed, err := s.Box.Seal(secret, totpContext(id))
+		if err != nil {
+			return n, err
+		}
+		// Only if nobody changed it meanwhile.
+		res, err := s.DB.ExecContext(ctx, "UPDATE totp SET secret = ? WHERE user_id = ? AND secret = ?", sealed, id, secret)
+		if err != nil {
+			return n, err
+		}
+		if k, _ := res.RowsAffected(); k == 1 {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (s *Store) DeleteTOTP(ctx context.Context, u *User) error {
@@ -113,6 +193,11 @@ func (s *Store) UseTOTP(ctx context.Context, u *User, code string) (bool, error)
 		return false, nil
 	}
 	if err != nil {
+		return false, err
+	}
+	// A secret that can't be opened is a server error, not a wrong code:
+	// the sign-in fails, and the log says why.
+	if secret, err = s.openTOTP(u.ID, secret); err != nil {
 		return false, err
 	}
 	step, ok := CheckTOTP(secret, code, s.Now(), last)
@@ -145,19 +230,37 @@ func normalizeCode(code string) string {
 	}, strings.ToLower(code))
 }
 
+// randomText is n characters from alphabet, each as likely as the others:
+// random bytes past the last whole multiple of the alphabet's length are
+// thrown away instead of wrapping around, which would favour its first
+// characters (pentest F8).
+func randomText(n int, alphabet string) (string, error) {
+	limit := 256 - 256%len(alphabet)
+	out := make([]byte, 0, n)
+	buf := make([]byte, n*2)
+	for len(out) < n {
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		for _, c := range buf {
+			if int(c) < limit && len(out) < n {
+				out = append(out, alphabet[int(c)%len(alphabet)])
+			}
+		}
+	}
+	return string(out), nil
+}
+
 // NewRecoveryCodes replaces u's recovery codes with ten new ones and
 // returns them; only their hashes are kept.
 func (s *Store) NewRecoveryCodes(ctx context.Context, u *User) ([]string, error) {
 	codes := make([]string, recoveryCount)
 	for i := range codes {
-		b := make([]byte, 12)
-		if _, err := rand.Read(b); err != nil {
+		b, err := randomText(12, recoveryAlphabet)
+		if err != nil {
 			return nil, err
 		}
-		for j := range b {
-			b[j] = recoveryAlphabet[int(b[j])%len(recoveryAlphabet)]
-		}
-		codes[i] = string(b[0:4]) + "-" + string(b[4:8]) + "-" + string(b[8:12])
+		codes[i] = b[0:4] + "-" + b[4:8] + "-" + b[8:12]
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -323,7 +426,9 @@ func (s *Store) ResetFactors(ctx context.Context, u *User) error {
 	return tx.Commit()
 }
 
-// SetAuthenticated marks the session as just signed in again.
+// SetAuthenticated marks the session's user as having just proved who they
+// are: by signing in, or by confirming it again (step-up). Changing the
+// sign-in and the admin tools need that to be recent.
 func (s *Store) SetAuthenticated(ctx context.Context, sess *Session) error {
 	sess.AuthenticatedAt = s.Now()
 	_, err := s.DB.ExecContext(ctx, "UPDATE sessions SET authenticated_at = ? WHERE id = ?", sess.AuthenticatedAt.Unix(), sess.ID)

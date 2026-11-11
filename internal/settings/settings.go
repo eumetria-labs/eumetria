@@ -11,15 +11,11 @@ package settings
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"net/mail"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -29,13 +25,14 @@ import (
 
 	"eumetria/internal/db"
 	"eumetria/internal/review"
+	"eumetria/internal/seal"
 )
 
 // MinInterval is the shortest time between syncs: Yazio's API is private,
 // don't hammer it.
 const MinInterval = 5 * time.Minute
 
-const secretPrefix = "v1:"
+const secretPrefix = seal.Prefix
 
 var (
 	ErrNoKey   = errors.New("SETTINGS_KEY is not set, so secrets can't be stored")
@@ -58,6 +55,7 @@ var defs = []def{
 	{key: "title", env: "STATS_TITLE", fallback: "Eumetria", valid: text(64, false)},
 	{key: "language", valid: oneOf("", "en", "de")},
 	{key: "timezone", valid: zone},
+	{key: "public_url", env: "PUBLIC_URL", valid: publicURL},
 	{key: "sync_interval", env: "SYNC_INTERVAL", fallback: "30m", valid: interval},
 	{key: "refresh_days", env: "YAZIO_REFRESH_DAYS", fallback: "3", valid: number(1, 60)},
 	{key: "since", env: "YAZIO_SINCE", valid: day},
@@ -82,6 +80,13 @@ var defs = []def{
 	{key: "backup_drive", fallback: "false", valid: boolean},
 	{key: "backup_folder", fallback: "Eumetria backups", valid: text(100, false)},
 	{key: "backup_drive_keep_days", fallback: "30", valid: number(1, 3650)},
+	// E-mail (optional): security alerts and links (internal/mail).
+	{key: "smtp_host", env: "SMTP_HOST", valid: host},
+	{key: "smtp_port", env: "SMTP_PORT", fallback: "587", valid: number(1, 65535)},
+	{key: "smtp_tls", env: "SMTP_TLS", fallback: "starttls", valid: oneOf("starttls", "implicit")},
+	{key: "smtp_user", env: "SMTP_USER", valid: text(256, true)},
+	{key: "smtp_password", env: "SMTP_PASSWORD", secret: true},
+	{key: "smtp_from", env: "SMTP_FROM", valid: email},
 }
 
 func find(key string) *def {
@@ -115,6 +120,33 @@ func number(lo, hi int) func(string) bool {
 func zone(s string) bool {
 	_, err := time.LoadLocation(s)
 	return err == nil && s != "" && s != "Local"
+}
+
+// host is a mail server's name or address, or empty.
+func host(s string) bool {
+	if s == "" {
+		return true
+	}
+	if len(s) > 253 || strings.ContainsAny(s, " /:@") || strings.ContainsFunc(s, unicode.IsControl) {
+		return false
+	}
+	u, err := url.Parse("smtp://" + s)
+	return err == nil && u.Hostname() == s
+}
+
+// publicURL is the site's address as people open it: https (http only for
+// localhost), a host, nothing after it. Empty: taken from each request.
+func publicURL(s string) bool {
+	if s == "" {
+		return true
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || len(s) > 256 {
+		return false
+	}
+	h := u.Hostname()
+	local := h == "localhost" || strings.HasSuffix(h, ".localhost")
+	return u.Scheme == "https" || u.Scheme == "http" && local
 }
 
 func interval(s string) bool {
@@ -161,73 +193,44 @@ func money(s string) bool {
 
 /* ---------- the store ---------- */
 
-// Store reads and writes the settings. key is nil without SETTINGS_KEY.
+// Store reads and writes the settings. box is nil without SETTINGS_KEY.
 type Store struct {
 	DB  *db.DB
-	key []byte
+	box *seal.Box
 }
 
 // New takes SETTINGS_KEY as openssl rand -hex 32 makes it; empty is allowed,
 // and then secrets stay in the environment. A malformed key is an error: it
 // would fail later, when a secret is saved or read.
 func New(d *db.DB, hexKey string) (*Store, error) {
-	s := &Store{DB: d}
-	if hexKey == "" {
-		return s, nil
-	}
-	key, err := hex.DecodeString(hexKey)
-	if err != nil || len(key) != 32 {
-		return nil, errors.New("SETTINGS_KEY must be 64 hex digits: openssl rand -hex 32")
-	}
-	s.key = key
-	return s, nil
-}
-
-// CanEncrypt reports whether secrets can be stored.
-func (s *Store) CanEncrypt() bool { return s.key != nil }
-
-func (s *Store) gcm() (cipher.AEAD, error) {
-	block, err := aes.NewCipher(s.key)
+	box, err := seal.FromHex(hexKey)
 	if err != nil {
 		return nil, err
 	}
-	return cipher.NewGCM(block)
+	return &Store{DB: d, box: box}, nil
 }
+
+// CanEncrypt reports whether secrets can be stored.
+func (s *Store) CanEncrypt() bool { return s.box != nil }
+
+// Box is what seals secrets with SETTINGS_KEY, nil without one; the
+// accounts use it for the authenticator apps' secrets.
+func (s *Store) Box() *seal.Box { return s.box }
 
 // seal encrypts a secret. The key name is authenticated with it, so a value
 // can't be moved to another row.
 func (s *Store) seal(key, plain string) (string, error) {
-	if s.key == nil {
+	if s.box == nil {
 		return "", ErrNoKey
 	}
-	gcm, err := s.gcm()
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
-	return secretPrefix + base64.StdEncoding.EncodeToString(gcm.Seal(nonce, nonce, []byte(plain), []byte(key))), nil
+	return s.box.Seal(plain, key)
 }
 
 func (s *Store) open(key, stored string) (string, error) {
-	if s.key == nil {
+	if s.box == nil {
 		return "", ErrNoKey
 	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(stored, secretPrefix))
-	if err != nil {
-		return "", err
-	}
-	gcm, err := s.gcm()
-	if err != nil {
-		return "", err
-	}
-	if len(raw) < gcm.NonceSize() {
-		return "", errors.New("too short")
-	}
-	plain, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], []byte(key))
-	return string(plain), err
+	return s.box.Open(stored, key)
 }
 
 func (s *Store) rows(ctx context.Context) (map[string]string, error) {
@@ -366,7 +369,10 @@ func (s *Store) Save(ctx context.Context, values map[string]string, reset []stri
 
 // Values are the settings in force.
 type Values struct {
-	Title, Language   string
+	Title, Language string
+	// PublicURL is the site's address (https://host[:port], no slash at the
+	// end), or "" to take it from each request's Host.
+	PublicURL         string
 	Zone              *time.Location
 	ZoneName          string
 	Interval          time.Duration
@@ -393,7 +399,21 @@ type Values struct {
 	BackupDrive         bool
 	BackupFolder        string
 	BackupDriveKeepDays int
+
+	SMTP SMTP
 }
+
+// SMTP is the mail server for the app's e-mails; set up when Host and From
+// are.
+type SMTP struct {
+	Host, User, Password, From string
+	FromName                   string // the site's title, shown with From
+	Port                       int
+	Implicit                   bool // TLS from the start; otherwise STARTTLS
+}
+
+// Ready reports whether e-mail is set up.
+func (m SMTP) Ready() bool { return m.Host != "" && m.From != "" }
 
 // envZone is the zone the environment names, and its name; UTC without one
 // or with a wrong one.
@@ -417,6 +437,7 @@ func resolve(get func(key string) string) Values {
 		AnthropicKey: get("anthropic_key"), Model: get("ai_model"), Effort: get("ai_effort"),
 		BackupTime: get("backup_time"), BackupPassphrase: get("backup_passphrase"), BackupPassphraseAt: get("backup_passphrase_at"),
 		BackupFolder: get("backup_folder"),
+		PublicURL:    strings.TrimRight(get("public_url"), "/"),
 	}
 	v.Zone, v.ZoneName = envZone()
 	if name := get("timezone"); name != "" {
@@ -451,6 +472,12 @@ func resolve(get func(key string) string) Values {
 	v.BackupDriveKeepDays, _ = strconv.Atoi(get("backup_drive_keep_days"))
 	if v.BackupDriveKeepDays < 1 {
 		v.BackupDriveKeepDays = 30
+	}
+	v.SMTP = SMTP{Host: get("smtp_host"), User: get("smtp_user"), Password: get("smtp_password"), From: get("smtp_from"), FromName: v.Title,
+		Implicit: get("smtp_tls") == "implicit"}
+	v.SMTP.Port, _ = strconv.Atoi(get("smtp_port"))
+	if v.SMTP.Port < 1 {
+		v.SMTP.Port = 587
 	}
 	return v
 }

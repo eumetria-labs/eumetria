@@ -1,19 +1,29 @@
 // The security settings (account menu → Security): the password, passkeys
 // and security keys, the authenticator app and recovery codes. Changing a
-// second factor needs a sign-in within the last 10 minutes; the server says
-// when it's older, and the window offers to sign in again and come back
-// here. The password needs no such sign-in: the current one proves it.
+// second factor needs a recent proof of who one is: api() asks for it when
+// the server wants it (stepup.js). An account that must have a second
+// factor and has none sets up the first one with an enrolment link from an
+// admin (#enrol=<token>, useEnrolLink).
 
 import { LOCALE } from './format.js';
-import { $, download, h, setHashParam } from './dom.js';
+import { $, download, h } from './dom.js';
 import { openDialog } from './dialog.js';
-import { account, api, reason, refreshUser, signOut } from './account.js';
+import { account, api, reason, refreshUser } from './account.js';
+import { confirmNote } from './stepup.js';
 import { credentialJSON, creationOptions, supported } from './webauthn.js';
 import { t, tn } from './i18n.js';
 
 const dfDate = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', year: 'numeric' });
 
 let win = null;
+
+// The enrolment link this page was opened with, until the first factor is
+// set up with it.
+let enrolToken = null;
+export function useEnrolLink(token) {
+  enrolToken = token || null;
+}
+const ENROL_TEXT = () => t('Your first second factor needs an enrolment link from your admin. Ask them for one and open it.');
 
 export async function openSecurity(returnFocus) {
   win?.close(true);
@@ -39,24 +49,14 @@ async function render(body) {
   const s = await res.json();
   const parts = [];
   if (s.required && !s.keys.length && !s.totp) {
-    parts.push(h('p', { class: 'notice' }, t('As an admin you need a second factor before you can sync or use the admin tools. A passkey is the easiest.')));
+    parts.push(h('p', { class: 'notice' }, account.user?.scopes?.includes('admin')
+      ? t('As an admin you need a second factor before you can sync or use the admin tools. A passkey is the easiest.')
+      : t('Your account needs a second factor before it can use all its rights. A passkey is the easiest.')));
+    if (account.user?.needs_enrol_link && !enrolToken) parts.push(h('p', { class: 'notice' }, ENROL_TEXT()));
   }
-  parts.push(passwordSection());
-  if (!s.fresh) parts.push(reauthNote());
+  parts.push(passwordSection(s, body));
   parts.push(keysSection(s, body), totpSection(s, body), recoverySection(s, body));
   body.replaceChildren(...parts);
-}
-
-// After the sign-in got old: sign in again and come back to this window.
-function reauthNote() {
-  const box = h('div', { class: 'notice notice-row' });
-  const again = h('button', { class: 'pill-btn', type: 'button' }, t('Sign in again'));
-  again.onclick = () => {
-    setHashParam('security', '');
-    signOut(false);
-  };
-  box.append(h('span', {}, t('To change anything here, sign in again: your last sign-in was more than 10 minutes ago.')), again);
-  return box;
 }
 
 function section(title, note) {
@@ -77,7 +77,9 @@ async function change(body, button, run, failText = t('That didn’t work. Try a
   try {
     const res = await run();
     if (!res.ok) {
-      if ((await reason(res)) === 'reauth') return render(body);
+      const why = await reason(res);
+      if (why === 'reauth') return body.prepend(confirmNote());
+      if (why === 'enrol_required') throw new Error(ENROL_TEXT());
       throw new Error(failText);
     }
     await refreshUser();
@@ -86,7 +88,8 @@ async function change(body, button, run, failText = t('That didn’t work. Try a
     // Closing the browser's passkey prompt is no error.
     if (err.name === 'NotAllowedError' || err.name === 'AbortError') return;
     console.error('security settings', err);
-    body.prepend(h('p', { class: 'lock-error sec-error', role: 'alert' }, err.message === failText ? failText : t('That didn’t work. Try again.')));
+    const known = err.message === failText || err.message === ENROL_TEXT();
+    body.prepend(h('p', { class: 'lock-error sec-error', role: 'alert' }, known ? err.message : t('That didn’t work. Try again.')));
   } finally {
     button.disabled = false;
   }
@@ -104,7 +107,7 @@ const PASSWORD_ERRORS = {
   same: () => t('The new password is the same as the current one.'),
 };
 
-function passwordSection() {
+function passwordSection(s, body) {
   const sec = section(t('Password'), t('At least 12 characters. Long beats complicated.'));
   const form = h('form', { class: 'sec-password' });
   // For password managers: whose password this is.
@@ -120,7 +123,20 @@ function passwordSection() {
     msg.classList.toggle('lock-error', bad);
     msg.hidden = false;
   };
-  form.append(user, current, next, again, msg, save);
+  // What someone who had the account may have left behind outlives a new
+  // password unless it ends too.
+  const check = (label, on) => {
+    const box = h('input', { type: 'checkbox' });
+    box.checked = on;
+    const item = h('label', { class: 'share-check' });
+    item.append(box, ' ' + label);
+    return [box, item];
+  };
+  const [tokens, tokensItem] = check(t('Also end all API tokens'), true);
+  const [passkeys, passkeysItem] = check(t('Also remove the passkeys that sign in on their own'), false);
+  form.append(user, current, next, again, tokensItem);
+  if (s?.keys?.some((k) => k.passwordless)) form.append(passkeysItem);
+  form.append(msg, save);
   form.onsubmit = async (e) => {
     e.preventDefault();
     msg.hidden = true;
@@ -128,10 +144,15 @@ function passwordSection() {
     if ([...next.value].length < 12) return say(PASSWORD_ERRORS.too_short(), true);
     save.disabled = true;
     try {
-      const res = await api('security/password', 'POST', { current: current.value, new: next.value });
+      const res = await api('security/password', 'POST', {
+        current: current.value, new: next.value, revoke_tokens: tokens.checked, revoke_passkeys: passkeys.checked,
+      });
       if (res.ok) {
         form.reset();
         user.value = account.user?.name || '';
+        // Removed passkeys leave the list below.
+        if (passkeys.checked) return render(body);
+        tokens.checked = true;
         return say(t('Password changed. Your other devices are signed out.'), false);
       }
       if (res.status === 429) return say(t('Too many wrong passwords. Try again later.'), true);
@@ -160,7 +181,6 @@ function keysSection(s, body) {
     if (k.last_used) note.push(t('used {date}', { date: dfDate.format(new Date(k.last_used)) }));
     if (k.passwordless) note.push(t('signs in on its own'));
     const remove = h('button', { class: 'pill-btn', type: 'button' }, t('Remove'));
-    remove.disabled = !s.fresh;
     remove.onclick = () => {
       if (confirm(t('Remove “{name}”?', { name: k.name }))) change(body, remove, () => api('security/key/' + k.id, 'DELETE'));
     };
@@ -174,15 +194,16 @@ function keysSection(s, body) {
   const add = h('form', { class: 'sec-add' });
   const input = h('input', { class: 'field', type: 'text', maxlength: '60', placeholder: t('Name, e.g. iPhone or YubiKey'), 'aria-label': t('Name of the key') });
   const button = h('button', { class: 'pill-btn', type: 'submit' }, t('Add passkey or key'));
-  input.disabled = button.disabled = !s.fresh;
   add.append(input, button);
   add.onsubmit = (e) => {
     e.preventDefault();
     change(body, button, async () => {
-      const res = await api('security/key/begin', 'POST', { name: input.value.trim() });
+      const res = await api('security/key/begin', 'POST', { name: input.value.trim(), enrol: enrolToken || undefined });
       if (!res.ok) return res;
       const cred = await navigator.credentials.create({ publicKey: creationOptions(await res.json()) });
-      return api('security/key/finish', 'POST', { credential: credentialJSON(cred) });
+      const fin = await api('security/key/finish', 'POST', { credential: credentialJSON(cred) });
+      if (fin.ok) enrolToken = null;
+      return fin;
     });
   };
   sec.append(add);
@@ -195,7 +216,6 @@ function totpSection(s, body) {
   const sec = section(t('Authenticator app'), s.totp ? t('On') : t('Off'));
   if (s.totp) {
     const remove = h('button', { class: 'pill-btn', type: 'button' }, t('Remove'));
-    remove.disabled = !s.fresh;
     remove.onclick = () => {
       if (confirm(t('Remove the authenticator app?'))) change(body, remove, () => api('security/totp', 'DELETE'));
     };
@@ -203,13 +223,14 @@ function totpSection(s, body) {
     return sec;
   }
   const start = h('button', { class: 'pill-btn', type: 'button' }, t('Set up'));
-  start.disabled = !s.fresh;
   start.onclick = async () => {
     start.disabled = true;
-    const res = await api('security/totp/begin', 'POST').catch(() => null);
+    const res = await api('security/totp/begin', 'POST', { enrol: enrolToken || undefined }).catch(() => null);
     start.disabled = false;
     if (res?.ok) return showSetup(sec, body, await res.json());
-    if (res && (await reason(res)) === 'reauth') render(body);
+    const why = res && (await reason(res));
+    if (why === 'reauth') body.prepend(confirmNote());
+    if (why === 'enrol_required') body.prepend(h('p', { class: 'lock-error sec-error', role: 'alert' }, ENROL_TEXT()));
   };
   sec.append(h('p', { class: 'muted' }, t('For example Google Authenticator, Aegis, 2FAS or a YubiKey with Yubico Authenticator.')), start);
   return sec;
@@ -230,7 +251,11 @@ function showSetup(sec, body, { secret, qr }) {
   form.append(code, ok);
   form.onsubmit = (e) => {
     e.preventDefault();
-    change(body, ok, () => api('security/totp/confirm', 'POST', { code: code.value.trim() }),
+    change(body, ok, async () => {
+      const res = await api('security/totp/confirm', 'POST', { code: code.value.trim() });
+      if (res.ok) enrolToken = null;
+      return res;
+    },
       t('Wrong code. Check that the time on your phone is right, then try the next one.')).then(() => {
       if (document.contains(code)) code.select();
     });
@@ -249,13 +274,15 @@ function recoverySection(s, body) {
   const sec = section(t('Recovery codes'), left ? tn(left, '{n} unused', '{n} unused') : t('None yet'));
   sec.append(h('p', { class: 'muted' }, t('If you lose your phone or key, a recovery code gets you in instead. Each works once. Keep them in your password manager or on paper.')));
   const make = h('button', { class: 'pill-btn', type: 'button' }, left ? t('Make new codes') : t('Make codes'));
-  make.disabled = !s.fresh;
   make.onclick = async () => {
     if (left && !confirm(t('New codes replace the old ones. Go on?'))) return;
     make.disabled = true;
     const res = await api('security/recovery', 'POST').catch(() => null);
     if (!res?.ok) {
-      if (res && (await reason(res.clone())) === 'reauth') return render(body);
+      if (res && (await reason(res.clone())) === 'reauth') {
+        make.disabled = false;
+        return body.prepend(confirmNote());
+      }
       make.disabled = false;
       return;
     }

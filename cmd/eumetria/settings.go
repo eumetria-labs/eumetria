@@ -50,10 +50,22 @@ func siteScheme(req *http.Request) string {
 	return "https"
 }
 
+// siteURL is the site's address: the public URL from the settings, or
+// without one, what the request says (its Host), which only the front
+// proxy keeps honest (pentest F8).
+func (a *app) siteURL(req *http.Request) string {
+	if a.runner != nil && a.runner.settings != nil {
+		if v, err := a.runner.settings.Values(req.Context()); err == nil && v.PublicURL != "" {
+			return v.PublicURL
+		}
+	}
+	return siteScheme(req) + "://" + req.Host
+}
+
 // googleCallback is the address to register as the OAuth client's redirect
 // URI.
-func googleCallback(req *http.Request) string {
-	return siteScheme(req) + "://" + req.Host + "/api/google/callback"
+func (a *app) googleCallback(req *http.Request) string {
+	return a.siteURL(req) + "/api/google/callback"
 }
 
 type googleStatus struct {
@@ -71,7 +83,7 @@ func (a *app) settingsGet(w http.ResponseWriter, req *http.Request, _ *principal
 		a.failed(w, "settings", err)
 		return
 	}
-	gs := googleStatus{Callback: googleCallback(req)}
+	gs := googleStatus{Callback: a.googleCallback(req)}
 	if tok, err := google.LoadToken(a.runner.cfg.googleToken); err == nil {
 		gs.Connected, gs.Missing = true, missingScopes(tok.Scope)
 		gs.Drive = slices.Contains(strings.Fields(tok.Scope), google.DriveScope)
@@ -90,6 +102,7 @@ func (a *app) settingsGet(w http.ResponseWriter, req *http.Request, _ *principal
 		"zone":        map[string]string{"name": v.ZoneName, "env": os.Getenv("TZ")},
 		"google":      gs,
 		"status":      a.runner.status(),
+		"mail":        a.outbox.Status(), // how sending went lately (email.go)
 	})
 }
 
@@ -148,7 +161,10 @@ func (a *app) applySettings(ctx context.Context) error {
 }
 
 // settingsTestYazio signs in with the saved values.
-func (a *app) settingsTestYazio(w http.ResponseWriter, req *http.Request, _ *principal) {
+func (a *app) settingsTestYazio(w http.ResponseWriter, req *http.Request, p *principal) {
+	if !a.fresh(w, p) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(req.Context(), 20*time.Second)
 	defer cancel()
 	v, err := a.runner.settings.Values(ctx)
@@ -202,8 +218,12 @@ func (a *app) googleConnect(w http.ResponseWriter, req *http.Request, p *princip
 		return
 	}
 	verifier := base64.RawURLEncoding.EncodeToString(b)
-	state := a.pending.put("", &pending{user: p.user, secret: verifier, name: googleCallback(req)})
-	cfg := google.Config{ClientID: v.GoogleClientID, ClientSecret: v.GoogleSecret, RedirectURL: googleCallback(req), Verifier: verifier}
+	state, err := a.pending.put("", pendingGoogle, "", &pending{user: p.user, secret: verifier, name: a.googleCallback(req)})
+	if err != nil {
+		writeError(w, http.StatusTooManyRequests, "busy")
+		return
+	}
+	cfg := google.Config{ClientID: v.GoogleClientID, ClientSecret: v.GoogleSecret, RedirectURL: a.googleCallback(req), Verifier: verifier}
 	// Backups to Drive add their scope, and only then.
 	if v.BackupDrive {
 		cfg.Extra = []string{google.DriveScope}
@@ -219,7 +239,7 @@ func (a *app) googleCallbackRoute(w http.ResponseWriter, req *http.Request, p *p
 		http.Redirect(w, req, "/#settings=google&google="+result, http.StatusSeeOther)
 	}
 	q := req.URL.Query()
-	saved := a.pending.take(q.Get("state"))
+	saved := a.pending.take(q.Get("state"), pendingGoogle)
 	if saved == nil || saved.user.ID != p.user.ID || saved.secret == "" {
 		a.audit_(ctx, p.user, "", "google_failed", "state", clientIP(req))
 		done("expired")

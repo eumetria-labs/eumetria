@@ -6,6 +6,12 @@
 // (days/), fonts and icons never change under the same name, so they are served from
 // the cache first.
 //
+// The user's data (the API's, and their files) is kept only when the page
+// says this device may: the session is "Keep me signed in" (the offline-ok
+// entry in the FLAGS cache, account.js). Otherwise it always comes from the
+// network and nothing of it stays on the device once the session ends
+// (pentest F11).
+//
 // Two caches: CACHE holds the page and the data and is replaced with each
 // new version of the page (the data only once it was loaded: it needs a
 // signed-in user, so it can't be precached); DATA holds the files the data
@@ -15,16 +21,18 @@
 // are kept, never a 401 or the sign-in; the page clears the data when the
 // user signs out, gets a 401 or another user signs in (account.js).
 
-const CACHE = 'stats-v38';
+const CACHE = 'stats-v47';
 const DATA = 'stats-data-v1';
+const FLAGS = 'eumetria-flags';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/main.js', 'js/format.js', 'js/insights.js', 'js/state.js', 'js/dom.js', 'js/charts.js', 'js/sheet.js', 'js/lightbox.js', 'js/admin.js',
   'js/health.js', 'js/workout.js', 'js/recovery.js', 'js/device.js', 'js/training.js', 'js/scores.js', 'js/table.js', 'js/query.js', 'js/recipe.js', 'js/quality.js', 'js/foodquality.js', 'js/reviewtext.js', 'js/weekly.js', 'js/history.js',
-  'js/today.js', 'js/energy.js', 'js/weight.js', 'js/macros.js', 'js/movement.js', 'js/foods.js', 'js/dialog.js', 'js/sections.js', 'js/search.js', 'js/export.js', 'js/zip.js', 'js/report.js', 'js/snapshot.js', 'js/share.js', 'js/cards.js', 'js/account.js', 'js/security.js', 'js/manage.js', 'js/notes.js', 'js/lifts.js', 'js/wods.js', 'js/markdown.js', 'js/profile.js', 'js/settings.js', 'js/upload.js', 'js/webauthn.js', 'js/sources.js', 'js/i18n.js', 'js/de.js',
+  'js/today.js', 'js/energy.js', 'js/weight.js', 'js/macros.js', 'js/movement.js', 'js/foods.js', 'js/dialog.js', 'js/sections.js', 'js/search.js', 'js/export.js', 'js/zip.js', 'js/report.js', 'js/snapshot.js', 'js/share.js', 'js/cards.js', 'js/account.js', 'js/security.js', 'js/stepup.js', 'js/manage.js', 'js/notes.js', 'js/lifts.js', 'js/wods.js', 'js/markdown.js', 'js/profile.js', 'js/settings.js', 'js/upload.js', 'js/webauthn.js', 'js/sources.js', 'js/i18n.js', 'js/de.js',
   'fonts/inter-latin-var.woff2', 'icons/icon-192.png', 'icons/mark.svg',
 ];
 const IMMUTABLE = /\/(photos|note-images|avatars|routes|days|fonts|icons|vendor)\//;
+const PERSONAL = /\/(photos|note-images|avatars|routes|days)\//;
 const PRUNABLE = /\/(photos|routes|days)\//;
 const OFFLINE_API = /\/api\/(stats|notes)$/;
 
@@ -35,7 +43,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== DATA).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== DATA && k !== FLAGS).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -49,8 +57,18 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.includes('/api/') && !data) return;
   // The data is stored under one key, whatever query it was asked with.
   const key = data ? new Request(url.origin + url.pathname) : e.request;
-  e.respondWith(IMMUTABLE.test(url.pathname) ? cacheFirst(e.request) : networkFirst(e.request, key));
+  const mine = data || PERSONAL.test(url.pathname);
+  e.respondWith((async () => {
+    // The user's data, on a device that may not keep it: the network only.
+    if (mine && !(await offlineOk())) return fetch(e.request);
+    return IMMUTABLE.test(url.pathname) ? cacheFirst(e.request) : networkFirst(e.request, key);
+  })());
 });
+
+// offlineOk reports whether this device may keep the user's data.
+async function offlineOk() {
+  return !!(await (await caches.open(FLAGS)).match('offline-ok'));
+}
 
 async function networkFirst(request, key) {
   const cache = await caches.open(CACHE);

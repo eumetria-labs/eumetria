@@ -27,3 +27,12 @@ services:
       options:
         max-size: 10m
         max-file: "3"
+
+# A fixed network, so nginx on the host always reaches the container from
+# the same address, its gateway: TRUSTED_PROXY in eumetria.env names it.
+# Pick another /24 if this one is taken on your host.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.90.0/24 # gateway 172.30.90.1 = nginx on the host

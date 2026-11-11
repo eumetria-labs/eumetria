@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log"
-	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,12 +31,13 @@ import (
 // ticket into a session. A passkey that verified its user (fingerprint,
 // face, PIN) signs in on its own, without the password.
 //
-// Changing one's factors needs a sign-in within the last 10 minutes.
-// Admins without a second factor can read but not sync or see the audit log.
+// Changing one's factors needs a recent proof of who one is: the sign-in, or
+// confirming it again (stepup.go). Admins without a second factor can read
+// but not sync or see the audit log.
 
 const (
 	ticketTTL = 5 * time.Minute
-	freshFor  = 10 * time.Minute
+	freshFor  = 5 * time.Minute // how long a sign-in or step-up counts as recent
 )
 
 /* ---------- what lives between two requests ---------- */
@@ -43,100 +46,180 @@ const (
 // request that starts it and the one that finishes it. A restart forgets
 // them, which only means starting over.
 type pending struct {
+	kind     pendingKind
 	until    time.Time
+	ip       string // who started it, when that was before any sign-in
 	user     *auth.User
 	remember bool
 	tries    int
 	wa       *webauthn.SessionData // the challenge of a WebAuthn ceremony
 	secret   string                // a TOTP secret waiting for its first code
 	name     string                // a key's name waiting for its registration
+	enrol    string                // the enrolment link a first factor is set up with
 }
+
+// pendingKind tells what a pending entry is. Each request only finds the
+// kind it works with: a sign-in that starts with a passkey can't take (and
+// so cancel) someone's TOTP set-up, nor use a Google sign-in's state as a
+// ticket.
+type pendingKind int
+
+const (
+	pendingTicket       pendingKind = iota + 1 // the password was right; a second factor follows
+	pendingPasskeyLogin                        // a sign-in with a passkey alone
+	pendingKeyAdd                              // a key being added to a signed-in account
+	pendingTOTPAdd                             // an authenticator app being set up
+	pendingGoogle                              // the state of a Google sign-in
+	pendingReauth                              // a key confirming who a signed-in user is
+)
+
+// How many entries the store keeps: in all, and per address for the ones
+// anyone can start without signing in. Each one is small, but a passkey
+// sign-in needs nothing to begin.
+const (
+	pendingMax      = 10_000
+	pendingMaxPerIP = 20
+)
+
+var errPendingFull = errors.New("too many sign-ins in progress")
 
 type pendingStore struct {
 	mu sync.Mutex
 	m  map[string]*pending
 }
 
-// put keeps p under key, or under a new random id when key is "".
-func (s *pendingStore) put(key string, p *pending) string {
+// put keeps p as kind under key, or under a new random id when key is "".
+// ip, when not "", counts it against the address that started it.
+func (s *pendingStore) put(key string, kind pendingKind, ip string, p *pending) (string, error) {
 	if key == "" {
 		b := make([]byte, 24)
 		rand.Read(b)
 		key = base64.RawURLEncoding.EncodeToString(b)
 	}
-	p.until = time.Now().Add(ticketTTL)
+	now := time.Now()
+	p.kind, p.ip, p.until = kind, ip, now.Add(ticketTTL)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.m == nil {
 		s.m = map[string]*pending{}
 	}
+	fromIP := 0
 	for k, x := range s.m {
-		if time.Now().After(x.until) {
+		if now.After(x.until) {
 			delete(s.m, k)
+		} else if ip != "" && x.ip == ip {
+			fromIP++
 		}
 	}
+	if _, replaces := s.m[key]; !replaces && (len(s.m) >= pendingMax || ip != "" && fromIP >= pendingMaxPerIP) {
+		return "", errPendingFull
+	}
 	s.m[key] = p
-	return key
+	return key, nil
 }
 
-// get returns a copy of what is kept under key, or nil.
-func (s *pendingStore) get(key string) *pending {
+// entry is what is kept under key, if it is of kind and still valid. The
+// caller holds the lock.
+func (s *pendingStore) entry(key string, kind pendingKind) *pending {
+	p := s.m[key]
+	if p == nil || p.kind != kind {
+		return nil
+	}
+	if time.Now().After(p.until) {
+		delete(s.m, key)
+		return nil
+	}
+	return p
+}
+
+// get returns a copy of what is kept under key as kind, or nil.
+func (s *pendingStore) get(key string, kind pendingKind) *pending {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p := s.m[key]
-	if p == nil || time.Now().After(p.until) {
-		delete(s.m, key)
+	p := s.entry(key, kind)
+	if p == nil {
 		return nil
 	}
 	c := *p
 	return &c
 }
 
-func (s *pendingStore) take(key string) *pending {
-	p := s.get(key)
+// take is get, and removes it. Something of another kind under key stays.
+func (s *pendingStore) take(key string, kind pendingKind) *pending {
 	s.mu.Lock()
-	delete(s.m, key)
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	p := s.entry(key, kind)
+	if p != nil {
+		delete(s.m, key)
+	}
 	return p
 }
 
-// set replaces what is kept under key, keeping its expiry.
-func (s *pendingStore) set(key string, update func(*pending)) {
+// set changes what is kept under key as kind, keeping its expiry.
+func (s *pendingStore) set(key string, kind pendingKind, update func(*pending)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if p := s.m[key]; p != nil {
+	if p := s.entry(key, kind); p != nil {
 		update(p)
 	}
 }
 
-// failed counts a wrong second factor; the fifth ends the ticket.
+// try counts a try of a ticket before it is checked, so parallel tries can't
+// all get past the limit (pentest F16). The sixth ends it.
+func (s *pendingStore) try(key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.entry(key, pendingTicket)
+	if p == nil {
+		return false
+	}
+	if p.tries++; p.tries > 5 {
+		delete(s.m, key)
+		return false
+	}
+	return true
+}
+
+// failed ends a ticket once five tries failed.
 func (s *pendingStore) failed(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if p := s.m[key]; p != nil {
-		if p.tries++; p.tries >= 5 {
-			delete(s.m, key)
-		}
+	if p := s.entry(key, pendingTicket); p != nil && p.tries >= 5 {
+		delete(s.m, key)
 	}
+}
+
+// pendingSalt keys a session's set-ups, so nobody can name them from the
+// session's number.
+var pendingSalt = func() []byte {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return b
+}()
+
+// sessionKey is where the session's set-up of what is kept.
+func sessionKey(what string, p *principal) string {
+	m := hmac.New(sha256.New, pendingSalt)
+	m.Write([]byte(what + ":" + strconv.FormatInt(p.session.ID, 10)))
+	return what + ":" + base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }
 
 /* ---------- WebAuthn ---------- */
 
-// relyingParty is the WebAuthn configuration for the site as the browser
-// sees it: its host is the relying party ID, its origin the only one
-// accepted. Browsers allow WebAuthn only over https, or on plain
+// relyingParty is the WebAuthn configuration for the site: its host is the
+// relying party ID, its origin the only one accepted. That is the public
+// URL from the settings; without one, the site as the request names it
+// (siteURL). Browsers allow WebAuthn only over https, or on plain
 // http://localhost, so that decides the scheme; behind a proxy that ends
 // TLS (nginx) the request itself is plain http and can't tell.
 func (a *app) relyingParty(req *http.Request) (*webauthn.WebAuthn, error) {
-	host := req.Host
-	if h, _, err := net.SplitHostPort(req.Host); err == nil {
-		host = h
+	// The public URL from the settings, or the request's own address.
+	origin := a.siteURL(req)
+	u, err := url.Parse(origin)
+	if err != nil {
+		return nil, err
 	}
-	scheme := "https"
-	if req.TLS == nil && (host == "localhost" || strings.HasSuffix(host, ".localhost")) {
-		scheme = "http"
-	}
-	origin := scheme + "://" + req.Host
+	host := u.Hostname()
 	if rp, ok := a.relyingParties.Load(origin); ok {
 		return rp.(*webauthn.WebAuthn), nil
 	}
@@ -172,6 +255,12 @@ func (a *app) waUser(ctx context.Context, u *auth.User) (*waUser, error) {
 		return nil, err
 	}
 	keys, err := a.store.Keys(ctx, u)
+	// The clone warning says something about one sign-in, not about the key
+	// for good: go-webauthn sets it when the counter doesn't go up, and
+	// keys saved before it was checked may carry an old one (cloned).
+	for i := range keys {
+		keys[i].Credential.Authenticator.CloneWarning = false
+	}
 	return &waUser{u: u, handle: handle, keys: keys}, err
 }
 
@@ -195,6 +284,14 @@ func methods(f auth.Factors) []string {
 // signIn starts a session for u (replacing one this browser may still
 // have) and answers with who is signed in.
 func (a *app) signIn(w http.ResponseWriter, req *http.Request, u *auth.User, remember bool, how string) {
+	if a.startSession(w, req, u, remember, how) {
+		a.writeMe(w, req.Context(), u, "", remember)
+	}
+}
+
+// startSession is signIn without the answer; false when it has answered
+// with an error.
+func (a *app) startSession(w http.ResponseWriter, req *http.Request, u *auth.User, remember bool, how string) bool {
 	ctx := req.Context()
 	if c, err := req.Cookie(sessionCookie); err == nil {
 		if old, ou, err := a.store.Session(ctx, c.Value); err == nil && ou.ID == u.ID {
@@ -206,12 +303,12 @@ func (a *app) signIn(w http.ResponseWriter, req *http.Request, u *auth.User, rem
 	if err != nil {
 		log.Printf("login: %v", err)
 		writeError(w, http.StatusInternalServerError, "server")
-		return
+		return false
 	}
-	a.byName.Reset("name:" + strings.ToLower(u.Name))
+	a.byName.Reset(nameKey(u.Name, ip))
 	setSessionCookie(w, token, remember)
 	a.audit_(ctx, u, "", "login", how, ip)
-	a.writeMe(w, ctx, u)
+	return true
 }
 
 type ticketRequest struct {
@@ -227,28 +324,27 @@ func (a *app) loginCode(w http.ResponseWriter, req *http.Request, _ *principal) 
 	if !readJSON(w, req, &in) {
 		return
 	}
-	t := a.pending.get(in.Ticket)
+	t := a.pending.get(in.Ticket, pendingTicket)
 	if t == nil || t.user == nil {
 		writeError(w, http.StatusUnauthorized, "expired")
 		return
 	}
-	ip := clientIP(req)
-	nameKey := "name:" + strings.ToLower(t.user.Name)
-	if d := max(a.byIP.Blocked("ip:"+ip), a.byName.Blocked(nameKey)); d > 0 {
-		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "locked", "retry_after": int(d.Seconds()) + 1})
-		return
-	}
-	var ok bool
-	var err error
-	switch in.Kind {
-	case "totp":
-		ok, err = a.store.UseTOTP(ctx, t.user, in.Code)
-	case "recovery":
-		ok, err = a.store.UseRecoveryCode(ctx, t.user, in.Code)
-	default:
+	if in.Kind != "totp" && in.Kind != "recovery" {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
+	ip := clientIP(req)
+	tries, ok := a.secondFactorTry(w, in.Ticket, t.user, ip)
+	if !ok {
+		return
+	}
+	var err error
+	if in.Kind == "totp" {
+		ok, err = a.store.UseTOTP(ctx, t.user, in.Code)
+	} else {
+		ok, err = a.store.UseRecoveryCode(ctx, t.user, in.Code)
+	}
+	tries.done(ok || err != nil)
 	if err != nil {
 		log.Printf("login: %v", err)
 		writeError(w, http.StatusInternalServerError, "server")
@@ -259,7 +355,7 @@ func (a *app) loginCode(w http.ResponseWriter, req *http.Request, _ *principal) 
 		writeError(w, http.StatusUnauthorized, "invalid")
 		return
 	}
-	a.pending.take(in.Ticket)
+	a.pending.take(in.Ticket, pendingTicket)
 	if in.Kind == "recovery" {
 		f, _ := a.store.Factors(ctx, t.user)
 		a.audit_(ctx, t.user, "", "recovery_code_used", strconv.Itoa(f.RecoveryLeft)+" left", ip)
@@ -267,10 +363,20 @@ func (a *app) loginCode(w http.ResponseWriter, req *http.Request, _ *principal) 
 	a.signIn(w, req, t.user, t.remember, in.Kind)
 }
 
+// secondFactorTry counts a try of a ticket's second factor: against the
+// ticket (5 tries) and like a password (try). If it may not go ahead, it
+// has answered.
+func (a *app) secondFactorTry(w http.ResponseWriter, ticket string, u *auth.User, ip string) (attempt, bool) {
+	if !a.pending.try(ticket) {
+		writeError(w, http.StatusUnauthorized, "expired")
+		return nil, false
+	}
+	return a.try(w, ip, u.Name)
+}
+
 func (a *app) secondFactorFailed(ctx context.Context, ticket string, u *auth.User, kind, ip string) {
 	a.pending.failed(ticket)
-	a.byIP.Fail("ip:" + ip)
-	a.byName.Fail("name:" + strings.ToLower(u.Name))
+	a.nameFailed(ctx, u.Name, ip)
 	log.Printf("login: wrong %s for %q from %s", kind, u.Name, ip)
 	a.audit_(ctx, u, "", "second_factor_failed", kind, ip)
 }
@@ -281,7 +387,7 @@ func (a *app) loginKeyBegin(w http.ResponseWriter, req *http.Request, _ *princip
 	if !readJSON(w, req, &in) {
 		return
 	}
-	t := a.pending.get(in.Ticket)
+	t := a.pending.get(in.Ticket, pendingTicket)
 	if t == nil || t.user == nil {
 		writeError(w, http.StatusUnauthorized, "expired")
 		return
@@ -295,12 +401,13 @@ func (a *app) loginKeyBegin(w http.ResponseWriter, req *http.Request, _ *princip
 		writeError(w, http.StatusBadRequest, "no_keys")
 		return
 	}
-	a.pending.set(in.Ticket, func(p *pending) { p.wa = sd })
+	a.pending.set(in.Ticket, pendingTicket, func(p *pending) { p.wa = sd })
 	writeJSON(w, http.StatusOK, opts.Response)
 }
 
 type credentialRequest struct {
 	Ticket     string          `json:"ticket,omitempty"`
+	Enrol      string          `json:"enrol,omitempty"` // an enrolment link's token (stepup.go)
 	ID         string          `json:"id,omitempty"`
 	Remember   bool            `json:"remember,omitempty"`
 	Name       string          `json:"name,omitempty"`
@@ -313,7 +420,7 @@ func (a *app) loginKeyFinish(w http.ResponseWriter, req *http.Request, _ *princi
 	if !readJSON(w, req, &in) {
 		return
 	}
-	t := a.pending.get(in.Ticket)
+	t := a.pending.get(in.Ticket, pendingTicket)
 	if t == nil || t.user == nil || t.wa == nil {
 		writeError(w, http.StatusUnauthorized, "expired")
 		return
@@ -322,17 +429,25 @@ func (a *app) loginKeyFinish(w http.ResponseWriter, req *http.Request, _ *princi
 	if !ok {
 		return
 	}
+	tries, ok := a.secondFactorTry(w, in.Ticket, t.user, clientIP(req))
+	if !ok {
+		return
+	}
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(in.Credential)
 	var cred *webauthn.Credential
 	if err == nil {
 		cred, err = rp.ValidateLogin(wu, *t.wa, parsed)
 	}
+	if err == nil && a.cloned(ctx, req, t.user, wu, cred) {
+		err = errCloned
+	}
+	tries.done(err == nil)
 	if err != nil {
 		a.secondFactorFailed(ctx, in.Ticket, t.user, "key", clientIP(req))
 		writeError(w, http.StatusUnauthorized, "invalid")
 		return
 	}
-	a.pending.take(in.Ticket)
+	a.pending.take(in.Ticket, pendingTicket)
 	a.store.KeyUsed(ctx, t.user, cred)
 	a.signIn(w, req, t.user, t.remember, "key")
 }
@@ -362,6 +477,10 @@ func (a *app) loginPasskeyBegin(w http.ResponseWriter, req *http.Request, _ *pri
 		writeError(w, http.StatusServiceUnavailable, "setup")
 		return
 	}
+	// A locked address can't start one either (pentest F20).
+	if a.blocked(w, clientIP(req)) {
+		return
+	}
 	rp, err := a.relyingParty(req)
 	if err != nil {
 		log.Printf("webauthn: %v", err)
@@ -374,7 +493,11 @@ func (a *app) loginPasskeyBegin(w http.ResponseWriter, req *http.Request, _ *pri
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
-	id := a.pending.put("", &pending{wa: sd})
+	id, err := a.pending.put("", pendingPasskeyLogin, clientIP(req), &pending{wa: sd})
+	if err != nil {
+		writeError(w, http.StatusTooManyRequests, "busy")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "options": opts.Response})
 }
 
@@ -384,8 +507,14 @@ func (a *app) loginPasskeyFinish(w http.ResponseWriter, req *http.Request, _ *pr
 	if !readJSON(w, req, &in) {
 		return
 	}
-	t := a.pending.take(in.ID)
+	ip := clientIP(req)
+	tries, ok := a.try(w, ip, "")
+	if !ok {
+		return
+	}
+	t := a.pending.take(in.ID, pendingPasskeyLogin)
 	if t == nil || t.wa == nil {
+		tries.done(true)
 		writeError(w, http.StatusUnauthorized, "expired")
 		return
 	}
@@ -415,9 +544,13 @@ func (a *app) loginPasskeyFinish(w http.ResponseWriter, req *http.Request, _ *pr
 	if err == nil && who.Disabled {
 		err = errors.New("account disabled")
 	}
+	if err == nil {
+		if wu, werr := a.waUser(ctx, who); werr == nil && a.cloned(ctx, req, who, wu, cred) {
+			err = errCloned
+		}
+	}
+	tries.done(err == nil)
 	if err != nil {
-		ip := clientIP(req)
-		a.byIP.Fail("ip:" + ip)
 		log.Printf("login: passkey refused from %s: %v", ip, err)
 		a.audit_(ctx, who, "passkey", "login_failed", "passkey", ip)
 		writeError(w, http.StatusUnauthorized, "invalid")
@@ -428,16 +561,6 @@ func (a *app) loginPasskeyFinish(w http.ResponseWriter, req *http.Request, _ *pr
 }
 
 /* ---------- one's own factors ---------- */
-
-// fresh reports whether the session signed in recently enough to change
-// its second factors; if not, it has answered.
-func (a *app) fresh(w http.ResponseWriter, p *principal) bool {
-	if a.store.Now().Sub(p.session.AuthenticatedAt) <= freshFor {
-		return true
-	}
-	writeError(w, http.StatusForbidden, "reauth")
-	return false
-}
 
 type keyInfo struct {
 	ID           int64      `json:"id"`
@@ -465,8 +588,8 @@ func (a *app) security(w http.ResponseWriter, req *http.Request, p *principal) {
 		list = append(list, ki)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"fresh":         a.store.Now().Sub(p.session.AuthenticatedAt) <= freshFor,
-		"required":      p.user.NeedsSecondFactor(),
+		"fresh":         a.isFresh(p),
+		"required":      a.needsFactor(p.user),
 		"totp":          f.TOTP,
 		"recovery_left": f.RecoveryLeft,
 		"keys":          list,
@@ -476,6 +599,11 @@ func (a *app) security(w http.ResponseWriter, req *http.Request, p *principal) {
 type passwordChange struct {
 	Current string `json:"current"`
 	New     string `json:"new"`
+	// Also end every API token (left out: yes) and the passkeys that sign
+	// in on their own (left out: no): what someone who had the account
+	// may have left behind.
+	RevokeTokens   *bool `json:"revoke_tokens"`
+	RevokePasskeys bool  `json:"revoke_passkeys"`
 }
 
 // Why a new password is refused, for the page's own texts.
@@ -497,19 +625,28 @@ func (a *app) changePassword(w http.ResponseWriter, req *http.Request, p *princi
 		return
 	}
 	ip := clientIP(req)
-	nameKey := "name:" + strings.ToLower(p.user.Name)
-	if d := max(a.byIP.Blocked("ip:"+ip), a.byName.Blocked(nameKey)); d > 0 {
-		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "locked", "retry_after": int(d.Seconds()) + 1})
+	// With a second factor, the current password isn't proof enough: a
+	// stolen session and a known password would get past the factor.
+	f, err := a.store.Factors(ctx, p.user)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
-	ok, err := a.store.PasswordMatches(ctx, p.user, in.Current)
+	if f.Any() && !a.fresh(w, p) {
+		return
+	}
+	tries, ok := a.try(w, ip, p.user.Name)
+	if !ok {
+		return
+	}
+	ok, err = a.store.PasswordMatches(ctx, p.user, in.Current)
+	tries.done(ok || err != nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
 	if !ok {
-		a.byIP.Fail("ip:" + ip)
-		a.byName.Fail(nameKey)
+		a.nameFailed(ctx, p.user.Name, ip)
 		log.Printf("password change: wrong current password for %q from %s", p.user.Name, ip)
 		a.audit_(ctx, p.user, "", "password_change_failed", "", ip)
 		writeError(w, http.StatusForbidden, "wrong_password")
@@ -519,7 +656,8 @@ func (a *app) changePassword(w http.ResponseWriter, req *http.Request, p *princi
 		writeError(w, http.StatusBadRequest, "same")
 		return
 	}
-	if err := a.store.SetPassword(ctx, p.user, in.New, p.session.ID); err != nil {
+	revoke := auth.Revoke{Tokens: in.RevokeTokens == nil || *in.RevokeTokens, Passkeys: in.RevokePasskeys}
+	if err := a.store.SetPassword(ctx, p.user, in.New, p.session.ID, revoke); err != nil {
 		if why, ok := passwordReasons[err]; ok {
 			writeError(w, http.StatusBadRequest, why)
 			return
@@ -528,18 +666,28 @@ func (a *app) changePassword(w http.ResponseWriter, req *http.Request, p *princi
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
-	a.store.SetAuthenticated(ctx, p.session)
-	a.byName.Reset(nameKey)
-	a.audit_(ctx, p.user, "", "password_changed", "", ip)
+	a.byName.Reset(nameKey(p.user.Name, ip))
+	var ended []string
+	if revoke.Tokens {
+		ended = append(ended, "tokens")
+	}
+	if revoke.Passkeys {
+		ended = append(ended, "passkeys")
+	}
+	a.audit_(ctx, p.user, "", "password_changed", strings.Join(ended, ", "), ip)
+	a.notify(ctx, p.user, "password_changed", strings.Join(ended, ", "), ip, p)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func regKey(p *principal) string  { return "reg:" + strconv.FormatInt(p.session.ID, 10) }
-func totpKey(p *principal) string { return "totp:" + strconv.FormatInt(p.session.ID, 10) }
+func regKey(p *principal) string  { return sessionKey("reg", p) }
+func totpKey(p *principal) string { return sessionKey("totp", p) }
 
 func (a *app) keyBegin(w http.ResponseWriter, req *http.Request, p *principal) {
 	var in credentialRequest
 	if !readJSON(w, req, &in) || !a.fresh(w, p) {
+		return
+	}
+	if ok, _ := a.checkEnrol(w, req.Context(), p.user, in.Enrol); !ok {
 		return
 	}
 	rp, wu, ok := a.ceremony(w, req, p.user)
@@ -563,7 +711,10 @@ func (a *app) keyBegin(w http.ResponseWriter, req *http.Request, p *principal) {
 	if name == "" || len(name) > 60 {
 		name = "Passkey"
 	}
-	a.pending.put(regKey(p), &pending{wa: sd, name: name})
+	if _, err := a.pending.put(regKey(p), pendingKeyAdd, "", &pending{wa: sd, name: name, enrol: in.Enrol}); err != nil {
+		writeError(w, http.StatusTooManyRequests, "busy")
+		return
+	}
 	writeJSON(w, http.StatusOK, opts.Response)
 }
 
@@ -573,7 +724,7 @@ func (a *app) keyFinish(w http.ResponseWriter, req *http.Request, p *principal) 
 	if !readJSON(w, req, &in) || !a.fresh(w, p) {
 		return
 	}
-	t := a.pending.take(regKey(p))
+	t := a.pending.take(regKey(p), pendingKeyAdd)
 	if t == nil || t.wa == nil {
 		writeError(w, http.StatusBadRequest, "expired")
 		return
@@ -592,11 +743,15 @@ func (a *app) keyFinish(w http.ResponseWriter, req *http.Request, p *principal) 
 		writeError(w, http.StatusBadRequest, "invalid")
 		return
 	}
+	first, ok := a.firstFactor(w, ctx, p.user, t.enrol)
+	if !ok {
+		return
+	}
 	if err := a.store.AddKey(ctx, p.user, t.name, cred, cred.Flags.UserVerified); err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
-	a.audit_(ctx, p.user, "", "key_added", t.name, clientIP(req))
+	a.factorAdded(ctx, req, p, "key_added", t.name, first)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -613,6 +768,7 @@ func (a *app) keyDelete(w http.ResponseWriter, req *http.Request, p *principal) 
 		return
 	}
 	a.audit_(req.Context(), p.user, "", "key_removed", strconv.FormatInt(id, 10), clientIP(req))
+	a.notify(req.Context(), p.user, "key_removed", "", clientIP(req), p)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -620,7 +776,13 @@ func (a *app) keyDelete(w http.ResponseWriter, req *http.Request, p *principal) 
 // outside service ever sees it) and as text. It counts once a code from
 // the app confirms it.
 func (a *app) totpBegin(w http.ResponseWriter, req *http.Request, p *principal) {
-	if !a.fresh(w, p) {
+	var in struct {
+		Enrol string `json:"enrol,omitempty"`
+	}
+	if !readJSON(w, req, &in) || !a.fresh(w, p) {
+		return
+	}
+	if ok, _ := a.checkEnrol(w, req.Context(), p.user, in.Enrol); !ok {
 		return
 	}
 	secret, err := auth.NewTOTPSecret()
@@ -633,7 +795,10 @@ func (a *app) totpBegin(w http.ResponseWriter, req *http.Request, p *principal) 
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
-	a.pending.put(totpKey(p), &pending{secret: secret})
+	if _, err := a.pending.put(totpKey(p), pendingTOTPAdd, "", &pending{secret: secret, enrol: in.Enrol}); err != nil {
+		writeError(w, http.StatusTooManyRequests, "busy")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{
 		"secret": secret,
 		"uri":    uri,
@@ -647,7 +812,7 @@ func (a *app) totpConfirm(w http.ResponseWriter, req *http.Request, p *principal
 	if !readJSON(w, req, &in) || !a.fresh(w, p) {
 		return
 	}
-	t := a.pending.get(totpKey(p))
+	t := a.pending.get(totpKey(p), pendingTOTPAdd)
 	if t == nil || t.secret == "" {
 		writeError(w, http.StatusBadRequest, "expired")
 		return
@@ -657,12 +822,16 @@ func (a *app) totpConfirm(w http.ResponseWriter, req *http.Request, p *principal
 		writeError(w, http.StatusBadRequest, "invalid")
 		return
 	}
+	first, ok := a.firstFactor(w, ctx, p.user, t.enrol)
+	if !ok {
+		return
+	}
 	if err := a.store.SetTOTP(ctx, p.user, t.secret, step); err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
-	a.pending.take(totpKey(p))
-	a.audit_(ctx, p.user, "", "totp_added", "", clientIP(req))
+	a.pending.take(totpKey(p), pendingTOTPAdd)
+	a.factorAdded(ctx, req, p, "totp_added", "", first)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -675,6 +844,7 @@ func (a *app) totpDelete(w http.ResponseWriter, req *http.Request, p *principal)
 		return
 	}
 	a.audit_(req.Context(), p.user, "", "totp_removed", "", clientIP(req))
+	a.notify(req.Context(), p.user, "totp_removed", "", clientIP(req), p)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -690,19 +860,30 @@ func (a *app) recoveryCodes(w http.ResponseWriter, req *http.Request, p *princip
 		return
 	}
 	a.audit_(req.Context(), p.user, "", "recovery_codes_made", "", clientIP(req))
+	a.notify(req.Context(), p.user, "recovery_codes_made", "", clientIP(req), p)
 	writeJSON(w, http.StatusOK, map[string]any{"codes": codes})
 }
 
-// fromProxy reports whether the request came through the local reverse
-// proxy, whose X-Real-IP is then believed: from this machine, or from a
-// private address, which is how Docker's port forwarding delivers it
-// (the bridge's gateway, e.g. 172.17.0.1). The container's port is bound
-// to 127.0.0.1 on the host, so nothing else gets there.
-func fromProxy(req *http.Request) bool {
-	host, _, err := net.SplitHostPort(req.RemoteAddr)
-	if err != nil {
-		host = req.RemoteAddr
+var errCloned = errors.New("the key's signature counter went back: a copy of it may be in use")
+
+// cloned reports whether a sign-in with cred looks like one with a copy of
+// the key (pentest F14): its signature counter didn't go up. Keys that
+// always send 0, as synced passkeys do, never trip it. The sign-in is then
+// refused, the audit log and the user's notices say so, and the key keeps
+// its counter, so the copy can't move it on either.
+func (a *app) cloned(ctx context.Context, req *http.Request, u *auth.User, wu *waUser, cred *webauthn.Credential) bool {
+	if !cred.Authenticator.CloneWarning {
+		return false
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
+	name := "?"
+	for _, k := range wu.keys {
+		if string(k.Credential.ID) == string(cred.ID) {
+			name = k.Name
+		}
+	}
+	ip := clientIP(req)
+	log.Printf("WARNING: %s's key %q sent a signature counter that didn't go up (stored %d), from %s: refused, may be cloned", u.Name, name, cred.Authenticator.SignCount, ip)
+	a.audit_(ctx, u, "", "key_clone_warning", name, ip)
+	a.notify(ctx, u, "key_clone_warning", name, ip, nil)
+	return true
 }

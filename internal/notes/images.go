@@ -28,11 +28,7 @@ func ValidImageName(name string) bool { return imageName.MatchString(name) }
 
 // SaveImage writes raw anew into dir and returns its file name.
 func SaveImage(dir string, raw []byte) (string, error) {
-	img, err := picture.Decode(raw)
-	if err != nil {
-		return "", err
-	}
-	clean, err := picture.JPEG(img)
+	clean, err := picture.Clean(raw, picture.NotePixels, nil)
 	if err != nil {
 		return "", err
 	}
@@ -55,18 +51,13 @@ func (s *Store) PruneImages(ctx context.Context, dir string, before time.Time) (
 	if err != nil {
 		return 0, err
 	}
-	list, err := s.List(ctx)
+	used, err := s.UsedImages(ctx)
 	if err != nil {
 		return 0, err
 	}
-	var used strings.Builder
-	for _, n := range list {
-		used.WriteString(n.Markdown)
-	}
-	all := used.String()
 	gone := 0
 	for _, f := range files {
-		if !ValidImageName(f.Name()) || strings.Contains(all, f.Name()) {
+		if !ValidImageName(f.Name()) || used(f.Name()) {
 			continue
 		}
 		info, err := f.Info()
@@ -78,5 +69,69 @@ func (s *Store) PruneImages(ctx context.Context, dir string, before time.Time) (
 		}
 		gone++
 	}
-	return gone, nil
+	// The record of who uploaded them goes with them.
+	_, err = s.DB.ExecContext(ctx, "DELETE FROM note_uploads WHERE created_at < ?", before.Unix())
+	return gone, err
+}
+
+// UsedImages returns whether a note embeds the image named name.
+func (s *Store) UsedImages(ctx context.Context) (func(name string) bool, error) {
+	list, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var b strings.Builder
+	for _, n := range list {
+		b.WriteString(n.Markdown)
+	}
+	all := b.String()
+	return func(name string) bool { return strings.Contains(all, name) }, nil
+}
+
+// RecordUpload notes that user uploaded the image name.
+func (s *Store) RecordUpload(ctx context.Context, name string, user int64) error {
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO note_uploads (name, user_id, created_at) VALUES (?, ?, ?)", name, user, s.Now().Unix())
+	return err
+}
+
+// PendingUploads counts user's uploads no note embeds (yet).
+func (s *Store) PendingUploads(ctx context.Context, user int64) (int, error) {
+	used, err := s.UsedImages(ctx)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := s.DB.QueryContext(ctx, "SELECT name FROM note_uploads WHERE user_id = ?", user)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return 0, err
+		}
+		if !used(name) {
+			n++
+		}
+	}
+	return n, rows.Err()
+}
+
+// DirSize is how many bytes the files in dir take, 0 for a missing dir.
+func DirSize(dir string) (int64, error) {
+	files, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	for _, f := range files {
+		if info, err := f.Info(); err == nil && info.Mode().IsRegular() {
+			n += info.Size()
+		}
+	}
+	return n, nil
 }

@@ -242,8 +242,9 @@ type Store struct {
 
 type scanner interface{ Scan(...any) error }
 
-const selectWorkout = `SELECT w.id, w.name, w.scoring, w.time_cap, w.description, c.name, u.name, w.created_at, w.updated_at
-	FROM wods w JOIN users c ON c.id = w.created_by JOIN users u ON u.id = w.updated_by`
+// An author whose account was deleted is "".
+const selectWorkout = `SELECT w.id, w.name, w.scoring, w.time_cap, w.description, coalesce(c.name, ''), coalesce(u.name, ''), w.created_at, w.updated_at
+	FROM wods w LEFT JOIN users c ON c.id = w.created_by LEFT JOIN users u ON u.id = w.updated_by`
 
 func scanWorkout(row scanner) (Workout, error) {
 	var w Workout
@@ -253,8 +254,8 @@ func scanWorkout(row scanner) (Workout, error) {
 	return w, err
 }
 
-const selectResult = `SELECT r.id, r.wod_id, r.value, r.reps, r.scaled, r.capped, r.fitbit_workout, r.date, r.note, c.name, u.name, r.created_at, r.updated_at
-	FROM wod_results r JOIN users c ON c.id = r.created_by JOIN users u ON u.id = r.updated_by`
+const selectResult = `SELECT r.id, r.wod_id, r.value, r.reps, r.scaled, r.capped, r.fitbit_workout, r.date, r.note, coalesce(c.name, ''), coalesce(u.name, ''), r.created_at, r.updated_at
+	FROM wod_results r LEFT JOIN users c ON c.id = r.created_by LEFT JOIN users u ON u.id = r.updated_by`
 
 func scanResult(row scanner) (Result, error) {
 	var r Result

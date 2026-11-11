@@ -36,8 +36,9 @@ type Store struct {
 	Now func() time.Time
 }
 
-const selectNote = `SELECT n.workout_id, n.markdown, c.name, u.name, u.id, coalesce(p.avatar, 0), n.created_at, n.updated_at
-	FROM notes n JOIN users c ON c.id = n.created_by JOIN users u ON u.id = n.updated_by
+// An author whose account was deleted is "" (the page says "deleted user").
+const selectNote = `SELECT n.workout_id, n.markdown, coalesce(c.name, ''), coalesce(u.name, ''), coalesce(u.id, 0), coalesce(p.avatar, 0), n.created_at, n.updated_at
+	FROM notes n LEFT JOIN users c ON c.id = n.created_by LEFT JOIN users u ON u.id = n.updated_by
 	LEFT JOIN profiles p ON p.user_id = u.id`
 
 type scanner interface{ Scan(...any) error }

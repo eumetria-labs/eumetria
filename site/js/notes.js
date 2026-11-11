@@ -47,7 +47,8 @@ function mayEdit() {
   return !!u?.scopes?.includes('edit.notes') && (!u.needs_second_factor || !!u.demo);
 }
 
-const byline = (n) => t('by {name}, {date}', { name: n.updated_by, date: dfNote.format(new Date(n.updated_at)) });
+// An author whose account was deleted comes as "".
+const byline = (n) => t('by {name}, {date}', { name: n.updated_by || t('deleted user'), date: dfNote.format(new Date(n.updated_at)) });
 
 // A workout's note as its window shows it, or null when there is nothing to
 // show or add.
@@ -153,6 +154,10 @@ async function refusedImage(res) {
   const why = await reason(res);
   if (res.status === 413 || why === 'too_long') return t('That image is too large.');
   if (why === 'bad_image') return t('That image can’t be used.');
+  if (why === 'too_many_pending') return t('Too many images wait for their note. Save the note first, or remove images you don’t use.');
+  if (why === 'too_many_images') return t('That’s a lot of images for one hour. Try again later.');
+  if (why === 'storage_full') return t('There’s no room for more images. Tell an admin.');
+  if (why === 'busy') return t('The server is busy with other images. Try again in a moment.');
   return refused(res);
 }
 

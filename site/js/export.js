@@ -189,11 +189,18 @@ function bestTables({ lifts = [], wods = { workouts: [], results: [] } }, from, 
   ];
 }
 
+// toCSV writes rows as CSV. Text that a spreadsheet would take for a
+// formula (=, +, -, @, a tab or a carriage return first) gets a ' in front
+// and quotes around it, so opening the file runs nothing (pentest F10):
+// notes, lift names and food names come from other users and from Yazio.
+// Numbers stay numbers, negative ones too.
 export function toCSV(columns, rows) {
   const cell = (v) => {
     if (v == null) return '';
-    const s = String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    let s = String(v);
+    const formula = typeof v === 'string' && /^[=+\-@\t\r]/.test(s) && !/^[-+]?\d+([.,]\d+)?$/.test(s);
+    if (formula) s = "'" + s;
+    return formula || /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return [columns.join(','), ...rows.map((r) => columns.map((k) => cell(r[k])).join(','))].join('\n') + '\n';
 }

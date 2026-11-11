@@ -1,13 +1,14 @@
 // The profile (account menu → Profile): the picture, what users say about
 // themselves, a way to the security settings, their API tokens and the
 // devices they are signed in on. All of it is their own (profile.go). Making
-// a token needs a sign-in within the last 10 minutes; the window offers to
-// sign in again and come back here ("#profile").
+// a token needs a recent proof of who one is, which api() asks for when
+// needed (stepup.js).
 
 import { LOCALE, deviceName } from './format.js';
-import { h, setHashParam } from './dom.js';
+import { h } from './dom.js';
 import { openDialog } from './dialog.js';
-import { account, api, reason, refreshUser, signOut } from './account.js';
+import { account, api, reason, refreshUser } from './account.js';
+import { confirmNote } from './stepup.js';
 import { openSecurity } from './security.js';
 import { imageForUpload } from './upload.js';
 import { t, tn } from './i18n.js';
@@ -135,6 +136,30 @@ function aboutSection(p) {
   const first = field('first_name', t('First name'), { autocomplete: 'given-name', maxlength: '64' });
   const surname = field('surname', t('Surname'), { autocomplete: 'family-name', maxlength: '64' });
   const email = field('email', t('E-mail'), { type: 'email', autocomplete: 'email', maxlength: '254' });
+  // Whether the address is confirmed: only then do alerts go there.
+  const state = h('p', { class: 'muted pf-email-state' });
+  form.append(state);
+  const showState = (q) => {
+    const resend = h('button', { class: 'pill-btn', type: 'button' }, q.email_pending ? t('Send the link again') : t('Send a confirmation link'));
+    resend.onclick = async () => {
+      resend.disabled = true;
+      const res = await api('profile/email/send', 'POST').catch(() => null);
+      if (res?.ok) return showState({ ...(await res.json()), sent: true });
+      resend.disabled = false;
+      if (res && (await reason(res.clone())) === 'reauth') return state.after(confirmNote());
+    };
+    let text = '';
+    if (q.email_pending) text = t('Waiting for {email} to be confirmed: open the link sent there.', { email: q.email_pending });
+    else if (!q.email) text = '';
+    else if (q.email_verified) text = t('Confirmed: security alerts go to this address.');
+    else if (q.mail) text = t('Not confirmed yet: no alerts go there.');
+    else text = t('This server sends no e-mail, so the address isn’t confirmed.');
+    if (q.sent) text = t('Sent. Open the link in the mail while signed in here.');
+    state.replaceChildren(text);
+    if (q.mail && !q.sent && (q.email_pending || (q.email && !q.email_verified))) state.append(' ', resend);
+    state.hidden = !text;
+  };
+  showState(p);
   const instagram = field('instagram', t('Instagram handle'), { autocapitalize: 'none', spellcheck: 'false', maxlength: '31' });
   const msg = message();
   const save = h('button', { class: 'pill-btn', type: 'submit' }, t('Save'));
@@ -149,9 +174,13 @@ function aboutSection(p) {
       if (res.ok) {
         const q = await res.json();
         instagram.value = q.instagram;
-        return say(msg, t('Saved.'));
+        email.value = q.email;
+        showState(q);
+        return say(msg, q.email_pending ? t('Saved. A confirmation link went to the new address; until then mail goes to the old one.') : t('Saved.'));
       }
-      say(msg, PROFILE_ERRORS[await reason(res)]?.() || t('That didn’t work. Try again.'), true);
+      const why = await reason(res);
+      if (why === 'reauth') return form.before(confirmNote());
+      say(msg, PROFILE_ERRORS[why]?.() || t('That didn’t work. Try again.'), true);
     } catch {
       say(msg, t('Server not reachable.'), true);
     } finally {
@@ -231,7 +260,7 @@ function tokenForm(body, returnFocus) {
       const res = await api('tokens', 'POST', { name: name.value.trim(), scopes: boxes.filter((b) => b.checked).map((b) => b.value), days: Number(expiry.value) });
       if (res.ok) return await render(body, returnFocus, (await res.json()).token);
       const why = await reason(res);
-      if (why === 'reauth') return form.before(reauthNote());
+      if (why === 'reauth') return form.before(confirmNote());
       say(msg, { bad_scopes: t('Pick at least one thing the token may do.'), bad_name: t('Give the token a name.'), second_factor_required: t('Set up a second factor first: syncing needs one.') }[why] || t('That didn’t work. Try again.'), true);
     } catch {
       say(msg, t('Server not reachable.'), true);
@@ -249,17 +278,6 @@ function tokenShown(token) {
   const copy = h('button', { class: 'pill-btn', type: 'button' }, t('Copy'));
   copy.onclick = () => navigator.clipboard?.writeText(token).then(() => { copy.textContent = t('Copied'); });
   box.append(copy);
-  return box;
-}
-
-function reauthNote() {
-  const box = h('div', { class: 'notice notice-row' });
-  const again = h('button', { class: 'pill-btn', type: 'button' }, t('Sign in again'));
-  again.onclick = () => {
-    setHashParam('profile', '');
-    signOut(false);
-  };
-  box.append(h('span', {}, t('To make a token, sign in again: your last sign-in was more than 10 minutes ago.')), again);
   return box;
 }
 

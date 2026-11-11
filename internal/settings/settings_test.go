@@ -257,3 +257,37 @@ func TestBackupPassphrase(t *testing.T) {
 		}
 	}
 }
+
+// The public URL is a site address and nothing else; a slash at the end
+// goes. PUBLIC_URL fills it in until it is set here.
+func TestPublicURL(t *testing.T) {
+	ctx := context.Background()
+	s := open(t, testKey)
+	for _, bad := range []string{
+		"eumetria.example.org", "http://eumetria.example.org", "ftp://x.example", "https://",
+		"https://user:pw@x.example", "https://x.example/path", "https://x.example/?a=1", "https://x.example/#f",
+		"javascript:alert(1)",
+	} {
+		var b BadValue
+		if err := s.Save(ctx, map[string]string{"public_url": bad}, nil); !errors.As(err, &b) {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	t.Setenv("PUBLIC_URL", "https://from-env.example")
+	if v, _ := s.Values(ctx); v.PublicURL != "https://from-env.example" {
+		t.Errorf("from the env = %q", v.PublicURL)
+	}
+	for in, want := range map[string]string{
+		"https://eumetria.example.org/":     "https://eumetria.example.org",
+		"https://eumetria.example.org:8443": "https://eumetria.example.org:8443",
+		"http://localhost:8080":             "http://localhost:8080",
+		"":                                  "",
+	} {
+		if err := s.Save(ctx, map[string]string{"public_url": in}, nil); err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if v, _ := s.Values(ctx); in != "" && v.PublicURL != want {
+			t.Errorf("%q → %q, want %q", in, v.PublicURL, want)
+		}
+	}
+}

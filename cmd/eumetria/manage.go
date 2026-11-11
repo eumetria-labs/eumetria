@@ -2,8 +2,11 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -50,6 +53,8 @@ func (a *app) failed(w http.ResponseWriter, what string, err error) {
 		reason, code = "self", http.StatusConflict
 	case errors.Is(err, auth.ErrLastAdmin):
 		reason, code = "last_admin", http.StatusConflict
+	case errors.Is(err, auth.ErrNotDisabled):
+		reason, code = "not_disabled", http.StatusConflict
 	case errors.Is(err, auth.ErrNotFound), strings.HasPrefix(err.Error(), "unknown role"):
 		reason, code = "not_found", http.StatusNotFound
 	default:
@@ -81,6 +86,8 @@ type newUser struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
 	Role     string `json:"role"`
+	// Instead of a password: invite them at this address (invite.go).
+	Email string `json:"email,omitempty"`
 }
 
 func (a *app) adminCreateUser(w http.ResponseWriter, req *http.Request, p *principal) {
@@ -88,12 +95,32 @@ func (a *app) adminCreateUser(w http.ResponseWriter, req *http.Request, p *princ
 	if !readJSON(w, req, &in) || !a.fresh(w, p) {
 		return
 	}
-	u, err := a.store.CreateUser(req.Context(), strings.TrimSpace(in.Name), in.Password, auth.Role(in.Role))
+	ctx := req.Context()
+	name := strings.TrimSpace(in.Name)
+	if in.Password == "" && in.Email != "" {
+		u, why, err := a.invite(ctx, req, p, name, auth.Role(in.Role), in.Email)
+		if err != nil {
+			a.failed(w, "invite user", err)
+			return
+		}
+		if u == nil {
+			writeError(w, http.StatusBadRequest, why)
+			return
+		}
+		a.audit_(ctx, p.user, "", "user_invited", u.Name+" ("+string(u.Role)+", "+strings.TrimSpace(in.Email)+")", clientIP(req))
+		answer := map[string]any{"id": u.ID, "invited": true, "mailed": why == ""}
+		if why != "" {
+			answer["mail_error"] = why
+		}
+		writeJSON(w, http.StatusCreated, answer)
+		return
+	}
+	u, err := a.store.CreateUser(ctx, name, in.Password, auth.Role(in.Role))
 	if err != nil {
 		a.failed(w, "create user", err)
 		return
 	}
-	a.audit_(req.Context(), p.user, "", "user_created", u.Name+" ("+string(u.Role)+")", clientIP(req))
+	a.audit_(ctx, p.user, "", "user_created", u.Name+" ("+string(u.Role)+")", clientIP(req))
 	writeJSON(w, http.StatusCreated, map[string]any{"id": u.ID})
 }
 
@@ -140,6 +167,11 @@ func (a *app) adminChangeUser(w http.ResponseWriter, req *http.Request, p *princ
 			return
 		}
 		a.audit_(ctx, p.user, "", "role_set", u.Name+" ("+string(role)+")", ip)
+		// Admin or sync rights: every admin hears of it by mail (phase 6).
+		if now, err := a.store.UserByID(ctx, u.ID); err == nil && now.Elevated() {
+			a.alertAdmins(ctx, fmt.Sprintf("%s (by %s) now has the role %s, with admin or sync rights", u.Name, p.user.Name, role),
+				fmt.Sprintf("%s hat jetzt (durch %s) die Rolle %s, mit Admin- oder Sync-Rechten", u.Name, p.user.Name, role))
+		}
 	}
 	if in.Disabled != nil {
 		if err := a.store.SetDisabled(ctx, u, disabled); err != nil {
@@ -162,6 +194,30 @@ func (a *app) adminChangeUser(w http.ResponseWriter, req *http.Request, p *princ
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// adminDeleteUser removes a disabled account for good (auth.DeleteUser):
+// disabling first makes deleting a second, deliberate step.
+func (a *app) adminDeleteUser(w http.ResponseWriter, req *http.Request, p *principal) {
+	if !a.fresh(w, p) {
+		return
+	}
+	u, ok := a.targetUser(w, req)
+	if !ok {
+		return
+	}
+	if u.ID == p.user.ID {
+		a.failed(w, "delete user", auth.ErrSelf)
+		return
+	}
+	ctx := req.Context()
+	if err := a.store.DeleteUser(ctx, u); err != nil {
+		a.failed(w, "delete user", err)
+		return
+	}
+	os.Remove(filepath.Join(a.avatars, avatarFile(u.ID)))
+	a.audit_(ctx, p.user, "", "user_deleted", u.Name, clientIP(req))
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // adminResetPassword sets a new password for someone who forgot theirs and
 // ends their sessions. Admins change their own in the Security dialog.
 func (a *app) adminResetPassword(w http.ResponseWriter, req *http.Request, p *principal) {
@@ -179,11 +235,12 @@ func (a *app) adminResetPassword(w http.ResponseWriter, req *http.Request, p *pr
 		a.failed(w, "reset password", auth.ErrSelf)
 		return
 	}
-	if err := a.store.SetPassword(req.Context(), u, in.Password, 0); err != nil {
+	if err := a.store.SetPassword(req.Context(), u, in.Password, 0, auth.Revoke{Tokens: true}); err != nil {
 		a.failed(w, "reset password", err)
 		return
 	}
 	a.audit_(req.Context(), p.user, "", "password_reset", u.Name, clientIP(req))
+	a.notify(req.Context(), u, "password_reset", p.user.Name, clientIP(req), p)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -255,6 +312,9 @@ func (a *app) adminSessions(w http.ResponseWriter, req *http.Request, p *princip
 }
 
 func (a *app) adminEndSession(w http.ResponseWriter, req *http.Request, p *principal) {
+	if !a.fresh(w, p) {
+		return
+	}
 	id, err := strconv.ParseInt(req.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found")

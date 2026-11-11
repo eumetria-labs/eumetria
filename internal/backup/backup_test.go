@@ -269,3 +269,23 @@ func TestDue(t *testing.T) {
 		}
 	}
 }
+
+// Skip leaves files out by their name in the archive.
+func TestArchiveSkip(t *testing.T) {
+	o := options(t)
+	images := o.Files["note-images"]
+	os.MkdirAll(images, 0o700)
+	os.WriteFile(filepath.Join(images, "used.jpg"), []byte("u"), 0o600)
+	os.WriteFile(filepath.Join(images, "orphan.jpg"), []byte("o"), 0o600)
+	o.Skip = func(name string) bool { return name == "data/note-images/orphan.jpg" }
+	res, err := Write(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, _ := os.Open(res.Path)
+	defer f.Close()
+	got := names(unpack(t, f))
+	if !strings.Contains(got, "data/note-images/used.jpg") || strings.Contains(got, "orphan") {
+		t.Errorf("archive = %s", got)
+	}
+}

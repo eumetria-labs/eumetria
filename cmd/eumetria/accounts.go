@@ -17,6 +17,8 @@ import (
 	"eumetria/internal/db"
 	sample "eumetria/internal/demo"
 	"eumetria/internal/lifts"
+	"eumetria/internal/mail"
+	"eumetria/internal/settings"
 	"eumetria/internal/wods"
 )
 
@@ -81,7 +83,9 @@ func nextAt(now time.Time, hour, min int) time.Time {
 // request.
 type accountCommand struct {
 	createUser, resetPassword, createToken string
-	resetFactors                           string
+	resetFactors, enrolLink                string
+	mail                                   bool   // with -enrol-link: also mail it
+	email                                  string // with -create-user: invite at this address instead of asking for a password
 	setRole, createRole, deleteRole        string
 	listRoles                              bool
 	role                                   string
@@ -90,7 +94,7 @@ type accountCommand struct {
 }
 
 func (c accountCommand) any() bool {
-	return c.createUser != "" || c.resetPassword != "" || c.createToken != "" || c.resetFactors != "" ||
+	return c.createUser != "" || c.resetPassword != "" || c.createToken != "" || c.resetFactors != "" || c.enrolLink != "" ||
 		c.setRole != "" || c.createRole != "" || c.deleteRole != "" || c.listRoles
 }
 
@@ -111,6 +115,8 @@ func runAccountCommand(ctx context.Context, cfg config, c accountCommand) error 
 	store := auth.NewStore(d)
 	in := bufio.NewReader(os.Stdin)
 	switch {
+	case c.createUser != "" && c.email != "":
+		return inviteCLI(ctx, store, c.createUser, auth.Role(c.role), c.email)
 	case c.createUser != "":
 		pw, err := newPassword(in, c.createUser)
 		if err != nil {
@@ -122,6 +128,9 @@ func runAccountCommand(ctx context.Context, cfg config, c accountCommand) error 
 		}
 		store.Audit(ctx, nil, "cli", "user_created", u.Name+" ("+c.role+")", "")
 		fmt.Printf("Created %s (%s). Sign in at the site.\n", u.Name, u.Role)
+		if needsFactor(u, false) {
+			return printEnrolLink(ctx, store, u, c.mail)
+		}
 	case c.resetPassword != "":
 		u, err := store.UserByName(ctx, c.resetPassword)
 		if err != nil {
@@ -131,11 +140,11 @@ func runAccountCommand(ctx context.Context, cfg config, c accountCommand) error 
 		if err != nil {
 			return err
 		}
-		if err := store.SetPassword(ctx, u, pw, 0); err != nil {
+		if err := store.SetPassword(ctx, u, pw, 0, auth.Revoke{Tokens: true}); err != nil {
 			return err
 		}
 		store.Audit(ctx, nil, "cli", "password_reset", u.Name, "")
-		fmt.Printf("New password set for %s; all of their sessions have ended.\n", u.Name)
+		fmt.Printf("New password set for %s; all of their sessions and API tokens have ended.\n", u.Name)
 	case c.resetFactors != "":
 		u, err := store.UserByName(ctx, c.resetFactors)
 		if err != nil {
@@ -145,7 +154,22 @@ func runAccountCommand(ctx context.Context, cfg config, c accountCommand) error 
 			return err
 		}
 		store.Audit(ctx, nil, "cli", "second_factors_reset", u.Name, "")
+		store.AddNotice(ctx, u, "factors_reset", "", "", "")
 		fmt.Printf("Removed every second factor of %s and ended their sessions. They sign in with the password now and set up new ones.\n", u.Name)
+		if needsFactor(u, false) {
+			return printEnrolLink(ctx, store, u, c.mail)
+		}
+	case c.enrolLink != "":
+		u, err := store.UserByName(ctx, c.enrolLink)
+		if err != nil {
+			return fmt.Errorf("user %q: %w", c.enrolLink, err)
+		}
+		if f, err := store.Factors(ctx, u); err != nil {
+			return err
+		} else if f.Any() {
+			return fmt.Errorf("%s has a second factor already; to start over, use -reset-second-factors", u.Name)
+		}
+		return printEnrolLink(ctx, store, u, c.mail)
 	case c.createToken != "":
 		u, err := store.UserByName(ctx, c.createToken)
 		if err != nil {
@@ -290,4 +314,109 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// printEnrolLink makes an enrolment link for u (stepup.go) and prints it:
+// their first second factor can only be set up with it.
+func printEnrolLink(ctx context.Context, store *auth.Store, u *auth.User, send bool) error {
+	token, expires, err := store.NewEnrolment(ctx, u)
+	if err != nil {
+		return err
+	}
+	store.Audit(ctx, nil, "cli", "enrol_link_made", u.Name, "")
+	// The public URL is a setting anyone may read; no SETTINGS_KEY needed.
+	var base string
+	if conf, err := settings.New(store.DB, ""); err == nil {
+		if v, err := conf.Values(ctx); err == nil {
+			base = v.PublicURL
+		}
+	}
+	fmt.Printf("\n%s needs a second factor and can set up the first one only with this link (once, until %s):\n\n%s\n\n",
+		u.Name, expiresText(expires), enrolLink(base, token))
+	fmt.Println("Hand it over separately from the password.")
+	if base == "" {
+		fmt.Println("(Set the public URL under Settings → General, or PUBLIC_URL, to have the whole link printed.)")
+	}
+	if send {
+		return mailEnrolLinkCLI(ctx, store, u, enrolLink(base, token), expires)
+	}
+	return nil
+}
+
+// mailEnrolLinkCLI sends the link to u's confirmed address, now: the
+// command says whether it worked. The mail server's password may be a
+// sealed setting, so this needs SETTINGS_KEY in the environment.
+func mailEnrolLinkCLI(ctx context.Context, store *auth.Store, u *auth.User, link string, expires time.Time) error {
+	conf, err := settings.New(store.DB, os.Getenv("SETTINGS_KEY"))
+	if err != nil {
+		return err
+	}
+	v, err := conf.Values(ctx)
+	if err != nil {
+		return err
+	}
+	if !v.SMTP.Ready() {
+		return errors.New("e-mail isn't set up (Settings → Email)")
+	}
+	addr, err := store.VerifiedEmail(ctx, u)
+	if err != nil {
+		return err
+	}
+	if addr == "" {
+		return fmt.Errorf("%s has no confirmed e-mail address; hand the link over yourself", u.Name)
+	}
+	body := fmt.Sprintf("Your account %s needs a second factor. Set up the first one with this link: open it, sign in and add a passkey or an authenticator app. It works once, until %s. If you didn't expect this mail, ignore it and tell your admin.\n\n%s\n\n– %s\n",
+		u.Name, expires.In(v.Zone).Format("2006-01-02 15:04"), link, v.Title)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if err := mailSender(v.SMTP).Send(ctx, mail.Message{To: addr, Subject: v.Title + ": Set up your second factor", Body: body}); err != nil {
+		return fmt.Errorf("mailing the link: %w", err)
+	}
+	fmt.Printf("Sent it to %s.\n", addr)
+	return nil
+}
+
+// inviteCLI makes an account for name and mails the invitation to addr now,
+// instead of asking for a password: they choose it themselves (invite.go).
+// The mail server's password may be a sealed setting: SETTINGS_KEY.
+func inviteCLI(ctx context.Context, store *auth.Store, name string, role auth.Role, addr string) error {
+	addr = strings.TrimSpace(addr)
+	if mail.Address(addr) != nil {
+		return fmt.Errorf("%q is no plain e-mail address", addr)
+	}
+	conf, err := settings.New(store.DB, os.Getenv("SETTINGS_KEY"))
+	if err != nil {
+		return err
+	}
+	v, err := conf.Values(ctx)
+	if err != nil {
+		return err
+	}
+	if !v.SMTP.Ready() {
+		return errors.New("e-mail isn't set up (Settings → Email): create the account with a password instead")
+	}
+	// The command line has no request to take the site's address from.
+	if v.PublicURL == "" {
+		return errors.New("set the public URL first (Settings → General, or PUBLIC_URL): the link in the mail needs it")
+	}
+	u, err := store.CreateInvited(ctx, name, role)
+	if err != nil {
+		return err
+	}
+	token, expires, err := store.NewInvite(ctx, u, addr)
+	if err == nil {
+		err = store.SetEmail(ctx, u, addr)
+	}
+	if err != nil {
+		return err
+	}
+	store.Audit(ctx, nil, "cli", "user_invited", u.Name+" ("+string(u.Role)+", "+addr+")", "")
+	m := inviteMessage(v, u, addr, v.PublicURL+"/#invite="+token, expires, "An admin")
+	sendCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if err := mailSender(v.SMTP).Send(sendCtx, m); err != nil {
+		return fmt.Errorf("created %s, but mailing the invitation failed (send it again from Users & Roles): %w", u.Name, err)
+	}
+	fmt.Printf("Created %s (%s) and sent the invitation to %s. It works once, until %s.\n", u.Name, u.Role, addr, expiresText(expires))
+	return nil
 }

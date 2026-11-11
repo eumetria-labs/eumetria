@@ -11,9 +11,24 @@ import (
 // What the admin screens (PLAN M5b) read and change about other users.
 
 var (
-	ErrSelf      = errors.New("admins can't do that to their own account")
-	ErrLastAdmin = errors.New("that would leave no admin")
+	ErrSelf        = errors.New("admins can't do that to their own account")
+	ErrLastAdmin   = errors.New("that would leave no admin")
+	ErrNotDisabled = errors.New("only a disabled account can be deleted")
 )
+
+// DeleteUser removes a disabled account for good: its sessions, tokens,
+// keys, profile and notices go with it; notes, lifts and workouts it wrote
+// stay without an author, and the audit log keeps its name.
+func (s *Store) DeleteUser(ctx context.Context, u *User) error {
+	res, err := s.DB.ExecContext(ctx, "DELETE FROM users WHERE id = ? AND disabled = 1", u.ID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotDisabled
+	}
+	return nil
+}
 
 // UserInfo is a user as the admin screens list them.
 type UserInfo struct {
@@ -26,6 +41,13 @@ type UserInfo struct {
 	CreatedAt           time.Time  `json:"created_at"`
 	LastSeen            *time.Time `json:"last_seen,omitempty"`
 	Sessions            int        `json:"sessions"`
+	// When something about how the account signs in last changed: a key,
+	// an app, recovery codes, a token, the password (security notices).
+	SecurityChanged *time.Time `json:"security_changed,omitempty"`
+	// The user confirmed an e-mail address: alerts and links can reach them.
+	EmailVerified bool `json:"email_verified"`
+	// Invited and hasn't chosen a password yet.
+	Invited bool `json:"invited"`
 }
 
 // UserList lists every account with what the admin needs to know about it.
@@ -33,7 +55,10 @@ func (s *Store) UserList(ctx context.Context) ([]UserInfo, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT u.id, u.name, coalesce(r.name, ''), u.disabled, u.require_second_factor, u.created_at,
 			EXISTS (SELECT 1 FROM totp WHERE user_id = u.id) OR EXISTS (SELECT 1 FROM webauthn_credentials WHERE user_id = u.id),
 			(SELECT max(last_seen_at) FROM sessions WHERE user_id = u.id),
-			(SELECT count(*) FROM sessions WHERE user_id = u.id AND expires_at >= ?)
+			(SELECT count(*) FROM sessions WHERE user_id = u.id AND expires_at >= ?),
+			(SELECT max(created_at) FROM security_notices WHERE user_id = u.id),
+			EXISTS (SELECT 1 FROM profiles WHERE user_id = u.id AND email != '' AND email_verified_at > 0),
+			EXISTS (SELECT 1 FROM invites WHERE user_id = u.id)
 		FROM users u`+roleJoin+` ORDER BY u.name`, s.now())
 	if err != nil {
 		return nil, err
@@ -44,14 +69,18 @@ func (s *Store) UserList(ctx context.Context) ([]UserInfo, error) {
 		var x UserInfo
 		var role string
 		var created int64
-		var seen *int64
-		if err := rows.Scan(&x.ID, &x.Name, &role, &x.Disabled, &x.RequireSecondFactor, &created, &x.SecondFactor, &seen, &x.Sessions); err != nil {
+		var seen, changed *int64
+		if err := rows.Scan(&x.ID, &x.Name, &role, &x.Disabled, &x.RequireSecondFactor, &created, &x.SecondFactor, &seen, &x.Sessions, &changed, &x.EmailVerified, &x.Invited); err != nil {
 			return nil, err
 		}
 		x.Role, x.CreatedAt = Role(role), time.Unix(created, 0).UTC()
 		if seen != nil {
 			t := time.Unix(*seen, 0).UTC()
 			x.LastSeen = &t
+		}
+		if changed != nil {
+			t := time.Unix(*changed, 0).UTC()
+			x.SecurityChanged = &t
 		}
 		out = append(out, x)
 	}

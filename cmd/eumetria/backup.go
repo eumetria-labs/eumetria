@@ -15,6 +15,7 @@ import (
 
 	"eumetria/internal/backup"
 	"eumetria/internal/google"
+	"eumetria/internal/notes"
 	"eumetria/internal/settings"
 )
 
@@ -52,6 +53,7 @@ func writeBackup(ctx context.Context, cfg config, snapshot func(context.Context,
 	now := cfg.now()
 	res, err := backup.Write(ctx, backup.Options{
 		Dir: cfg.backupDir, Now: now, Passphrase: v.BackupPassphrase, Generation: v.BackupPassphraseAt, Snapshot: snapshot,
+		Skip: skipUnusedNoteImages(cfg.noteImageUsed),
 		Files: map[string]string{
 			"history.json": cfg.historyPath, "google-token.json": cfg.googleToken, "photos": cfg.photoDir,
 			"avatars": filepath.Join(cfg.dataDir, "avatars"), "note-images": filepath.Join(cfg.dataDir, "note-images"),
@@ -133,6 +135,11 @@ func (r *runner) startBackup(ctx context.Context) bool {
 			return err
 		}
 		var run backup.Run
+		// Images no note embeds stay out (pentest F21): they are uploads
+		// waiting for their note, or junk, and go within a day anyway.
+		if used, err := (&notes.Store{DB: database, Now: time.Now}).UsedImages(ctx); err == nil {
+			cfg.noteImageUsed = used
+		}
 		err = r.backup(ctx, cfg, database.Snapshot, &run)
 		if err != nil {
 			run.Error = err.Error()
@@ -189,6 +196,9 @@ func (a *app) backups(w http.ResponseWriter, req *http.Request, _ *principal) {
 }
 
 func (a *app) backupNow(w http.ResponseWriter, req *http.Request, p *principal) {
+	if !a.fresh(w, p) {
+		return
+	}
 	code := http.StatusAccepted
 	if a.runner.startBackup(context.WithoutCancel(req.Context())) {
 		a.audit_(req.Context(), p.user, "", "backup_started", "", clientIP(req))
@@ -199,7 +209,10 @@ func (a *app) backupNow(w http.ResponseWriter, req *http.Request, p *principal) 
 }
 
 // backupTestDrive uploads and deletes a small file.
-func (a *app) backupTestDrive(w http.ResponseWriter, req *http.Request, _ *principal) {
+func (a *app) backupTestDrive(w http.ResponseWriter, req *http.Request, p *principal) {
+	if !a.fresh(w, p) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
 	defer cancel()
 	cfg := a.runner.current(ctx)
@@ -288,4 +301,16 @@ func decryptBackup(path string) error {
 	}
 	fmt.Printf("Wrote %s. It isn't encrypted: delete it once you've restored.\n", out)
 	return nil
+}
+
+// skipUnusedNoteImages leaves the note images out of a backup that no note
+// embeds, by used (nil: none are left out).
+func skipUnusedNoteImages(used func(string) bool) func(string) bool {
+	if used == nil {
+		return nil
+	}
+	return func(name string) bool {
+		rest, ok := strings.CutPrefix(name, "data/note-images/")
+		return ok && !used(rest)
+	}
 }

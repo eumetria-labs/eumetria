@@ -1,6 +1,10 @@
 # Tests for every push and pull request; on main, the container image the
 # server runs (README, "Setup on a server"), pushed to GitHub's registry as
 # :latest and :<short commit>. The server's nightly cron pulls :latest.
+#
+# Also weekly, so the image gets Go's patch releases (and the base image's
+# fixes) in weeks without a push, and govulncheck looks at the code again:
+# GitHub mails when a scheduled run fails (pentest F13).
 name: CI
 
 on:
@@ -8,6 +12,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1" # Mondays, 04:17 UTC
 
 permissions:
   contents: read
@@ -19,9 +25,11 @@ jobs:
       TZ: Europe/Berlin
     steps:
       - uses: actions/checkout@v5
+      # The newest 1.26 patch release, as the image build uses (golang:1.26).
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: "1.26.x"
+          check-latest: true
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -33,6 +41,19 @@ jobs:
       - run: node scripts/smoke.js site
         env:
           CHROME_BIN: google-chrome
+
+  # Known vulnerabilities in the code's call paths, with the newest Go. Not
+  # a step the image waits for: a new advisory without a fix yet shouldn't
+  # stop a deploy, but the run turns red and says what to update.
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   image:
     needs: test

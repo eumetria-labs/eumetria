@@ -1481,6 +1481,14 @@ a.q-badges:focus-visible { outline: none; }
 .sec-codes { margin-top: 14px; }
 .sec-code-list { columns: 2; column-gap: 24px; margin: 8px 0 12px; padding-left: 22px; font: 500 14px/1.9 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .sec-row { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Changes to how the account signs in, made elsewhere (account.js). */
+.sec-notices { display: flex; flex-direction: column; gap: 8px; }
+.sec-notices[hidden] { display: none; }
+.sec-notices p { margin: 0; }
+.sec-notice-list { margin: 0; padding-left: 20px; }
+/* Confirming who one is (stepup.js): a small window. */
+.stepup-panel { width: min(440px, 100%); }
+.stepup-panel .sec-body > * + * { margin-top: 12px; }
 .sec-password { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: 8px; align-items: center; }
 .sec-password .field { min-width: 0; }
 .sec-password .sec-msg, .sec-password .pill-btn { grid-column: 1 / -1; justify-self: start; }

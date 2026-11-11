@@ -339,8 +339,8 @@ async function drawMapAsync(host, w) {
   const lines = runs.map((r) => L.polyline(r.pts, { color: zoneColor(r.zone), weight: 4, opacity: 0.95, lineJoin: 'round', lineCap: 'round' }).addTo(map));
   const ring = token('--surface', '#fff');
   const ends = { radius: 6, color: ring, weight: 2, fillOpacity: 1 };
-  L.circleMarker(route[0].slice(0, 2), { ...ends, fillColor: token('--ink', '#222') }).bindTooltip(t('Start')).addTo(map);
-  L.circleMarker(route.at(-1).slice(0, 2), { ...ends, fillColor: token('--ink-2', '#555') }).bindTooltip(t('Finish')).addTo(map);
+  L.circleMarker(route[0].slice(0, 2), { ...ends, fillColor: token('--ink', '#222') }).bindTooltip(h('span', {}, t('Start'))).addTo(map);
+  L.circleMarker(route.at(-1).slice(0, 2), { ...ends, fillColor: token('--ink-2', '#555') }).bindTooltip(h('span', {}, t('Finish'))).addTo(map);
   map.fitBounds(L.featureGroup(lines).getBounds(), { padding: [20, 20] });
   new ResizeObserver(() => map.invalidateSize()).observe(host);
   // The point under the cursor in the elevation profile.

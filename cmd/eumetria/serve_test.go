@@ -115,6 +115,11 @@ func newTestEnv(t *testing.T, withUsers bool) *testEnv {
 	if r.settings, err = settings.New(d, testSettingsKey); err != nil {
 		t.Fatal(err)
 	}
+	// As serve does: the apps' secrets sealed with the same key.
+	accounts.Box = r.settings.Box()
+	if _, err := accounts.SealTOTP(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	e.runner = r
 	e.srv = httptest.NewTLSServer(newHandler(r, os.DirFS(siteDir), data, photos, filepath.Join(dir, "note-images"), filepath.Join(dir, "avatars"), accounts))
 	t.Cleanup(e.srv.Close)
@@ -256,9 +261,11 @@ func TestServeFiles(t *testing.T) {
 		{"/", 200, 200, "no-cache"},
 		{"/fonts/f.woff2", 200, 200, "max-age=604800"},
 		{"/api/stats", 401, 200, "private, no-cache"},
-		{"/" + out.Days[0].Photos[0].Src, 401, 200, "private, max-age=31536000, immutable"},
-		{"/" + out.Days[0].Workouts[0].RouteSrc, 401, 200, "immutable"},
-		{"/" + out.Archive[0], 401, 200, "immutable"},
+		// The user's files: asked for every time, never kept for a year
+		// in the browser's cache (pentest F23).
+		{"/" + out.Days[0].Photos[0].Src, 401, 200, "private, no-cache"},
+		{"/" + out.Days[0].Workouts[0].RouteSrc, 401, 200, "private, no-cache"},
+		{"/" + out.Archive[0], 401, 200, "private, no-cache"},
 		{"/photos/secret.jpg", 401, 404, ""}, // only photos the stats show
 		{"/days/0000000000000000.json", 401, 404, ""},
 		{"/photos/", 404, 404, ""}, // no directory listing
@@ -280,6 +287,26 @@ func TestServeFiles(t *testing.T) {
 		if !strings.Contains(res.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
 			t.Errorf("GET %s has no CSP header", x.path)
 		}
+	}
+}
+
+// An unchanged file is a 304 the second time, by its ETag.
+func TestPersonalFilesRevalidate(t *testing.T) {
+	e := newTestEnv(t, true)
+	c := e.signIn(t, "anna", viewerPassword, false)
+	out := e.statsOf(t, c)
+	path := "/" + out.Archive[0]
+	res, _ := e.do(t, c, "GET", path, "")
+	tag := res.Header.Get("ETag")
+	if res.StatusCode != 200 || tag == "" {
+		t.Fatalf("first = %d, ETag %q", res.StatusCode, tag)
+	}
+	if res, body := e.do(t, c, "GET", path, "", header("If-None-Match", tag)); res.StatusCode != 304 || body != "" {
+		t.Errorf("again = %d %q, want 304", res.StatusCode, body)
+	}
+	// Signing out tells the browser to drop its cached copies.
+	if res, _ := e.do(t, c, "POST", "/api/logout", "{}", sameSite); res.Header.Get("Clear-Site-Data") != `"cache"` {
+		t.Errorf("logout Clear-Site-Data = %q", res.Header.Get("Clear-Site-Data"))
 	}
 }
 
@@ -439,6 +466,15 @@ func TestSyncNeedsAnAdminOrASyncToken(t *testing.T) {
 	var st syncStatus
 	if err := json.Unmarshal([]byte(body), &st); err != nil || res.StatusCode != 200 || !st.Running || !st.All {
 		t.Errorf("status = %d %+v %v; want a running full refresh", res.StatusCode, st, err)
+	}
+
+	// Without a second factor the token stops working too (pentest F5): it
+	// was made while there was one, but the rule is about now.
+	if err := e.store.DeleteTOTP(ctx, patrick); err != nil {
+		t.Fatal(err)
+	}
+	if res, body := e.do(t, plain, "GET", "/api/status", "", bearer(syncTok)); res.StatusCode != 403 || !strings.Contains(body, "second_factor_required") {
+		t.Errorf("sync token after the factor was removed = %d %s", res.StatusCode, body)
 	}
 }
 

@@ -1,19 +1,19 @@
 // The settings (account menu → Settings, admins only). Each tab saves on its
 // own; the server checks every value (settings.go) and a change applies at
 // once. A secret never comes back from the server: the page only learns
-// whether one is set, and a field left empty keeps it. Changes need a sign-in
-// within the last 10 minutes, as in Users & roles; the window offers to sign
-// in again and come back here ("#settings=google").
+// whether one is set, and a field left empty keeps it. Changes need a recent
+// proof of who one is, which api() asks for when needed (stepup.js).
 
 import { LOCALE } from './format.js';
-import { h, setHashParam, tabKeys } from './dom.js';
+import { h, tabKeys } from './dom.js';
 import { openDialog } from './dialog.js';
-import { api, reason, signOut } from './account.js';
+import { api, reason } from './account.js';
+import { confirmNote } from './stepup.js';
 import { t } from './i18n.js';
 
 const dfTime = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-const TABS = [['general', () => t('General')], ['sync', () => t('Sync')], ['yazio', () => 'Yazio'], ['google', () => 'Google'], ['review', () => t('Weekly review')], ['backups', () => t('Backups')]];
+const TABS = [['general', () => t('General')], ['sync', () => t('Sync')], ['yazio', () => 'Yazio'], ['google', () => 'Google'], ['review', () => t('Weekly review')], ['backups', () => t('Backups')], ['mail', () => t('Email')]];
 const POLL_MS = 2000;
 
 let win = null;
@@ -71,7 +71,10 @@ async function load(body, tab, result) {
     data.backups = runs?.ok ? await runs.json() : { runs: [] };
     if (body.dataset.tab !== tab) return;
   }
-  body.replaceChildren(...{ general: generalTab, sync: syncTab, yazio: yazioTab, google: googleTab, review: reviewTab, backups: backupsTab }[tab](body, data, result));
+  // tab comes from the URL (#settings=…): only the object's own tabs count,
+  // not what every object has, such as "constructor" (pentest F8).
+  const tabs = { general: generalTab, sync: syncTab, yazio: yazioTab, google: googleTab, review: reviewTab, backups: backupsTab, mail: mailTab };
+  body.replaceChildren(...(Object.hasOwn(tabs, tab) ? tabs[tab] : generalTab)(body, data, result));
 }
 
 function section(title, note) {
@@ -88,17 +91,6 @@ function showError(body, text) {
   body.prepend(h('p', { class: 'lock-error adm-error', role: 'alert' }, text));
 }
 
-function reauthNote(tab) {
-  const box = h('div', { class: 'notice notice-row adm-error' });
-  const again = h('button', { class: 'pill-btn', type: 'button' }, t('Sign in again'));
-  again.onclick = () => {
-    setHashParam('settings', tab);
-    signOut(false);
-  };
-  box.append(h('span', {}, t('To change anything here, sign in again: your last sign-in was more than 10 minutes ago.')), again);
-  return box;
-}
-
 // send sends a change and draws the tab again; a refusal is shown above it.
 async function send(body, button, run, words) {
   body.querySelector('.adm-error')?.remove();
@@ -107,7 +99,7 @@ async function send(body, button, run, words) {
     const res = await run();
     if (res.ok) return await load(body, body.dataset.tab);
     const why = await (async () => { try { return await res.clone().json(); } catch { return {}; } })();
-    if (why.error === 'reauth') return body.prepend(reauthNote(body.dataset.tab));
+    if (why.error === 'reauth') return body.prepend(confirmNote());
     if (why.error === 'no_key') return showError(body, t('Secrets can’t be stored: SETTINGS_KEY isn’t set on the server.'));
     showError(body, words?.(why) || (why.error === 'no_passphrase' && t('Set a passphrase first: nothing leaves the server unencrypted.')) || t('That didn’t work. Try again.'));
   } catch {
@@ -184,7 +176,7 @@ function form(body, data, fields) {
 }
 
 function noKeyNote(data) {
-  return data.can_encrypt ? [] : [h('p', { class: 'notice' }, t('SETTINGS_KEY isn’t set on the server, so secrets stay in the env file and can’t be changed here.'))];
+  return data.can_encrypt ? [] : [h('p', { class: 'notice' }, t('SETTINGS_KEY isn’t set on the server, so secrets stay in the env file and can’t be changed here, and the authenticator apps’ secrets are kept unencrypted in the database and its backups.'))];
 }
 
 /* ---------- general ---------- */
@@ -197,6 +189,10 @@ function generalTab(body, data) {
   const zoneNote = custom ? t('{zone}, set here', { zone: data.zone.name }) : t('{zone}, from TZ', { zone: data.zone.name });
   sec.append(form(body, data, [
     { key: 'title', label: t('Title') },
+    {
+      key: 'public_url', label: t('Public address'), type: 'url', placeholder: location.origin,
+      hint: t('The address people open, e.g. https://eumetria.example.org. Passkeys, Google sign-in and enrolment links use it; passkeys then work only there. Empty: taken from each request.'),
+    },
     { key: 'language', label: t('Default language'), hint: t('Until someone picks their own in the menu.'), options: [['', 'English'], ['de', 'Deutsch']] },
     { key: 'timezone', label: t('Time zone'), hint: t('What “today” is and when a week ends. In use: {zone}', { zone: zoneNote }), list: zones, placeholder: data.zone.name },
   ]));
@@ -278,13 +274,69 @@ function yazioTab(body, data) {
     test.disabled = true;
     msg.hidden = true;
     const res = await api('admin/settings/test/yazio', 'POST').catch(() => null);
-    const ans = res?.ok ? await res.json() : null;
     test.disabled = false;
+    if (res?.status === 403 && (await reason(res.clone())) === 'reauth') {
+      body.querySelector('.adm-error')?.remove();
+      return body.prepend(confirmNote());
+    }
+    const ans = res?.ok ? await res.json() : null;
     msg.textContent = !ans ? t('Server not reachable.') : ans.ok ? t('Signed in to Yazio.') : t('That didn’t work: {why}', { why: ans.error });
     msg.classList.toggle('lock-error', !ans?.ok);
     msg.hidden = false;
   };
   const check = section(t('Test connection'), t('With the saved values.'));
+  check.append(msg, test);
+  return [...noKeyNote(data), sec, check];
+}
+
+/* ---------- email ---------- */
+
+// The mail server for security alerts and links (email.go): optional. Only
+// encrypted connections; the test mail goes to the admin's own confirmed
+// address.
+const MAIL_ERRORS = {
+  no_address: () => t('Confirm your own e-mail address in your profile first: the test mail goes there.'),
+  mail_off: () => t('Fill in the server and the sender first, and save.'),
+  too_many: () => t('That was a lot of mail for one hour. Try again later.'),
+  demo: () => t('The demo never sends mail.'),
+};
+
+function mailTab(body, data) {
+  const sec = section(t('Mail server'), t('Optional. Security alerts and links then reach people by e-mail too, at their confirmed address.'));
+  sec.append(form(body, data, [
+    { key: 'smtp_host', label: t('Server'), hint: t('e.g. smtp.example.org') },
+    { key: 'smtp_port', label: t('Port'), type: 'number', hint: t('587 with STARTTLS, 465 with TLS.') },
+    { key: 'smtp_tls', label: t('Encryption'), options: [['starttls', 'STARTTLS'], ['implicit', 'TLS']], hint: t('Always encrypted: a server without it gets nothing.') },
+    { key: 'smtp_user', label: t('User name') },
+    { key: 'smtp_password', label: t('Password') },
+    { key: 'smtp_from', label: t('Sender address'), type: 'email', hint: t('The address the mails come from; SPF and DKIM for it are your mail provider’s part.') },
+  ]));
+  const status = h('p', { class: 'muted' });
+  const m = data.mail || {};
+  const when = (d) => dfTime.format(new Date(d));
+  status.textContent = [
+    m.last_sent ? t('Last sent: {when}', { when: when(m.last_sent) }) : t('Nothing sent yet'),
+    m.last_error ? t('Last error ({when}): {why}', { when: when(m.error_at), why: m.last_error }) : '',
+    m.waiting ? t('{n} waiting', { n: m.waiting }) : '',
+  ].filter(Boolean).join(' · ');
+  const msg = h('p', { class: 'sec-msg', role: 'status', hidden: '' });
+  const test = h('button', { class: 'pill-btn', type: 'button' }, t('Send a test mail'));
+  test.onclick = async () => {
+    test.disabled = true;
+    msg.hidden = true;
+    const res = await api('admin/settings/test/smtp', 'POST').catch(() => null);
+    test.disabled = false;
+    if (res?.status === 403 && (await reason(res.clone())) === 'reauth') {
+      body.querySelector('.adm-error')?.remove();
+      return body.prepend(confirmNote());
+    }
+    const ans = res?.ok ? await res.json() : null;
+    const why = !res?.ok && res ? await reason(res) : '';
+    msg.textContent = !res ? t('Server not reachable.') : ans?.ok ? t('Sent to {to}.', { to: ans.to }) : ans ? t('That didn’t work: {why}', { why: ans.error }) : MAIL_ERRORS[why]?.() || t('That didn’t work. Try again.');
+    msg.classList.toggle('lock-error', !ans?.ok);
+    msg.hidden = false;
+  };
+  const check = section(t('Test'), status.textContent);
   check.append(msg, test);
   return [...noKeyNote(data), sec, check];
 }
@@ -301,7 +353,7 @@ const GOOGLE_RESULTS = {
 function googleTab(body, data, result) {
   const g = data.google;
   const parts = noKeyNote(data);
-  const said = GOOGLE_RESULTS[result]?.();
+  const said = Object.hasOwn(GOOGLE_RESULTS, result) ? GOOGLE_RESULTS[result]() : undefined;
   if (said) parts.push(h('p', { class: said[1] ? 'lock-error' : 'sec-msg', role: 'status' }, said[0]));
   const client = section(t('OAuth client'), t('From the Google Cloud console.'));
   client.append(form(body, data, [
@@ -324,7 +376,7 @@ function googleTab(body, data, result) {
     }
     connect.disabled = false;
     const why = res ? await reason(res) : '';
-    if (why === 'reauth') return body.prepend(reauthNote('google'));
+    if (why === 'reauth') return body.prepend(confirmNote());
     showError(body, why === 'no_client' ? t('Save the client ID and secret first.') : t('That didn’t work. Try again.'));
   };
   row.append(connect);
@@ -371,7 +423,7 @@ function reviewTab(body, data) {
     if (!res?.ok) {
       run.disabled = false;
       const why = res ? await reason(res) : '';
-      if (why === 'reauth') return body.prepend(reauthNote('review'));
+      if (why === 'reauth') return body.prepend(confirmNote());
       return showError(body, t('That didn’t work. Try again.'));
     }
     poll(body, line, () => load(body, 'review'));
@@ -478,8 +530,12 @@ function backupsTab(body, data) {
     test.disabled = true;
     msg.hidden = true;
     const res = await api('admin/backups/test-drive', 'POST').catch(() => null);
-    const ans = res?.ok ? await res.json() : null;
     test.disabled = false;
+    if (res?.status === 403 && (await reason(res.clone())) === 'reauth') {
+      body.querySelector('.adm-error')?.remove();
+      return body.prepend(confirmNote());
+    }
+    const ans = res?.ok ? await res.json() : null;
     msg.textContent = !ans ? t('Server not reachable.') : ans.ok ? t('Uploaded and deleted a small file.') : t('That didn’t work: {why}', { why: ans.error });
     msg.classList.toggle('lock-error', !ans?.ok);
     msg.hidden = false;
@@ -498,6 +554,10 @@ function backupsTab(body, data) {
     if (res?.status === 409) {
       now.disabled = false;
       return showError(body, t('A sync is running. Try again when it’s done.'));
+    }
+    if (res?.status === 403 && (await reason(res.clone())) === 'reauth') {
+      now.disabled = false;
+      return body.prepend(confirmNote());
     }
     poll(body, line, () => load(body, 'backups'));
   };

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"eumetria/internal/db"
+	"eumetria/internal/seal"
 )
 
 // Role is the name of a role: a set of scopes (roles.go).
@@ -34,9 +35,12 @@ type Session struct {
 	CreatedAt       time.Time
 	LastSeen        time.Time
 	Expires         time.Time
-	AuthenticatedAt time.Time // the sign-in; changing second factors needs it recent
-	IP              string
-	UserAgent       string
+	AuthenticatedAt time.Time // when the user last proved who they are (sign-in or step-up)
+	// Key tells this session apart from every other, also from later ones
+	// that get its id once it is gone: the hash of its token.
+	Key       string
+	IP        string
+	UserAgent string
 }
 
 type APIToken struct {
@@ -59,7 +63,20 @@ type AuditEntry struct {
 	Action string    `json:"action"`
 	Detail string    `json:"detail,omitempty"`
 	IP     string    `json:"ip,omitempty"`
+	Count  int       `json:"count,omitempty"` // a repeated failure: how often (At is the latest)
 }
+
+// Failures are the audit actions that repeat when someone guesses: within
+// RepeatWindow, the same one (actor, address) adds to one row's count.
+var Failures = []string{"login_failed", "second_factor_failed", "reauth_failed", "password_change_failed"}
+
+const RepeatWindow = 15 * time.Minute
+
+// How long the audit log keeps entries, and how many at most (PruneAudit).
+const (
+	AuditKeep    = 180 * 24 * time.Hour
+	AuditMaxRows = 100_000
+)
 
 // How long a session lasts. With "Remember me" it ends after a week
 // without use, or a month at most; without, after 12 hours either way
@@ -88,6 +105,9 @@ var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$`)
 type Store struct {
 	DB  *db.DB
 	Now func() time.Time
+	// Box seals the authenticator apps' secrets with SETTINGS_KEY; nil
+	// without one, and then they are kept as they are (SealTOTP).
+	Box *seal.Box
 }
 
 func NewStore(d *db.DB) *Store { return &Store{DB: d, Now: time.Now} }
@@ -214,8 +234,8 @@ func (s *Store) PasswordMatches(ctx context.Context, u *User, password string) (
 
 // SetPassword replaces a user's password and ends their sessions, all but
 // keep (0 keeps none): someone who had a session the old password got
-// them doesn't keep it.
-func (s *Store) SetPassword(ctx context.Context, u *User, password string, keep int64) error {
+// them doesn't keep it. revoke ends more (Revoke).
+func (s *Store) SetPassword(ctx context.Context, u *User, password string, keep int64, revoke Revoke) error {
 	if err := ValidatePassword(password, u.Name); err != nil {
 		return err
 	}
@@ -234,7 +254,26 @@ func (s *Store) SetPassword(ctx context.Context, u *User, password string, keep 
 	if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ? AND id != ?", u.ID, keep); err != nil {
 		return err
 	}
+	if revoke.Tokens {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM api_tokens WHERE user_id = ?", u.ID); err != nil {
+			return err
+		}
+	}
+	if revoke.Passkeys {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM webauthn_credentials WHERE user_id = ? AND passwordless = 1", u.ID); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
+}
+
+// Revoke says what else a new password ends, besides the other sessions.
+// Whoever had the account may have left an API token or a passkey of their
+// own behind, and both outlive sessions; after a compromise the new
+// password has to end them too.
+type Revoke struct {
+	Tokens   bool // every API token
+	Passkeys bool // passkeys that sign in on their own (passwordless)
 }
 
 /* ---------- sessions ---------- */
@@ -269,7 +308,7 @@ func (s *Store) CreateSession(ctx context.Context, u *User, remember bool, ip, u
 // Session returns the live session of token and its user. An expired, idle
 // or orphaned one is deleted and reported as ErrNotFound.
 func (s *Store) Session(ctx context.Context, token string) (*Session, *User, error) {
-	sess := &Session{}
+	sess := &Session{Key: HashToken(token)}
 	var created, seen, expires, authed int64
 	u, err := scanUser(s.DB.QueryRowContext(ctx, `SELECT `+userCols+`, s.id, s.user_id, s.remember, s.created_at, s.last_seen_at, s.expires_at, s.authenticated_at, s.ip, s.user_agent
 		FROM sessions s JOIN users u ON u.id = s.user_id`+roleJoin+` WHERE s.token_hash = ?`, HashToken(token)),
@@ -405,14 +444,61 @@ func (s *Store) Audit(ctx context.Context, u *User, actor, action, detail, ip st
 	if len(actor) > 64 {
 		actor = actor[:64]
 	}
+	now := s.now()
+	if slices.Contains(Failures, action) {
+		res, err := s.DB.ExecContext(ctx, `UPDATE audit_log SET count = count + 1, at = ?
+			WHERE id = (SELECT id FROM audit_log WHERE action = ? AND ip = ? AND actor = ? AND detail = ? AND at >= ?
+				ORDER BY at DESC LIMIT 1)`, now, action, ip, actor, detail, now-int64(RepeatWindow.Seconds()))
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			return nil
+		}
+	}
 	_, err := s.DB.ExecContext(ctx, "INSERT INTO audit_log (at, user_id, actor, action, detail, ip) VALUES (?, ?, ?, ?, ?, ?)",
-		s.now(), uid, actor, action, detail, ip)
+		now, uid, actor, action, detail, ip)
 	return err
 }
 
-// AuditLog returns the newest entries first, at most limit.
-func (s *Store) AuditLog(ctx context.Context, limit int) ([]AuditEntry, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id, at, actor, action, detail, ip FROM audit_log ORDER BY id DESC LIMIT ?", limit)
+// Which entries AuditLog returns.
+const (
+	AuditAll      = ""         // everything
+	AuditFailures = "failures" // only Failures
+	AuditSecurity = "security" // everything but Failures
+)
+
+// PruneAudit deletes entries older than AuditKeep, then all but the newest
+// AuditMaxRows. It returns how many it deleted.
+func (s *Store) PruneAudit(ctx context.Context) (int64, error) {
+	res, err := s.DB.ExecContext(ctx, "DELETE FROM audit_log WHERE at < ?", s.Now().Add(-AuditKeep).Unix())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	res, err = s.DB.ExecContext(ctx, `DELETE FROM audit_log WHERE id NOT IN
+		(SELECT id FROM audit_log ORDER BY at DESC, id DESC LIMIT ?)`, AuditMaxRows)
+	if err != nil {
+		return n, err
+	}
+	m, _ := res.RowsAffected()
+	return n + m, nil
+}
+
+// AuditLog returns the newest entries first, at most limit, of which (one
+// of AuditAll, AuditFailures, AuditSecurity).
+func (s *Store) AuditLog(ctx context.Context, limit int, which ...string) ([]AuditEntry, error) {
+	where := ""
+	in := "'" + strings.Join(Failures, "','") + "'"
+	if len(which) > 0 {
+		switch which[0] {
+		case AuditFailures:
+			where = " WHERE action IN (" + in + ")"
+		case AuditSecurity:
+			where = " WHERE action NOT IN (" + in + ")"
+		}
+	}
+	rows, err := s.DB.QueryContext(ctx, "SELECT id, at, actor, action, detail, ip, count FROM audit_log"+where+" ORDER BY at DESC, id DESC LIMIT ?", limit)
 	if err != nil {
 		return nil, err
 	}
@@ -421,10 +507,13 @@ func (s *Store) AuditLog(ctx context.Context, limit int) ([]AuditEntry, error) {
 	for rows.Next() {
 		var e AuditEntry
 		var at int64
-		if err := rows.Scan(&e.ID, &at, &e.Actor, &e.Action, &e.Detail, &e.IP); err != nil {
+		if err := rows.Scan(&e.ID, &at, &e.Actor, &e.Action, &e.Detail, &e.IP, &e.Count); err != nil {
 			return nil, err
 		}
 		e.At = time.Unix(at, 0).UTC()
+		if e.Count == 1 {
+			e.Count = 0 // left out of the JSON
+		}
 		out = append(out, e)
 	}
 	return out, rows.Err()

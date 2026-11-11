@@ -21,7 +21,12 @@ func (e *testEnv) lifter(t *testing.T) *http.Client {
 	if err := e.store.SaveRole(ctx, "Athlete", []string{auth.ViewHealth, auth.EditLifts}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.store.CreateUser(ctx, "athlete", coachPassword, "Athlete"); err != nil {
+	u, err := e.store.CreateUser(ctx, "athlete", coachPassword, "Athlete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Writing needs a second factor (outside -demo): the same app as patrick's.
+	if err := e.store.SetTOTP(ctx, u, e.secret, 0); err != nil {
 		t.Fatal(err)
 	}
 	return e.signIn(t, "athlete", coachPassword, false)

@@ -14,7 +14,7 @@ Eumetria puts the data of the apps you already use onto one page on your own ser
 - 🤖 An optional weekly review written by Claude
 - 🥫 Nutri-Score and NOVA badges from Open Food Facts
 - 📤 Export as CSV/JSON (with workout notes, lifts, benchmark workouts, weekly reviews and goal changes), a printable report with scores and training, share cards for Instagram & co.
-- 🌗 Light and dark mode, English and German, installable on your phone, works offline
+- 🌗 Light and dark mode, English and German, installable on your phone, works offline (when you sign in with "Keep me signed in")
 
 It runs as one small Docker container that serves the page and syncs on a timer.
 
@@ -47,8 +47,10 @@ Keep values in **single quotes**: unquoted, Compose expands `$` and cuts at ` #`
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `SETTINGS_KEY` | – | Encrypts the secrets in the settings. Make it with `openssl rand -hex 32` and **keep a copy outside the server**: it isn't in the backups (that's the point), and without it the secrets have to be typed in again. Without the variable, secrets can't be saved in the page |
+| `SETTINGS_KEY` | – | Encrypts the secrets in the settings and the authenticator apps' secrets. Make it with `openssl rand -hex 32` and **keep a copy outside the server**: it isn't in the backups (that's the point). Without it the settings' secrets have to be typed in again, and authenticator apps stop working (use `-reset-second-factors`, then set them up again). Without the variable, secrets can't be saved in the page and the apps' secrets are kept unencrypted |
 | `TZ` | `UTC` | The default time zone, e.g. `Europe/Berlin` |
+| `PUBLIC_URL` | – | The site's address, e.g. `https://eumetria.example.org`; also under **Settings** → **General**. Passkeys, Google sign-in and enrolment links use it. Without it, they take the address from each request |
+| `TRUSTED_PROXY` | – | nginx's address as the container sees it, `172.30.90.1` with the network in `compose.yaml`: only its `X-Real-IP` counts. Without it, any private address's does. Check with `docker inspect eumetria -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}'`; a wrong value shows as a warning in the log |
 
 Everything else is set in the page, under account menu → **Settings**, after the first sign-in.
 
@@ -65,6 +67,8 @@ Then create your account. It asks for a password of at least 12 characters (comm
 ```sh
 docker compose run --rm -it eumetria -create-user <name> -role admin
 ```
+
+It then prints an **enrolment link**: open it, sign in and set up a passkey or an authenticator app there. An admin needs a second factor, and the first one can only be set up with that link (24 hours, one use; `-enrol-link <name>` makes a new one). Set the public URL (`PUBLIC_URL`, or later **Settings** → **General**) to have the whole link printed.
 
 Until an account exists the page only says how to make one.
 
@@ -104,23 +108,26 @@ Everything but the sign-in page needs an account, and each account has one role.
 | `view.routes` | GPS tracks of workouts (needs `view.health`) |
 | `view.review` | the weekly review |
 | `view.notes` | workout notes (needs `view.health`) |
-| `edit.notes` | add, change and delete notes (needs `view.notes`) |
-| `edit.lifts` | add, change and delete personal bests: lifts and benchmark workouts (needs `view.health`) |
-| `sync` | the sync button, with **Full refresh** in its menu |
+| `edit.notes` | add, change and delete notes (needs `view.notes` and a second factor) |
+| `edit.lifts` | add, change and delete personal bests: lifts and benchmark workouts (needs `view.health` and a second factor) |
+| `sync` | the sync button, with **Full refresh** in its menu (needs a second factor) |
 | `admin` | everything, including the audit log and the credit warning |
 
 Two roles are built in: **admin** (everything) and **viewer** (every `view.*` scope). Make your own for anyone who should see less, e.g. a coach who sees what you eat but not where you run.
 
-**Workout notes** belong to Fitbit workouts: open a workout and write Markdown (headings, bold, italic, lists, inline code, code blocks between ``` lines, `http(s)` links; no HTML). Paste an image with Ctrl+V or use **Add image**: it's uploaded at once, stripped of its metadata and embedded where the cursor is; images from other sites aren't shown. A long note shows its start with a **Show more** button. Notes show in the workout, in the activity's history and in the search, and you can add one to a workout's share card (text only). They live in `app.db`, their images in `note-images/` in the data folder, so both are backed up. A note whose workout has gone from Google stays until an admin deletes it (**Users & roles** → **Notes**).
+**Workout notes** belong to Fitbit workouts: open a workout and write Markdown (headings, bold, italic, lists, inline code, code blocks between ``` lines, `http(s)` links; no HTML). Paste an image with Ctrl+V or use **Add image**: it's uploaded at once, stripped of its metadata and embedded where the cursor is; images from other sites aren't shown. An image no note embeds is deleted after a day and left out of backups; each user can have at most 20 of them waiting and upload 30 an hour, and the folder takes at most 2 GB. A long note shows its start with a **Show more** button. Notes show in the workout, in the activity's history and in the search, and you can add one to a workout's share card (text only). They live in `app.db`, their images in `note-images/` in the data folder, so both are backed up. A note whose workout has gone from Google stays until an admin deletes it (**Users & Roles** → **Notes**).
 
 **Your profile** (account menu → **Profile**) holds a picture, shown in the menu and next to your notes, your name, e-mail and Instagram handle, all optional and visible only to you except the picture. It also lists your API tokens and the devices you're signed in on. Style and language are in the same menu.
 
-Admins manage all of this in the page: account menu → **Users & roles**. There you add people, give them a role, set a new password for someone who forgot theirs, require a second factor (until they set one up they see no data), disable an account, edit roles as checkboxes, end anyone's session and read the audit log. Changes need a sign-in within the last 10 minutes. You can't disable or demote your own account, and the site always keeps one admin. A changed role applies to the user's next request; they stay signed in.
+Admins manage all of this in the page: account menu → **Users & Roles**. There you add people (with e-mail set up, give their address instead of a password: they get a welcome mail, choose their password through its link, once within three days, and set up a second factor right away if their role needs one; their address then counts as confirmed), give them a role, set a new password for someone who forgot theirs (that also ends their sessions and API tokens), require a second factor (until they set one up they see no data, only their own account settings), disable an account and then delete it for good (what they wrote stays, without an author), edit roles as checkboxes, end anyone's session and read the audit log. Changes need a recent proof of who you are: within 5 minutes of signing in, or the page asks you to confirm it with a passkey, key or code from your app (the password, for an account without a second factor). You can't disable or demote your own account, and the site always keeps one admin. A changed role applies to the user's next request; they stay signed in.
 
-- **Passwords:** at least 12 characters, no common ones, stored as argon2id hashes. Change yours under account menu → **Security**; that signs out your other devices.
+- **Passwords:** at least 12 characters, no common ones, stored as argon2id hashes. Change yours under account menu → **Security**; that signs out your other devices and, unless you untick it, ends your API tokens. If you have passkeys that sign in on their own, you can remove them in the same step: do so if someone else may have had your account.
 - **Sessions:** "Keep me signed in" lasts until a week without use, a month at most; without it, until the browser closes (12 hours at most). The account menu (your initial, top right) signs out here or everywhere.
-- **Wrong passwords:** five in 15 minutes lock that account for 15 minutes, doubling up to a day; twenty from one address lock the address. Wrong codes count the same.
-- **Second factors** (account menu → **Security**): passkeys (fingerprint, face or PIN, synced by your phone or password manager), security keys such as a YubiKey, an authenticator app, and ten recovery codes for when the others are lost. With one, the password is followed by a second step; a passkey alone signs in without a password, from the button or from the browser's suggestions in the name field. **Admins and roles with `sync` need one** before they can sync or open the admin tools. Changing them needs a sign-in within the last 10 minutes.
+- **What stays on the device:** only with "Keep me signed in" does the page keep your data for offline use. Without it, nothing of the data is stored in the browser, and offline the page waits for the network. Signing out, or the session ending, deletes what was kept and tells the browser to drop its cache of the site. Your photos, routes and year files are checked with the server on every load (cheaply, by ETag) instead of being cached for a year, so a later user of the same browser can't open them.
+- **Wrong passwords:** five in 15 minutes lock that account name for 15 minutes from that network (a /24, or a /64 for IPv6), doubling up to a day; twenty from one address lock the address. Wrong codes count the same. A name is never locked for everyone, so nobody can lock you out by typing your name: many failures from anywhere only slow its sign-ins down (up to 5 seconds), and 50 within 15 minutes show up in the audit log.
+- **Audit log:** kept for 180 days, at most 100,000 entries; repeated failed tries from one address count up in one entry. **Users & Roles** → **Audit log** can show only the failed tries, or everything else.
+- **Second factors** (account menu → **Security**): passkeys (fingerprint, face or PIN, synced by your phone or password manager), security keys such as a YubiKey, an authenticator app, and ten recovery codes for when the others are lost. With one, the password is followed by a second step; a passkey alone signs in without a password, from the button or from the browser's suggestions in the name field. **Admins, roles with `sync` and roles that write (`edit.notes`, `edit.lifts`) need one** before they can sync, open the admin tools or write; a `sync` token stops working while its owner has none. Changing them, making recovery codes or API tokens, and changing the password of an account with a second factor ask you to confirm it's you (a passkey, key or app code; recovery codes don't count). **The first second factor** of an account that needs one is set up with an **enrolment link** (one use, 24 hours): **Users & Roles** → **Enrolment link** next to the user, or `-enrol-link <name>` on the command line; `-create-user` and `-reset-second-factors` print one. The password alone isn't enough, so someone who learned it can't make the account theirs by setting up their own factor first. Changes to how an account signs in show up as a notice for its user (and as "sign-in changed" in the user list) until they dismiss it.
+- **E-mail (optional):** with a mail server under **Settings** → **Email** (or `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`), every change to how an account signs in (a key, an app, recovery codes, a token, the password, a refused copied key, many failed sign-ins) also goes by mail to its owner, which someone holding their session can't dismiss. Admins hear when someone gets admin or sync rights or sets up a first second factor, and enrolment links can be sent by mail (**Enrolment link** → **Send by e-mail**, or `-enrol-link <name> -mail`). Mail goes only to an address its user confirmed with a link sent there (**Profile**); changing it needs you to confirm it's you, and the old address is told. The connection is always encrypted (STARTTLS on 587 or TLS on 465): a server that offers neither gets nothing. There is no password reset by mail. **Use a sender address your mail provider may send for**: with SPF and DKIM for its domain (or a parent domain's `p=reject` DMARC policy), Gmail and GMX refuse mail from anything else after the server accepted it, so the log says "sent" and nothing arrives; a test mail to the provider's own domain can still get through. `-demo` never sends mail.
 - **Passkeys only work on the real domain over HTTPS** (and on `http://localhost` for development), not on an IP address.
 - **Scripts** use an API token instead of a password (see the table below). It carries scopes, `read` (the data the account's role sees) and/or `sync` (if the role may sync), and an expiry, and is shown only once.
 
@@ -129,11 +136,13 @@ The same from the command line, e.g. for the first admin or when nobody can sign
 | Task | Command (on the server, in `/srv/eumetria`) |
 |---|---|
 | Add someone | `docker compose run --rm -it eumetria -create-user <name>` (a viewer; `-role admin` or your own role) |
+| Invite someone | `docker compose run --rm eumetria -create-user <name> -role <role> -email <address>`: a welcome mail instead of a password (needs e-mail, the public URL and `SETTINGS_KEY`) |
 | Another role | `docker compose run --rm eumetria -set-role <name> -role <role>` |
 | Roles, their scopes and users | `docker compose run --rm eumetria -list-roles` |
 | Change or delete a role | `-create-role <role> -scopes …` again with the new scopes; `-delete-role <role>` once nobody has it |
-| Forgotten password | `docker compose run --rm -it eumetria -reset-password <name>` (ends their sessions too) |
-| Every second factor lost (and the recovery codes too) | `docker compose run --rm eumetria -reset-second-factors <name>`, then sign in with the password and set up new ones |
+| Forgotten password | `docker compose run --rm -it eumetria -reset-password <name>` (ends their sessions and API tokens too) |
+| Every second factor lost (and the recovery codes too) | `docker compose run --rm eumetria -reset-second-factors <name>`, then sign in with the password and set up new ones (with the enrolment link it prints, if the role needs a factor) |
+| Enrolment link for the first second factor | `docker compose run --rm eumetria -enrol-link <name>` (with `PUBLIC_URL` set, the whole link) |
 | Token for a script | Account menu → **Profile** → **API tokens**, or `docker compose run --rm eumetria -create-token <name> -token-name cron -scopes sync -expires 365` |
 
 ## 🥗 Yazio
@@ -185,7 +194,7 @@ Every night at 03:30 the app writes an archive to `/var/backups/eumetria`, keepi
 
 **With a passphrase** (set it in the same tab, and keep a copy in your password manager) archives are encrypted. Then they can also go to **Google Drive**: enable the **Google Drive API** in the Google Cloud project, turn it on here and save, use **Connect again** under Settings → Google to allow it, and **Test connection**. The app can only see and delete the files it made there. Without a passphrase nothing is uploaded, and local archives are readable by root on the server.
 
-`SETTINGS_KEY` isn't in the archives. Keep it with the passphrase: a restored server needs it to read its secrets, or they have to be typed in again.
+`SETTINGS_KEY` isn't in the archives. Keep it with the passphrase: a restored server needs it to read its secrets, or they have to be typed in again, and the authenticator apps set up again.
 
 **Restore** (`<name>` is the archive, from the server or downloaded from Drive into `/var/backups/eumetria`). An archive ending in `.enc` is decrypted first; it asks for the passphrase and tells you which one:
 
@@ -242,6 +251,10 @@ go run ./cmd/eumetria -serve :8080 -site site
 go vet ./... && go test ./...
 node --test tests/*.test.js
 go run ./cmd/eumetria -demo -out site/stats.json && node scripts/smoke.js site
+
+# known vulnerabilities in the code's call paths, with the newest Go patch
+# release (as CI does; an older local Go reports the standard library's)
+GOTOOLCHAIN=go1.26.11 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 # raw API answers for a day, Fitbit authorization, the weekly review of a week
 go run ./cmd/eumetria -debug-day 2026-10-13

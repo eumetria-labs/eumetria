@@ -7,8 +7,12 @@ import (
 
 // Limiter counts failed sign-ins per key (an account name or an IP
 // address). Max failures within Window lock the key for Lock; each further
-// lockout within a day doubles that, up to MaxLock. The counts live in
-// memory: a restart forgets them, which costs a guesser a restart of ours.
+// lockout within a day doubles that, up to MaxLock. With Max 0 it never
+// locks and only counts (Failures). The counts live in memory: a restart
+// forgets them, which costs a guesser a restart of ours.
+//
+// Reserve counts a try before it is checked, so parallel tries can't all
+// pass the check before any of them counts (pentest F16).
 type Limiter struct {
 	Max     int
 	Window  time.Duration
@@ -49,6 +53,69 @@ func (l *Limiter) Blocked(key string) time.Duration {
 func (l *Limiter) Fail(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.fail(key)
+}
+
+// Failures is how many failures key has within the window.
+func (l *Limiter) Failures(key string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if s := l.m[key]; s != nil && l.Now().Sub(s.first) <= l.Window {
+		return s.fails
+	}
+	return 0
+}
+
+// Reservation is a try Reserve counted already; Done says how it went.
+type Reservation struct {
+	l      *Limiter
+	key    string
+	locked bool      // this try locked the key
+	until  time.Time // the lock it set
+}
+
+// Reserve counts a try for key as a failure before it is made, or returns
+// how long key stays locked (and a nil Reservation). Done(true) takes the
+// failure back when the try worked.
+func (l *Limiter) Reserve(key string) (*Reservation, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if s := l.m[key]; s != nil {
+		if d := s.until.Sub(l.Now()); d > 0 {
+			return nil, d
+		}
+	}
+	s := l.fail(key)
+	r := &Reservation{l: l, key: key}
+	if s.until.After(l.Now()) {
+		r.locked, r.until = true, s.until
+	}
+	return r, 0
+}
+
+// Done ends a reservation: a try that worked doesn't count as a failure.
+func (r *Reservation) Done(ok bool) {
+	if r == nil || !ok {
+		return
+	}
+	l := r.l
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	s := l.m[r.key]
+	if s == nil {
+		return
+	}
+	switch {
+	case r.locked && s.until.Equal(r.until):
+		// The lock this try set, and nothing locked it again since.
+		s.until, s.fails = time.Time{}, l.Max-1
+		s.lockouts = max(0, s.lockouts-1)
+	case s.fails > 0:
+		s.fails--
+	}
+}
+
+func (l *Limiter) fail(key string) *limitState {
 	now := l.Now()
 	if l.m == nil {
 		l.m = map[string]*limitState{}
@@ -69,7 +136,7 @@ func (l *Limiter) Fail(key string) {
 	}
 	s.fails++
 	s.last = now
-	if s.fails >= l.Max {
+	if l.Max > 0 && s.fails >= l.Max {
 		d := l.Lock << s.lockouts
 		if d > l.MaxLock || d <= 0 {
 			d = l.MaxLock
@@ -78,6 +145,7 @@ func (l *Limiter) Fail(key string) {
 		s.until = now.Add(d)
 		s.fails, s.first = 0, now
 	}
+	return s
 }
 
 // Reset forgets key's failures, after it signed in.

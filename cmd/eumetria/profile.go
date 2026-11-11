@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"image"
 	"log"
 	"net/http"
 	"os"
@@ -23,17 +24,27 @@ const avatarSide = 512
 
 type profileInfo struct {
 	auth.Profile
-	Name   string `json:"name"`
-	Avatar string `json:"avatar"`
+	Name          string `json:"name"`
+	Avatar        string `json:"avatar"`
+	EmailVerified bool   `json:"email_verified"`
+	EmailPending  string `json:"email_pending,omitempty"` // waiting for its confirmation
+	Mail          bool   `json:"mail"`                    // the server can send mail
 }
 
 func (a *app) profile(w http.ResponseWriter, req *http.Request, p *principal) {
-	prof, avatar, err := a.store.Profile(req.Context(), p.user)
+	ctx := req.Context()
+	prof, avatar, err := a.store.Profile(ctx, p.user)
 	if err != nil {
 		a.failed(w, "profile", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, profileInfo{prof, p.user.Name, avatar})
+	st, err := a.store.Email(ctx, p.user)
+	if err != nil {
+		a.failed(w, "profile", err)
+		return
+	}
+	_, mail := a.mailValues(ctx)
+	writeJSON(w, http.StatusOK, profileInfo{prof, p.user.Name, avatar, st.Verified, st.Pending, mail})
 }
 
 func (a *app) profileSave(w http.ResponseWriter, req *http.Request, p *principal) {
@@ -51,6 +62,20 @@ func (a *app) profileSave(w http.ResponseWriter, req *http.Request, p *principal
 		return
 	case errors.Is(err, auth.ErrBadInstagram):
 		writeError(w, http.StatusBadRequest, "bad_instagram")
+		return
+	}
+	// A new address goes its own way: confirmed first (email.go).
+	current, _, err := a.store.Profile(req.Context(), p.user)
+	if err != nil {
+		a.failed(w, "profile", err)
+		return
+	}
+	st, err := a.store.Email(req.Context(), p.user)
+	if err != nil {
+		a.failed(w, "profile", err)
+		return
+	}
+	if prof.Email != current.Email && prof.Email != st.Pending && !a.changeEmail(w, req, p, prof.Email) {
 		return
 	}
 	if err := a.store.SaveProfile(req.Context(), p.user, prof); err != nil {
@@ -75,15 +100,18 @@ func (a *app) avatarPost(w http.ResponseWriter, req *http.Request, p *principal)
 		writeError(w, http.StatusRequestEntityTooLarge, "too_long")
 		return
 	}
-	img, err := picture.Decode(in.Image)
+	data, err := picture.Clean(in.Image, picture.AvatarPixels, func(img *image.RGBA) *image.RGBA {
+		return picture.Square(img, avatarSide)
+	})
+	if errors.Is(err, picture.ErrBusy) {
+		writeError(w, http.StatusServiceUnavailable, "busy")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "bad_image")
 		return
 	}
-	data, err := picture.JPEG(picture.Square(img, avatarSide))
-	if err == nil {
-		err = picture.Save(a.avatars, avatarFile(p.user.ID), data)
-	}
+	err = picture.Save(a.avatars, avatarFile(p.user.ID), data)
 	if err == nil {
 		err = a.store.SetAvatar(req.Context(), p.user, true)
 	}
@@ -119,8 +147,7 @@ func (a *app) avatar(w http.ResponseWriter, req *http.Request, _ *principal) {
 		http.NotFound(w, req)
 		return
 	}
-	immutable(w, "image/jpeg")
-	w.Write(data)
+	personal(w, req, "image/jpeg", data)
 }
 
 /* ---------- API tokens ---------- */
@@ -181,6 +208,7 @@ func (a *app) tokenCreate(w http.ResponseWriter, req *http.Request, p *principal
 		return
 	}
 	a.audit_(ctx, p.user, "", "token_created", name+" ("+strings.Join(in.Scopes, " ")+")", clientIP(req))
+	a.notify(ctx, p.user, "token_created", name, clientIP(req), p)
 	writeJSON(w, http.StatusCreated, map[string]string{"token": token})
 }
 

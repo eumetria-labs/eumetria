@@ -39,6 +39,9 @@ type Options struct {
 	Passphrase string            // "": a plain archive, for this server only
 	Generation string            // the day the passphrase was set
 	Files      map[string]string // name in the archive → file or folder; missing ones are left out
+	// Skip, if set, leaves out the files it returns true for, by their
+	// name in the archive (e.g. data/note-images/<name>.jpg).
+	Skip func(name string) bool
 	// Snapshot writes a consistent copy of the database to a new file.
 	Snapshot func(ctx context.Context, file string) error
 }
@@ -90,7 +93,7 @@ func Write(ctx context.Context, o Options) (res Result, err error) {
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		if err := addTree(ctx, tw, o.Files[n], "data/"+n); err != nil {
+		if err := addTree(ctx, tw, o.Files[n], "data/"+n, o.Skip); err != nil {
 			return res, fmt.Errorf("%s: %w", n, err)
 		}
 	}
@@ -122,7 +125,7 @@ func Write(ctx context.Context, o Options) (res Result, err error) {
 	return Result{Path: path, Size: info.Size(), Encrypted: enc != nil}, nil
 }
 
-func addTree(ctx context.Context, tw *tar.Writer, root, name string) error {
+func addTree(ctx context.Context, tw *tar.Writer, root, name string, skip func(string) bool) error {
 	info, err := os.Stat(root)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -144,7 +147,11 @@ func addTree(ctx context.Context, tw *tar.Writer, root, name string) error {
 		if err != nil {
 			return err
 		}
-		return addFile(ctx, tw, p, filepath.ToSlash(filepath.Join(name, rel)))
+		in := filepath.ToSlash(filepath.Join(name, rel))
+		if skip != nil && skip(in) {
+			return nil
+		}
+		return addFile(ctx, tw, p, in)
 	})
 }
 

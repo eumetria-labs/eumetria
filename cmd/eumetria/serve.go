@@ -81,6 +81,14 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	}
 	if !conf.CanEncrypt() {
 		log.Printf("SETTINGS_KEY isn't set: secrets stay in the environment and can't be changed in the page")
+		log.Printf("WARNING: without SETTINGS_KEY the authenticator apps' secrets are kept unencrypted in app.db and its backups")
+	}
+	// The authenticator apps' secrets are sealed with the same key (F15).
+	accounts.Box = conf.Box()
+	if n, err := accounts.SealTOTP(ctx); err != nil {
+		return fmt.Errorf("sealing the authenticator apps' secrets: %w", err)
+	} else if n > 0 {
+		log.Printf("sealed %d authenticator app secrets with SETTINGS_KEY", n)
 	}
 	if n, err := conf.Import(ctx); err != nil {
 		return fmt.Errorf("importing the settings: %w", err)
@@ -93,8 +101,22 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	}
 	cfg.interval = o.interval
 	cfg = cfg.with(values)
+	if values.PublicURL == "" {
+		log.Printf("no public URL set (Settings → General, or PUBLIC_URL): passkeys and Google sign-in take the address from each request")
+	} else {
+		log.Printf("public URL: %s", values.PublicURL)
+	}
+	if err := setTrustedProxies(os.Getenv("TRUSTED_PROXY")); err != nil {
+		return err
+	}
+	if len(trustedProxies) == 0 {
+		log.Printf("TRUSTED_PROXY isn't set: X-Real-IP is believed from any private address. Set it to nginx's address as the container sees it (README)")
+	} else {
+		log.Printf("X-Real-IP is believed from %v", trustedProxies)
+	}
 	noteImages := filepath.Join(cfg.dataDir, "note-images")
 	go imageLoop(ctx, &notes.Store{DB: database, Now: time.Now}, noteImages)
+	go auditLoop(ctx, accounts)
 
 	data := newPublished(baseOptions(cfg))
 	if !cfg.demo {

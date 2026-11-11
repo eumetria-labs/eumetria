@@ -138,3 +138,40 @@ func TestImages(t *testing.T) {
 		t.Errorf("no folder yet: %d, %v", n, err)
 	}
 }
+
+// Uploads are counted per user until a note embeds them; pruning forgets
+// the old records with the files.
+func TestPendingUploads(t *testing.T) {
+	ctx := context.Background()
+	d, err := db.Open(ctx, filepath.Join(t.TempDir(), "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	anna, _ := auth.NewStore(d).CreateUser(ctx, "anna", "a viewer with a long password", auth.RoleViewer)
+	bob, _ := auth.NewStore(d).CreateUser(ctx, "bob", "another long enough password", auth.RoleViewer)
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	s := &Store{DB: d, Now: func() time.Time { return now }}
+	for _, name := range []string{"a.jpg", "b.jpg", "c.jpg"} {
+		if err := s.RecordUpload(ctx, name, anna.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.RecordUpload(ctx, "d.jpg", bob.ID)
+	if n, err := s.PendingUploads(ctx, anna.ID); err != nil || n != 3 {
+		t.Fatalf("pending = %d, %v", n, err)
+	}
+	s.Put(ctx, "w1", "![](note-images/b.jpg)", anna.ID)
+	if n, _ := s.PendingUploads(ctx, anna.ID); n != 2 {
+		t.Errorf("pending after a note = %d, want 2", n)
+	}
+	if n, _ := s.PendingUploads(ctx, bob.ID); n != 1 {
+		t.Errorf("bob's = %d, want 1", n)
+	}
+	if _, err := s.PruneImages(ctx, t.TempDir(), now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.PendingUploads(ctx, anna.ID); n != 0 {
+		t.Errorf("pending after pruning = %d, want 0", n)
+	}
+}

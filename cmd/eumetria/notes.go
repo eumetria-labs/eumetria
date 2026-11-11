@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,8 +32,15 @@ const (
 	// for /api/notes/.
 	maxImageBody = 5 << 20
 	// How long an image no note uses may wait for the note being written.
-	imageGrace = 7 * 24 * time.Hour
+	imageGrace = 24 * time.Hour
+	// Limits on uploads (pentest F21): images no note embeds yet per user,
+	// uploads per user and hour, and the size of the whole folder.
+	maxPendingImages = 20
+	maxImagesPerHour = 30
 )
+
+// maxImageDir is how big note-images/ may get; a variable for the tests.
+var maxImageDir int64 = 2 << 30
 
 // notesList answers GET /api/notes, optionally only the workouts from and
 // to two days (YYYY-MM-DD, both included).
@@ -159,9 +167,16 @@ func (a *app) noteImagePost(w http.ResponseWriter, req *http.Request, p *princip
 		writeError(w, http.StatusRequestEntityTooLarge, "too_long")
 		return
 	}
+	if !a.imageRoom(w, req.Context(), p) {
+		return
+	}
 	name, err := notes.SaveImage(a.noteImages, in.Image)
 	if errors.Is(err, picture.ErrBad) {
 		writeError(w, http.StatusBadRequest, "bad_image")
+		return
+	}
+	if errors.Is(err, picture.ErrBusy) {
+		writeError(w, http.StatusServiceUnavailable, "busy")
 		return
 	}
 	if err != nil {
@@ -169,6 +184,10 @@ func (a *app) noteImagePost(w http.ResponseWriter, req *http.Request, p *princip
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
+	if err := a.notes.RecordUpload(req.Context(), name, p.user.ID); err != nil {
+		log.Printf("note %s: image: %v", key, err)
+	}
+	a.uploads.Fail("upload:" + strconv.FormatInt(p.user.ID, 10))
 	a.audit_(req.Context(), p.user, "", "note_image_added", date+" "+key, clientIP(req))
 	writeJSON(w, http.StatusCreated, map[string]string{"src": "note-images/" + name})
 }
@@ -188,11 +207,40 @@ func (a *app) noteImage(w http.ResponseWriter, req *http.Request, p *principal) 
 		http.NotFound(w, req)
 		return
 	}
-	immutable(w, "image/jpeg")
-	w.Write(data)
+	personal(w, req, "image/jpeg", data)
 }
 
-// imageLoop removes the images no note uses, at start and every night.
+// imageRoom answers 429 or 507 itself when p may not upload another image
+// now: too many uploads within the hour, too many no note embeds yet, or
+// the folder is full.
+func (a *app) imageRoom(w http.ResponseWriter, ctx context.Context, p *principal) bool {
+	if a.uploads.Failures("upload:"+strconv.FormatInt(p.user.ID, 10)) >= maxImagesPerHour {
+		writeError(w, http.StatusTooManyRequests, "too_many_images")
+		return false
+	}
+	pending, err := a.notes.PendingUploads(ctx, p.user.ID)
+	if err != nil {
+		a.failed(w, "note image", err)
+		return false
+	}
+	if pending >= maxPendingImages {
+		writeError(w, http.StatusTooManyRequests, "too_many_pending")
+		return false
+	}
+	size, err := notes.DirSize(a.noteImages)
+	if err != nil {
+		a.failed(w, "note image", err)
+		return false
+	}
+	if size >= maxImageDir {
+		log.Printf("note images: the folder is full (%d bytes)", size)
+		writeError(w, http.StatusInsufficientStorage, "storage_full")
+		return false
+	}
+	return true
+}
+
+// imageLoop removes the images no note uses, at start and every hour.
 func imageLoop(ctx context.Context, s *notes.Store, dir string) {
 	for {
 		n, err := s.PruneImages(ctx, dir, time.Now().Add(-imageGrace))
@@ -204,7 +252,7 @@ func imageLoop(ctx context.Context, s *notes.Store, dir string) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Until(nextAt(time.Now(), 3, 10))):
+		case <-time.After(time.Hour):
 		}
 	}
 }

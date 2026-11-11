@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"eumetria/internal/lifts"
 	"eumetria/internal/stats"
@@ -245,13 +246,13 @@ func day(d stats.Day, date time.Time, out stats.Output) Day {
 		}
 	}
 	for _, f := range d.Foods {
-		food := Food{Meal: f.Daytime, Name: f.Name, Amount: amount(f), Kcal: f.Energy}
+		food := Food{Meal: f.Daytime, Name: clip(f.Name, nameMax), Amount: amount(f), Kcal: f.Energy}
 		if p, ok := out.Products[f.Barcode]; ok {
 			food.NutriScore, food.NOVA = p.NutriScore, p.NOVA
 		}
 		if r, ok := out.Recipes[f.Recipe]; ok {
 			for _, in := range r.Ingredients {
-				food.Recipe = append(food.Recipe, in.Name)
+				food.Recipe = append(food.Recipe, clip(in.Name, nameMax))
 			}
 		}
 		o.Foods = append(o.Foods, food)
@@ -454,7 +455,7 @@ func (w *Week) AddLifts(all []lifts.Entry) {
 		key := strings.ToLower(e.Lift) + "|" + strconv.Itoa(e.Reps)
 		prev, seen := best[key]
 		if e.Date >= w.From && e.Date <= last {
-			l := Lift{Date: e.Date, Lift: e.Lift, Kg: e.Kg, Reps: e.Reps, Note: e.Note, First: !seen}
+			l := Lift{Date: e.Date, Lift: clip(e.Lift, nameMax), Kg: e.Kg, Reps: e.Reps, Note: clip(e.Note, noteMax), First: !seen}
 			if seen && e.Kg > prev {
 				l.Best, l.PrevKg = true, prev
 			}
@@ -498,7 +499,7 @@ func (w *Week) AddBenchmarks(workouts []wods.Workout, results []wods.Result) {
 		prev, seen := best[k]
 		better := !seen || wods.Better(wd.Scoring, r, prev)
 		if r.Date >= w.From && r.Date <= last {
-			b := Benchmark{Date: r.Date, Workout: wd.Name, Scoring: wd.Scoring, Result: wods.Format(wd.Scoring, r), Scaled: r.Scaled, Note: r.Note, First: !seen}
+			b := Benchmark{Date: r.Date, Workout: clip(wd.Name, nameMax), Scoring: wd.Scoring, Result: wods.Format(wd.Scoring, r), Scaled: r.Scaled, Note: clip(r.Note, noteMax), First: !seen}
 			if seen && better {
 				b.Best, b.Prev = true, wods.Format(wd.Scoring, prev)
 			}
@@ -508,4 +509,25 @@ func (w *Week) AddBenchmarks(workouts []wods.Workout, results []wods.Result) {
 			best[k] = r
 		}
 	}
+}
+
+// Free text goes to the model short and without control characters
+// (pentest F17): people with edit.lifts, and Yazio, write it, and a long
+// note is room for instructions. The system prompt says it is data only.
+const (
+	nameMax = 80
+	noteMax = 200
+)
+
+func clip(s string, most int) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	if r := []rune(s); len(r) > most {
+		return string(r[:most-1]) + "…"
+	}
+	return s
 }

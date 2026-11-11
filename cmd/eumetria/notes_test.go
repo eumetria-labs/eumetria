@@ -32,7 +32,12 @@ func (e *testEnv) writer(t *testing.T) *http.Client {
 	if err := e.store.SaveRole(ctx, "Trainer", scopes); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.store.CreateUser(ctx, "trainer", coachPassword, "Trainer"); err != nil {
+	u, err := e.store.CreateUser(ctx, "trainer", coachPassword, "Trainer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Writing needs a second factor (outside -demo): the same app as patrick's.
+	if err := e.store.SetTOTP(ctx, u, e.secret, 0); err != nil {
 		t.Fatal(err)
 	}
 	return e.signIn(t, "trainer", coachPassword, false)
@@ -254,8 +259,67 @@ func TestNotesWaitForTheSecondFactor(t *testing.T) {
 	if err := e.store.SetRequireSecondFactor(context.Background(), mustUser(t, e, "anna"), true); err != nil {
 		t.Fatal(err)
 	}
-	if res, _ := e.do(t, anna, "GET", "/api/notes", ""); res.StatusCode != 403 {
-		t.Errorf("notes without the second factor = %d, want 403", res.StatusCode)
+	// Every route that shows data says so, not only the ones that build the
+	// stats (pentest F3): lifts, benchmark workouts and pictures too.
+	for _, path := range []string{"/api/notes", "/api/stats", "/api/lifts", "/api/wods", "/avatars/1", "/days/x.json", "/photos/abc.jpg"} {
+		if res, body := e.do(t, anna, "GET", path, ""); res.StatusCode != 403 || !strings.Contains(body, "second_factor_required") {
+			t.Errorf("%s without the second factor = %d %s, want 403", path, res.StatusCode, body)
+		}
+	}
+	// What she needs to set one up still works.
+	for _, path := range []string{"/api/me", "/api/security", "/api/sessions", "/api/profile"} {
+		if res, body := e.do(t, anna, "GET", path, ""); res.StatusCode != 200 {
+			t.Errorf("%s = %d %s, want 200", path, res.StatusCode, body)
+		}
+	}
+	// Setting one up needs the enrolment link the admin hands over (F19).
+	if res, body := e.do(t, anna, "POST", "/api/security/totp/begin", "{}", sameSite); res.StatusCode != 403 || !strings.Contains(body, "enrol_required") {
+		t.Errorf("setting up an app without a link = %d %s", res.StatusCode, body)
+	}
+	link, _, err := e.store.NewEnrolment(context.Background(), mustUser(t, e, "anna"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, body := e.do(t, anna, "POST", "/api/security/totp/begin", `{"enrol":"`+link+`"}`, sameSite); res.StatusCode != 200 {
+		t.Errorf("setting up an app = %d %s", res.StatusCode, body)
+	}
+	// So does a token she made before: it is her, without the factor.
+	token, err := e.store.CreateAPIToken(context.Background(), mustUser(t, e, "anna"), "old", []string{"read"}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, _ := e.do(t, e.client(), "GET", "/api/lifts", "", bearer(token)); res.StatusCode != 403 {
+		t.Errorf("her token = %d, want 403", res.StatusCode)
+	}
+}
+
+// Writing notes and lifts needs a second factor, also for a role that is
+// neither admin nor sync (pentest F22); /api/me says so.
+func TestWritersNeedASecondFactor(t *testing.T) {
+	e := newTestEnv(t, true)
+	ctx := context.Background()
+	if err := e.store.SaveRole(ctx, "Scribe", []string{auth.ViewHealth, auth.ViewNotes, auth.EditNotes, auth.EditLifts}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.store.CreateUser(ctx, "scribe", coachPassword, "Scribe"); err != nil {
+		t.Fatal(err)
+	}
+	scribe := e.signIn(t, "scribe", coachPassword, false)
+	if _, body := e.do(t, scribe, "GET", "/api/me", ""); !strings.Contains(body, `"needs_second_factor":true`) {
+		t.Errorf("me = %s", body)
+	}
+	for _, rq := range []struct{ method, path, body string }{
+		{"PUT", "/api/notes/w1", `{"markdown":"hi"}`},
+		{"POST", "/api/lifts", `{"lift":"Snatch","kg":60,"date":"2026-10-20"}`},
+		{"POST", "/api/wods", `{"name":"Fran","scoring":"time"}`},
+	} {
+		if res, body := e.do(t, scribe, rq.method, rq.path, rq.body, sameSite); res.StatusCode != 403 || !strings.Contains(body, "second_factor_required") {
+			t.Errorf("%s %s = %d %s", rq.method, rq.path, res.StatusCode, body)
+		}
+	}
+	// Reading stays open.
+	if res, _ := e.do(t, scribe, "GET", "/api/lifts", ""); res.StatusCode != 200 {
+		t.Errorf("reading lifts = %d", res.StatusCode)
 	}
 }
 
@@ -374,5 +438,65 @@ func TestNginxLetsNotesThrough(t *testing.T) {
 		if m := regexp.MustCompile(`location /api/[^ ]+/ \{`).FindString(string(conf)); m != "" {
 			t.Errorf("%s: %s redirects the address without the slash", f, m)
 		}
+	}
+}
+
+// Uploads no note embeds are limited per user, and the folder in all
+// (pentest F21).
+func TestNoteImageQuota(t *testing.T) {
+	e := newTestEnv(t, true)
+	trainer := e.writer(t)
+	body := `{"image":"` + uploadImage(t, "x") + `"}`
+	var first string
+	for i := range maxPendingImages {
+		res, out := e.do(t, trainer, "POST", "/api/notes/w1/images", body, sameSite)
+		if res.StatusCode != 201 {
+			t.Fatalf("upload %d = %d %s", i, res.StatusCode, out)
+		}
+		if i == 0 {
+			var got struct{ Src string }
+			json.Unmarshal([]byte(out), &got)
+			first = got.Src
+		}
+	}
+	if res, out := e.do(t, trainer, "POST", "/api/notes/w1/images", body, sameSite); res.StatusCode != 429 || !strings.Contains(out, "too_many_pending") {
+		t.Fatalf("one more = %d %s", res.StatusCode, out)
+	}
+	// Once a note embeds one, there is room for another.
+	if res, out := e.do(t, trainer, "PUT", "/api/notes/w1", `{"markdown":"![](`+first+`)"}`, sameSite); res.StatusCode/100 != 2 {
+		t.Fatalf("note = %d %s", res.StatusCode, out)
+	}
+	if res, out := e.do(t, trainer, "POST", "/api/notes/w1/images", body, sameSite); res.StatusCode != 201 {
+		t.Errorf("after a note used one = %d %s", res.StatusCode, out)
+	}
+	// A full folder takes nothing more.
+	old := maxImageDir
+	maxImageDir = 1
+	t.Cleanup(func() { maxImageDir = old })
+	e = newTestEnv(t, true)
+	trainer = e.writer(t)
+	if res, _ := e.do(t, trainer, "POST", "/api/notes/w1/images", body, sameSite); res.StatusCode != 201 {
+		t.Fatalf("first upload = %d", res.StatusCode)
+	}
+	if res, out := e.do(t, trainer, "POST", "/api/notes/w1/images", body, sameSite); res.StatusCode != 507 || !strings.Contains(out, "storage_full") {
+		t.Errorf("full folder = %d %s", res.StatusCode, out)
+	}
+}
+
+// Backups leave out note images no note embeds.
+func TestBackupsSkipUnusedNoteImages(t *testing.T) {
+	skip := skipUnusedNoteImages(func(name string) bool { return name == "used.jpg" })
+	for name, want := range map[string]bool{
+		"data/note-images/used.jpg":   false,
+		"data/note-images/orphan.jpg": true,
+		"data/photos/orphan.jpg":      false,
+		"data/app.db":                 false,
+	} {
+		if got := skip(name); got != want {
+			t.Errorf("skip(%s) = %v, want %v", name, got, want)
+		}
+	}
+	if skipUnusedNoteImages(nil) != nil {
+		t.Error("without knowing the notes, nothing may be skipped")
 	}
 }

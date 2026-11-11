@@ -325,7 +325,9 @@ async function drawRoutes() {
     if (!(w.route?.length > 1)) continue;
     const type = workoutName(w.type);
     const line = L.polyline(w.route.map((p) => [p[0], p[1]]), { color: color(type), weight: 3, opacity: 0.85, lineJoin: 'round' });
-    line.bindTooltip(`${actLabel(type)} · ${dfShort.format(parse(date))} · ${fmtDistance(w.dist || 0)}`, { sticky: true });
+    // A node, not a string: Leaflet puts strings in as HTML, and the type can
+    // be whatever Google sent (pentest F12).
+    line.bindTooltip(h('span', {}, `${actLabel(type)} · ${dfShort.format(parse(date))} · ${fmtDistance(w.dist || 0)}`), { sticky: true });
     line.on('mouseover', () => line.setStyle({ weight: 5, opacity: 1 }));
     line.on('mouseout', () => line.setStyle({ weight: 3, opacity: 0.85 }));
     line.on('click', () => showWorkout(date, w.id));

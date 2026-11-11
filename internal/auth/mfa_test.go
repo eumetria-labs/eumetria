@@ -1,11 +1,14 @@
 package auth
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
+
+	"eumetria/internal/seal"
 )
 
 // The SHA-1 test vectors of RFC 6238, appendix B, cut to six digits as apps
@@ -129,5 +132,120 @@ func TestStoredFactors(t *testing.T) {
 	}
 	if _, _, err := s.Session(ctx, tok); err == nil {
 		t.Error("a session survived the reset")
+	}
+}
+
+// A new password can end the tokens and passwordless passkeys too; security
+// keys used only as a second factor stay.
+func TestSetPasswordRevokes(t *testing.T) {
+	s, _ := newStore(t)
+	u, err := s.CreateUser(ctx, "patrick", goodPassword, RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := s.CreateAPIToken(ctx, u, "t", []string{"read"}, time.Time{})
+	s.AddKey(ctx, u, "YubiKey", &webauthn.Credential{ID: []byte("cred-1")}, false)
+	s.AddKey(ctx, u, "Phone", &webauthn.Credential{ID: []byte("cred-2")}, true)
+
+	if err := s.SetPassword(ctx, u, "a brand new long password", 0, Revoke{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.APIToken(ctx, tok); err != nil {
+		t.Errorf("Revoke{} ended the token: %v", err)
+	}
+	if err := s.SetPassword(ctx, u, "another brand new password", 0, Revoke{Tokens: true, Passkeys: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.APIToken(ctx, tok); !errors.Is(err, ErrNotFound) {
+		t.Errorf("the token survived: %v", err)
+	}
+	keys, _ := s.Keys(ctx, u)
+	if len(keys) != 1 || keys[0].Name != "YubiKey" {
+		t.Errorf("keys = %+v, want only the YubiKey", keys)
+	}
+}
+
+// Each character of a recovery code is as likely as the others.
+func TestRandomTextIsEven(t *testing.T) {
+	counts := map[rune]int{}
+	for range 2000 {
+		s, err := randomText(31, recoveryAlphabet)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range s {
+			counts[r]++
+		}
+	}
+	if len(counts) != len(recoveryAlphabet) {
+		t.Fatalf("%d characters seen, want %d", len(counts), len(recoveryAlphabet))
+	}
+	// 62000 draws, 2000 per character expected; 5 standard deviations ≈ 220.
+	for r, n := range counts {
+		if n < 1780 || n > 2220 {
+			t.Errorf("%c drawn %d times, want about 2000", r, n)
+		}
+	}
+}
+
+// With SETTINGS_KEY the apps' secrets are sealed in the database, for that
+// user only; without the key a sealed one fails closed (pentest F15).
+func TestTOTPSecretsAreSealed(t *testing.T) {
+	s, now := newStore(t)
+	anna, _ := s.CreateUser(ctx, "anna", goodPassword, RoleViewer)
+	bob, _ := s.CreateUser(ctx, "bob", goodPassword+"!", RoleViewer)
+	secret, _ := NewTOTPSecret()
+	// Kept as it is without a key, then sealed once there is one.
+	if err := s.SetTOTP(ctx, anna, secret, 0); err != nil {
+		t.Fatal(err)
+	}
+	stored := func(u *User) string {
+		var v string
+		s.DB.QueryRowContext(ctx, "SELECT secret FROM totp WHERE user_id = ?", u.ID).Scan(&v)
+		return v
+	}
+	if stored(anna) != secret {
+		t.Fatal("without a key the secret should be kept as it is")
+	}
+	box, err := seal.FromHex(strings.Repeat("ab", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Box = box
+	if n, err := s.SealTOTP(ctx); err != nil || n != 1 {
+		t.Fatalf("sealed %d, %v", n, err)
+	}
+	if v := stored(anna); !strings.HasPrefix(v, "v1:") || strings.Contains(v, secret) {
+		t.Errorf("stored = %q", v)
+	}
+	if n, _ := s.SealTOTP(ctx); n != 0 {
+		t.Error("sealed twice")
+	}
+	code := func() string {
+		*now = now.Add(30 * time.Second)
+		c, _ := TOTPCode(secret, *now)
+		return c
+	}
+	if ok, err := s.UseTOTP(ctx, anna, code()); !ok || err != nil {
+		t.Errorf("a code with the sealed secret: %v %v", ok, err)
+	}
+	// A new app is sealed right away.
+	if err := s.SetTOTP(ctx, bob, secret, 0); err != nil || !strings.HasPrefix(stored(bob), "v1:") {
+		t.Errorf("new secret stored as %q, %v", stored(bob), err)
+	}
+	// Moved to another account, it doesn't open.
+	s.DB.ExecContext(ctx, "UPDATE totp SET secret = ? WHERE user_id = ?", stored(anna), bob.ID)
+	if _, err := s.UseTOTP(ctx, bob, code()); !errors.Is(err, ErrTOTPSealed) {
+		t.Errorf("a secret moved to bob: %v", err)
+	}
+	// Without the key (or with another one), it fails closed.
+	s.Box = nil
+	if ok, err := s.UseTOTP(ctx, anna, code()); ok || !errors.Is(err, ErrTOTPSealed) {
+		t.Errorf("without the key: %v %v", ok, err)
+	}
+	other, _ := seal.FromHex(strings.Repeat("cd", 32))
+	s.Box = other
+	if ok, err := s.UseTOTP(ctx, anna, code()); ok || !errors.Is(err, ErrTOTPSealed) {
+		t.Errorf("with another key: %v %v", ok, err)
 	}
 }

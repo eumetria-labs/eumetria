@@ -1,14 +1,14 @@
-// Users & roles (account menu, admins only): the accounts with their role,
+// Users & Roles (account menu, admins only): the accounts with their role,
 // second factor and state; the roles as sets of scopes; everyone's
 // sessions; notes whose workout is gone; the audit log. The server (manage.go) checks every request and
-// refuses what would lock the admin out; changes need a sign-in within the
-// last 10 minutes, as in the security settings, and the window offers to
-// sign in again and come back here ("#admin").
+// refuses what would lock the admin out; changes need a recent proof of who
+// one is, which api() asks for when needed (stepup.js).
 
 import { LOCALE, deviceName } from './format.js';
-import { h, setHashParam, tabKeys } from './dom.js';
+import { h, tabKeys } from './dom.js';
 import { openDialog } from './dialog.js';
-import { account, api, reason, signOut } from './account.js';
+import { account, api, reason } from './account.js';
+import { confirmNote } from './stepup.js';
 import { noteFold, withText } from './notes.js';
 import { t, tn } from './i18n.js';
 
@@ -44,13 +44,18 @@ const ERRORS = {
   too_long: () => t('The password is too long.'),
   common: () => t('That password is one of the most used ones. Pick another.'),
   is_name: () => t('The password can’t be the user name.'),
+  bad_email: () => t('That isn’t an e-mail address.'),
+  mail_off: () => t('Inviting needs e-mail (Settings → Email). Give them a password instead.'),
+  not_sent: () => t('The invitation couldn’t be sent. Try again later.'),
+  not_invited: () => t('They chose their password already.'),
+  not_disabled: () => t('Disable the account first, then delete it.'),
 };
 
 // What the audit log's actions mean.
 const ACTIONS = {
   login: () => t('signed in'), login_failed: () => t('sign-in failed'), logout: () => t('signed out'),
   logout_all: () => t('signed out everywhere'), session_ended: () => t('ended a session'),
-  user_created: () => t('added a user'), role_set: () => t('changed a role'), user_disabled: () => t('disabled a user'),
+  user_created: () => t('added a user'), user_deleted: () => t('deleted a user'), user_invited: () => t('invited a user'), invite_accepted: () => t('accepted the invitation'), role_set: () => t('changed a role'), user_disabled: () => t('disabled a user'),
   user_enabled: () => t('enabled a user'), password_reset: () => t('set a new password'), password_changed: () => t('changed their password'),
   second_factor_required: () => t('required a second factor'), role_saved: () => t('saved a role'), role_deleted: () => t('deleted a role'),
   sync: () => t('started a sync'), password_change_failed: () => t('typed a wrong password'),
@@ -59,6 +64,12 @@ const ACTIONS = {
   totp_added: () => t('set up an authenticator app'), totp_removed: () => t('removed the authenticator app'),
   recovery_codes_made: () => t('made recovery codes'), recovery_code_used: () => t('used a recovery code'),
   token_created: () => t('made an API token'),
+  enrol_link_made: () => t('made an enrolment link'), first_factor_enrolled: () => t('set up their first second factor'),
+  reauth: () => t('confirmed it’s them'), reauth_failed: () => t('failed to confirm it’s them'),
+  login_pressure: () => t('was guessed at often (sign-ins slowed down)'),
+  email_change_requested: () => t('changed their e-mail address'), email_verified: () => t('confirmed their e-mail address'),
+  email_removed: () => t('removed their e-mail address'), mail_test: () => t('sent a test mail'),
+  key_clone_warning: () => t('was refused: a key may be copied'),
   note_added: () => t('added a note'), note_changed: () => t('changed a note'), note_deleted: () => t('deleted a note'),
   note_image_added: () => t('added an image to a note'),
   lift_added: () => t('added a lift result'), lift_changed: () => t('changed a lift result'), lift_deleted: () => t('deleted a lift result'),
@@ -82,9 +93,9 @@ export function openManage(returnFocus, tab = 'users') {
   const close = h('button', { class: 'sheet-close', type: 'button', 'aria-label': t('Close') }, '×');
   const head = h('div', { class: 'sheet-head wo-head' });
   const titles = h('div', { class: 'wo-titles' });
-  titles.append(h('h2', { id: 'adm-title' }, t('Users & roles')), h('p', { class: 'muted' }, t('Who may see what')));
+  titles.append(h('h2', { id: 'adm-title' }, t('Users & Roles')), h('p', { class: 'muted' }, t('Who may see what')));
   head.append(titles, close);
-  const tabs = h('div', { class: 'tabs adm-tabs', role: 'tablist', 'aria-label': t('Users & roles') });
+  const tabs = h('div', { class: 'tabs adm-tabs', role: 'tablist', 'aria-label': t('Users & Roles') });
   const body = h('div', { class: 'wo-body adm-body', role: 'tabpanel' });
   const buttons = TABS.map(([key, label]) => {
     const b = h('button', { role: 'tab', type: 'button', 'data-tab': key }, label());
@@ -112,7 +123,7 @@ export function openManage(returnFocus, tab = 'users') {
 // load fetches what a tab shows and draws it.
 async function load(body, tab) {
   body.dataset.tab = tab;
-  const path = { users: 'admin/users', roles: 'admin/roles', sessions: 'admin/sessions', notes: 'admin/notes', audit: 'audit?limit=200' }[tab];
+  const path = { users: 'admin/users', roles: 'admin/roles', sessions: 'admin/sessions', notes: 'admin/notes', audit: 'audit?limit=200&which=' + auditWhich }[tab];
   const [res, roles] = await Promise.all([api(path).catch(() => null), tab === 'users' ? api('admin/roles').catch(() => null) : null]);
   if (body.dataset.tab !== tab) return; // another tab was picked meanwhile
   if (!res?.ok) {
@@ -124,7 +135,7 @@ async function load(body, tab) {
   }
   const data = await res.json();
   const roleData = roles?.ok ? await roles.json() : null;
-  const draw = { users: () => usersTab(body, data, roleData), roles: () => rolesTab(body, data), sessions: () => sessionsTab(body, data), notes: () => notesTab(body, data), audit: () => auditTab(data) }[tab];
+  const draw = { users: () => usersTab(body, data, roleData), roles: () => rolesTab(body, data), sessions: () => sessionsTab(body, data), notes: () => notesTab(body, data), audit: () => auditTab(body, data) }[tab];
   body.replaceChildren(...draw());
 }
 
@@ -137,7 +148,7 @@ async function change(body, button, run, after) {
     const res = await run();
     if (!res.ok) {
       const why = await reason(res);
-      if (why === 'reauth') return body.prepend(reauthNote(body.dataset.tab));
+      if (why === 'reauth') return body.prepend(confirmNote());
       body.prepend(h('p', { class: 'lock-error adm-error', role: 'alert' }, ERRORS[why]?.() || t('That didn’t work. Try again.')));
       return;
     }
@@ -148,17 +159,6 @@ async function change(body, button, run, after) {
   } finally {
     if (button && document.contains(button)) button.disabled = false;
   }
-}
-
-function reauthNote(tab) {
-  const box = h('div', { class: 'notice notice-row adm-error' });
-  const again = h('button', { class: 'pill-btn', type: 'button' }, t('Sign in again'));
-  again.onclick = () => {
-    setHashParam('admin', tab);
-    signOut(false);
-  };
-  box.append(h('span', {}, t('To change anything here, sign in again: your last sign-in was more than 10 minutes ago.')), again);
-  return box;
 }
 
 function section(title, note) {
@@ -193,10 +193,11 @@ function usersTab(body, users, roleData) {
     if (u.name === me) name.append(h('span', { class: 'adm-tag' }, t('you')));
     if (u.disabled) name.append(h('span', { class: 'adm-tag warn' }, t('disabled')));
     const facts = [
-      u.second_factor ? t('second factor on') : u.require_second_factor ? t('must set up a second factor') : t('no second factor'),
+      u.invited ? t('invited, no password chosen yet') : u.second_factor ? t('second factor on') : u.require_second_factor ? t('must set up a second factor') : t('no second factor'),
       u.last_seen ? t('last seen {date}', { date: dfTime.format(new Date(u.last_seen)) }) : t('never signed in'),
       tn(u.sessions, '{n} session', '{n} sessions'),
     ];
+    if (u.security_changed) facts.push(t('sign-in changed {date}', { date: dfTime.format(new Date(u.security_changed)) }));
     info.append(name, h('span', { class: 'muted' }, facts.join(' · ')));
     const role = roleSelect(roles, u.role, t('Role of {name}', { name: u.name }));
     role.disabled = u.name === me;
@@ -215,11 +216,90 @@ function usersTab(body, users, roleData) {
       if (!u.disabled && !confirm(t('Disable {name}? Their sessions end and they can’t sign in until you enable the account again.', { name: u.name }))) return;
       change(body, off, () => api('admin/users/' + u.id, 'PATCH', { disabled: !u.disabled }));
     };
-    actions.append(pw, mfa, off);
+    // The first second factor needs a link from here (pentest F19).
+    const link = h('button', { class: 'pill-btn', type: 'button' }, t('Enrolment link'));
+    link.hidden = u.second_factor;
+    link.onclick = () => enrolLink(body, row, link, u);
+    // Invited and hasn't come yet: send a new link.
+    const reinvite = h('button', { class: 'pill-btn', type: 'button' }, t('Send invitation again'));
+    reinvite.hidden = !u.invited;
+    reinvite.onclick = () => {
+      let sent = false;
+      change(body, reinvite, async () => {
+        const res = await api('admin/users/' + u.id + '/invite', 'POST');
+        sent = res.ok;
+        return res;
+      }).then(() => { if (sent) invitedNote(body, true, t('A new invitation is on its way to {name}.', { name: u.name })); });
+    };
+    link.hidden ||= u.invited; // the invitation brings its own
+    // Gone for good: only once disabled, never oneself.
+    const del = h('button', { class: 'pill-btn danger', type: 'button' }, t('Delete'));
+    del.hidden = !u.disabled || u.name === me;
+    del.onclick = () => {
+      if (!confirm(t('Delete {name} for good? Their sign-in, keys, tokens and profile go. Notes, lifts and workouts they wrote stay, without an author. This can’t be undone.', { name: u.name }))) return;
+      change(body, del, () => api('admin/users/' + u.id, 'DELETE'));
+    };
+    actions.append(pw, mfa, link, reinvite, off, del);
     row.append(info, role, actions);
     sec.append(row);
   }
   return [sec, addUserSection(body, roles)];
+}
+
+// enrolLink makes a new enrolment link for u and shows it to copy: with it
+// they set up their first second factor, once, within a day.
+async function enrolLink(body, row, button, u) {
+  row.querySelector('.adm-enrol')?.remove();
+  body.querySelector('.adm-error')?.remove();
+  button.disabled = true;
+  try {
+    const res = await api('admin/users/' + u.id + '/enrol-link', 'POST');
+    if (!res.ok) {
+      const why = await reason(res);
+      if (why === 'reauth') return body.prepend(confirmNote());
+      return body.prepend(h('p', { class: 'lock-error adm-error', role: 'alert' }, t('That didn’t work. Try again.')));
+    }
+    const { token, expires } = await res.json();
+    const url = location.origin + location.pathname + '#enrol=' + token;
+    const box = h('div', { class: 'sec-add adm-enrol' });
+    const field = h('input', { class: 'field', type: 'text', readonly: '', value: url, 'aria-label': t('Enrolment link for {name}', { name: u.name }) });
+    const copy = h('button', { class: 'pill-btn', type: 'button' }, t('Copy'));
+    copy.onclick = () => navigator.clipboard?.writeText(url).then(() => { copy.textContent = t('Copied'); });
+    box.append(field, copy);
+    // With a confirmed address, the link can go by mail: a new one, which
+    // replaces this one.
+    if (u.email_verified) {
+      const send = h('button', { class: 'pill-btn', type: 'button' }, t('Send by e-mail'));
+      send.onclick = async () => {
+        send.disabled = true;
+        const r = await api('admin/users/' + u.id + '/enrol-link', 'POST', { mail: true }).catch(() => null);
+        const a = r?.ok ? await r.json() : null;
+        if (a?.mailed) {
+          field.value = location.origin + location.pathname + '#enrol=' + a.token;
+          send.textContent = t('Sent to their confirmed address');
+          return;
+        }
+        send.disabled = false;
+        send.textContent = a?.mail_error === 'mail_off' ? t('E-mail isn’t set up (Settings → Email)') : t('That didn’t work. Try again.');
+      };
+      box.append(send);
+    }
+    box.append(h('p', { class: 'muted adm-hint' }, t('With this link {name} sets up their first second factor: once, until {date}. Hand it over separately from the password.', { name: u.name, date: dfTime.format(new Date(expires)) })));
+    row.append(box);
+    field.select();
+  } catch {
+    body.prepend(h('p', { class: 'lock-error adm-error', role: 'alert' }, t('Server not reachable.')));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// invitedNote says above the list how an invitation went. "On its way":
+// the server sends in the background; Settings → Email shows the last
+// error, the server log every mail.
+function invitedNote(body, ok, text) {
+  body.querySelector('.adm-error')?.remove();
+  body.prepend(h('p', { class: (ok ? 'notice' : 'lock-error') + ' adm-error', role: ok ? 'status' : 'alert' }, text));
 }
 
 // passwordForm sets a new password for someone who forgot theirs.
@@ -237,16 +317,29 @@ function passwordForm(body, u) {
 }
 
 function addUserSection(body, roles) {
-  const sec = section(t('Add someone'), t('They can change the password and add a passkey themselves.'));
+  const sec = section(t('Add someone'), t('With their e-mail address and no password, they get a welcome mail, choose their password and set up a second factor if their role needs one. With a password: admins and roles that sync or write then need an enrolment link for their second factor.'));
   const form = h('form', { class: 'sec-add adm-add' });
   const name = h('input', { class: 'field', type: 'text', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '64', placeholder: t('User name'), 'aria-label': t('User name'), required: '' });
-  const pw = h('input', { class: 'field', type: 'password', autocomplete: 'new-password', placeholder: t('Password (12+ characters)'), 'aria-label': t('Password'), required: '' });
+  const email = h('input', { class: 'field', type: 'email', autocomplete: 'off', maxlength: '254', placeholder: t('E-mail, to invite them'), 'aria-label': t('E-mail, to invite them') });
+  const pw = h('input', { class: 'field', type: 'password', autocomplete: 'new-password', placeholder: t('Or a password (12+ characters)'), 'aria-label': t('Password') });
   const role = roleSelect(roles, 'viewer', t('Role'));
   const add = h('button', { class: 'pill-btn', type: 'submit' }, t('Add'));
-  form.append(name, pw, role, add);
+  // An address and no password: the button says what happens.
+  const label = () => { add.textContent = email.value.trim() && !pw.value ? t('Invite') : t('Add'); };
+  email.oninput = pw.oninput = label;
+  form.append(name, email, pw, role, add);
   form.onsubmit = (e) => {
     e.preventDefault();
-    change(body, add, () => api('admin/users', 'POST', { name: name.value.trim(), password: pw.value, role: role.value }));
+    const to = email.value.trim();
+    let said = null;
+    change(body, add, async () => {
+      const res = await api('admin/users', 'POST', { name: name.value.trim(), password: pw.value, role: role.value, email: to });
+      if (res.ok) {
+        const a = await res.clone().json();
+        if (a.invited) said = a.mailed ? [true, t('The invitation is on its way to {email}.', { email: to })] : [false, ERRORS[a.mail_error]?.() || t('The invitation couldn’t be sent. Try again later.')];
+      }
+      return res;
+    }).then(() => { if (said) invitedNote(body, ...said); });
   };
   sec.append(form);
   return sec;
@@ -357,20 +450,36 @@ function notesTab(body, list) {
     del.onclick = () => {
       if (confirm(t('Delete this note?'))) change(body, del, () => api('notes/' + encodeURIComponent(n.workout_id), 'DELETE'));
     };
-    const info = h('span', { class: 'muted' }, t('by {name}, {date}', { name: n.updated_by, date: dfTime.format(new Date(n.updated_at)) }));
+    const info = h('span', { class: 'muted' }, t('by {name}, {date}', { name: n.updated_by || t('deleted user'), date: dfTime.format(new Date(n.updated_at)) }));
     row.append(info, del, noteFold(withText(n)));
     sec.append(row);
   }
   return [sec];
 }
 
-function auditTab(list) {
+// Which entries the audit log shows: all, the changes and sign-ins without
+// the failed tries, or only those (pentest F20: guesses mustn't bury the rest).
+let auditWhich = '';
+
+function auditTab(body, list) {
   const sec = section(t('Audit log'), t('The last {n} entries', { n: list.length }));
+  const pick = h('select', { class: 'field adm-audit-which', 'aria-label': t('Show') });
+  for (const [value, label] of [['', t('Everything')], ['security', t('Without failed tries')], ['failures', t('Only failed tries')]]) {
+    pick.append(h('option', { value }, label));
+  }
+  pick.value = auditWhich;
+  pick.onchange = () => {
+    auditWhich = pick.value;
+    load(body, 'audit');
+  };
+  sec.append(pick);
   if (!list.length) sec.append(h('p', { class: 'empty-tab' }, t('Nothing yet.')));
   for (const e of list) {
     const row = h('div', { class: 'adm-log' });
     const what = h('span');
     what.append(h('b', {}, e.actor || '–'), ' ' + (ACTIONS[e.action]?.() || e.action));
+    // A repeated failure is one entry: how often, the time of the latest.
+    if (e.count > 1) what.append(h('span', { class: 'adm-tag warn' }, '×' + e.count));
     if (e.detail) what.append(h('span', { class: 'muted' }, ' · ' + e.detail));
     row.append(h('time', { class: 'muted', datetime: e.at }, dfTime.format(new Date(e.at))), what, h('span', { class: 'muted adm-ip' }, e.ip || ''));
     sec.append(row);

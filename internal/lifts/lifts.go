@@ -92,8 +92,9 @@ type Store struct {
 	Now func() time.Time
 }
 
-const selectEntry = `SELECT l.id, l.lift, l.kg, l.reps, l.date, l.note, c.name, u.name, l.created_at, l.updated_at
-	FROM lifts l JOIN users c ON c.id = l.created_by JOIN users u ON u.id = l.updated_by`
+// An author whose account was deleted is "".
+const selectEntry = `SELECT l.id, l.lift, l.kg, l.reps, l.date, l.note, coalesce(c.name, ''), coalesce(u.name, ''), l.created_at, l.updated_at
+	FROM lifts l LEFT JOIN users c ON c.id = l.created_by LEFT JOIN users u ON u.id = l.updated_by`
 
 type scanner interface{ Scan(...any) error }
 

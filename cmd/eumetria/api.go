@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +26,7 @@ import (
 	"eumetria/internal/auth"
 	"eumetria/internal/imgmeta"
 	"eumetria/internal/lifts"
+	"eumetria/internal/mail"
 	"eumetria/internal/notes"
 	"eumetria/internal/wods"
 )
@@ -183,13 +186,19 @@ type app struct {
 	avatars    string
 	site       http.Handler
 	tags       map[string]string
-	// Failed sign-ins per account name and per address. An account locks
-	// after 5 within 15 minutes, for 15 minutes, doubling up to a day; an
-	// address after 20, so one person can't lock everyone out by guessing
-	// many names.
-	byName, byIP *auth.Limiter
-	ready        atomic.Bool  // an account exists
-	pending      pendingStore // sign-in tickets and WebAuthn ceremonies
+	// Failed sign-ins per account name from one network and per address
+	// (limits.go). A name locks for that network after 5 within 15
+	// minutes, for 15 minutes, doubling up to a day; an address after 20.
+	// nameLoad counts a name's failures from everywhere: it slows sign-ins
+	// down, it never locks.
+	byName, byIP, nameLoad *auth.Limiter
+	// Note images each user uploaded within the last hour (notes.go).
+	uploads *auth.Limiter
+	// E-mail (email.go): the queue, and how much went out per hour and day.
+	outbox               *mail.Outbox
+	mailLimit, mailDaily *auth.Limiter
+	ready                atomic.Bool  // an account exists
+	pending              pendingStore // sign-in tickets and WebAuthn ceremonies
 	// One WebAuthn configuration per origin the site is reached at.
 	relyingParties sync.Map
 	// -demo: notes and lifts may be written without a second factor, so
@@ -214,7 +223,10 @@ func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, a
 		tags:       etags(pages),
 		byName:     auth.NewLimiter(5, 15*time.Minute, 15*time.Minute, 24*time.Hour),
 		byIP:       auth.NewLimiter(20, 15*time.Minute, 15*time.Minute, 24*time.Hour),
+		nameLoad:   auth.NewLimiter(0, 15*time.Minute, 0, 0),
+		uploads:    auth.NewLimiter(0, time.Hour, 0, 0),
 	}
+	a.startMail()
 	mux := http.NewServeMux()
 	for _, rt := range a.routes() {
 		mux.Handle(rt.method+" "+rt.path, a.guard(rt))
@@ -232,6 +244,8 @@ func (a *app) routes() []route {
 		{"POST", "/api/login/key/finish", open, a.loginKeyFinish},
 		{"POST", "/api/login/passkey/begin", open, a.loginPasskeyBegin},
 		{"POST", "/api/login/passkey/finish", open, a.loginPasskeyFinish},
+		{"POST", "/api/invite", open, a.inviteCheck},
+		{"POST", "/api/invite/accept", open, a.inviteAccept},
 		{"GET", "/api/stats", signedIn, a.stats},
 		{"GET", "/days/{name}", signedIn, a.file("days")},
 		{"GET", "/photos/{name}", signedIn, scoped(auth.ViewPhotos, a.photo)},
@@ -260,6 +274,12 @@ func (a *app) routes() []route {
 		{"DELETE", "/api/sessions/{id}", ownSession, a.deleteSession},
 		{"GET", "/api/security", ownSession, a.security},
 		{"POST", "/api/security/password", ownSession, a.changePassword},
+		{"POST", "/api/security/reauth", ownSession, a.reauth},
+		{"POST", "/api/security/reauth/key/begin", ownSession, a.reauthKeyBegin},
+		{"POST", "/api/security/reauth/key/finish", ownSession, a.reauthKeyFinish},
+		{"POST", "/api/notices/seen", ownSession, a.noticesSeen},
+		{"POST", "/api/profile/email/confirm", ownSession, a.emailConfirm},
+		{"POST", "/api/profile/email/send", ownSession, a.emailResend},
 		{"POST", "/api/security/key/begin", ownSession, a.keyBegin},
 		{"POST", "/api/security/key/finish", ownSession, a.keyFinish},
 		{"DELETE", "/api/security/key/{id}", ownSession, a.keyDelete},
@@ -278,7 +298,10 @@ func (a *app) routes() []route {
 		{"GET", "/api/admin/users", adminOnly, a.adminUsers},
 		{"POST", "/api/admin/users", adminOnly, a.adminCreateUser},
 		{"PATCH", "/api/admin/users/{id}", adminOnly, a.adminChangeUser},
+		{"DELETE", "/api/admin/users/{id}", adminOnly, a.adminDeleteUser},
 		{"POST", "/api/admin/users/{id}/password", adminOnly, a.adminResetPassword},
+		{"POST", "/api/admin/users/{id}/enrol-link", adminOnly, a.adminEnrolLink},
+		{"POST", "/api/admin/users/{id}/invite", adminOnly, a.adminInvite},
 		{"GET", "/api/admin/roles", adminOnly, a.adminRoles},
 		{"PUT", "/api/admin/roles/{name}", adminOnly, a.adminSaveRole},
 		{"DELETE", "/api/admin/roles/{name}", adminOnly, a.adminDeleteRole},
@@ -288,6 +311,7 @@ func (a *app) routes() []route {
 		{"GET", "/api/admin/settings", adminOnly, a.settingsGet},
 		{"PUT", "/api/admin/settings", adminOnly, a.settingsSave},
 		{"POST", "/api/admin/settings/test/yazio", adminOnly, a.settingsTestYazio},
+		{"POST", "/api/admin/settings/test/smtp", adminOnly, a.smtpTest},
 		{"POST", "/api/admin/reviews/rewrite", adminOnly, a.reviewsRewrite},
 		{"GET", "/api/admin/backups", adminOnly, a.backups},
 		{"POST", "/api/admin/backups", adminOnly, a.backupNow},
@@ -332,14 +356,6 @@ func (a *app) guard(rt route) http.Handler {
 			writeError(w, http.StatusUnauthorized, "signin")
 			return
 		}
-		if p.session != nil && p.user.Elevated() && (rt.access == adminOnly || rt.access == syncAccess || !a.demo && (rt.access == noteWriter || rt.access == liftWriter)) {
-			// Admin and sync rights need the second factor; reading doesn't.
-			f, err := a.store.Factors(req.Context(), p.user)
-			if err != nil || !f.Any() {
-				writeError(w, http.StatusForbidden, "second_factor_required")
-				return
-			}
-		}
 		var ok bool
 		switch rt.access {
 		case signedIn:
@@ -359,8 +375,42 @@ func (a *app) guard(rt route) http.Handler {
 			writeError(w, http.StatusForbidden, "forbidden")
 			return
 		}
+		if a.factorGate(rt, p) {
+			f, err := a.store.Factors(req.Context(), p.user)
+			if err != nil || !f.Any() {
+				writeError(w, http.StatusForbidden, "second_factor_required")
+				return
+			}
+		}
 		rt.handle(w, req, p)
 	})
+}
+
+// factorGate reports whether rt needs p's user to have a second factor.
+// Admin and sync rights need one, from a session or a token (a sync token
+// made before the factor was removed doesn't keep working). So does writing
+// notes and lifts, except with -demo. A user an admin asked to set one up
+// gets nothing but their own account (/api/me and the session routes, to
+// set it up) until they have; the check lives here, for every route, so no
+// handler can forget it.
+func (a *app) factorGate(rt route, p *principal) bool {
+	switch rt.access {
+	case adminOnly, syncAccess:
+		return true
+	case noteWriter, liftWriter:
+		if !a.demo {
+			return true
+		}
+	}
+	return p.user.RequireSecondFactor && rt.access != ownSession && rt.path != "/api/me"
+}
+
+// needsFactor reports whether u must have a second factor for some of
+// their rights: auth.User.NeedsSecondFactor, plus writing outside -demo.
+func (a *app) needsFactor(u *auth.User) bool { return needsFactor(u, a.demo) }
+
+func needsFactor(u *auth.User, demo bool) bool {
+	return u.NeedsSecondFactor() || !demo && (u.Can(auth.EditNotes) || u.Can(auth.EditLifts))
 }
 
 // scoped lets only principals with scope through to h.
@@ -485,16 +535,15 @@ func (a *app) login(w http.ResponseWriter, req *http.Request, _ *principal) {
 	}
 	in.Name = strings.TrimSpace(in.Name)
 	ip := clientIP(req)
-	nameKey := "name:" + strings.ToLower(in.Name)
-	if d := max(a.byIP.Blocked("ip:"+ip), a.byName.Blocked(nameKey)); d > 0 {
-		w.Header().Set("Retry-After", strconv.Itoa(int(d.Seconds())+1))
-		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "locked", "retry_after": int(d.Seconds()) + 1})
+	tries, ok := a.try(w, ip, in.Name)
+	if !ok {
 		return
 	}
+	a.slowDown(ctx, in.Name)
 	u, err := a.store.Authenticate(ctx, in.Name, in.Password)
+	tries.done(err == nil)
 	if errors.Is(err, auth.ErrNotFound) {
-		a.byIP.Fail("ip:" + ip)
-		a.byName.Fail(nameKey)
+		a.nameFailed(ctx, in.Name, ip)
 		log.Printf("login: failed for %q from %s", truncate(in.Name, 64), ip)
 		a.audit_(ctx, nil, truncate(in.Name, 64), "login_failed", "", ip)
 		// The same answer whether the name exists or not.
@@ -515,7 +564,11 @@ func (a *app) login(w http.ResponseWriter, req *http.Request, _ *principal) {
 	if f.Any() {
 		// The password was right; the second factor turns the ticket into
 		// a session (mfa.go).
-		ticket := a.pending.put("", &pending{user: u, remember: in.Remember})
+		ticket, err := a.pending.put("", pendingTicket, "", &pending{user: u, remember: in.Remember})
+		if err != nil {
+			writeError(w, http.StatusTooManyRequests, "busy")
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"next": "second_factor", "ticket": ticket, "methods": methods(f)})
 		return
 	}
@@ -552,17 +605,31 @@ type me struct {
 	// An admin, a role that may sync or a user an admin asked, without a
 	// second factor: the page asks to set one up.
 	NeedsSecondFactor bool `json:"needs_second_factor"`
+	// The first factor needs an enrolment link from an admin (stepup.go).
+	NeedsEnrolLink bool `json:"needs_enrol_link,omitempty"`
+	// Changes to how the account signs in the user hasn't dismissed yet.
+	Notices []auth.Notice `json:"notices"`
+	// The session is "Keep me signed in": only then may this device keep
+	// the data for offline use (pentest F11).
+	Remember bool `json:"remember"`
 	// -demo: notes and lifts can be written without one (app.demo).
 	Demo bool `json:"demo,omitempty"`
 }
 
-func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User) {
+// writeMe answers who u is; session is the Key of the session asking ("" for
+// a new one), remember whether it is "Keep me signed in".
+func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User, session string, remember bool) {
 	f, err := a.store.Factors(ctx, u)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
 	_, avatar, err := a.store.Profile(ctx, u)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server")
+		return
+	}
+	notices, err := a.store.Notices(ctx, u, session)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
 		return
@@ -574,11 +641,17 @@ func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User) 
 		}
 	}
 	writeJSON(w, http.StatusOK, me{Name: u.Name, Role: string(u.Role), Avatar: avatar, Scopes: scopes,
-		Sync: u.Can(auth.ScopeSync) && f.Any(), SecondFactor: f.Any(), NeedsSecondFactor: u.NeedsSecondFactor() && !f.Any(), Demo: a.demo})
+		Sync: u.Can(auth.ScopeSync) && f.Any(), SecondFactor: f.Any(), NeedsSecondFactor: a.needsFactor(u) && !f.Any(), Demo: a.demo,
+		NeedsEnrolLink: !a.demo && a.needsFactor(u) && !f.Any(), Notices: notices, Remember: remember})
 }
 
 func (a *app) me(w http.ResponseWriter, req *http.Request, p *principal) {
-	a.writeMe(w, req.Context(), p.user)
+	var session string
+	var remember bool
+	if p.session != nil {
+		session, remember = p.session.Key, p.session.Remember
+	}
+	a.writeMe(w, req.Context(), p.user, session, remember)
 }
 
 func (a *app) logout(w http.ResponseWriter, req *http.Request, p *principal) {
@@ -586,6 +659,7 @@ func (a *app) logout(w http.ResponseWriter, req *http.Request, p *principal) {
 		log.Printf("logout: %v", err)
 	}
 	clearSessionCookie(w)
+	clearSiteCache(w)
 	a.audit_(req.Context(), p.user, "", "logout", "", clientIP(req))
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -597,6 +671,7 @@ func (a *app) logoutAll(w http.ResponseWriter, req *http.Request, p *principal) 
 		return
 	}
 	clearSessionCookie(w)
+	clearSiteCache(w)
 	a.audit_(req.Context(), p.user, "", "logout_all", "", clientIP(req))
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -643,7 +718,11 @@ func (a *app) audit(w http.ResponseWriter, req *http.Request, _ *principal) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	list, err := a.store.AuditLog(req.Context(), limit)
+	which := req.URL.Query().Get("which")
+	if which != auth.AuditFailures && which != auth.AuditSecurity {
+		which = auth.AuditAll
+	}
+	list, err := a.store.AuditLog(req.Context(), limit, which)
 	if err != nil {
 		log.Printf("audit: %v", err)
 		writeError(w, http.StatusInternalServerError, "server")
@@ -671,15 +750,10 @@ func (a *app) stats(w http.ResponseWriter, req *http.Request, p *principal) {
 	http.ServeContent(w, req, "", time.Time{}, bytes.NewReader(b.stats))
 }
 
-// build returns the principal's stats, answering itself when that fails:
-// 403 for a user an admin asked to set up a second factor who has none yet.
+// build returns the principal's stats, answering itself when that fails.
+// (A user an admin asked to set up a second factor never gets here without
+// one: guard, factorGate.)
 func (a *app) build(w http.ResponseWriter, req *http.Request, p *principal) (*build, bool) {
-	if p.user.RequireSecondFactor {
-		if f, err := a.store.Factors(req.Context(), p.user); err != nil || !f.Any() {
-			writeError(w, http.StatusForbidden, "second_factor_required")
-			return nil, false
-		}
-	}
 	b, err := a.data.get(p.views(), p.session != nil && p.user.Can(auth.ScopeAdmin))
 	if err != nil {
 		log.Printf("stats: %v", err)
@@ -689,12 +763,32 @@ func (a *app) build(w http.ResponseWriter, req *http.Request, p *principal) (*bu
 	return b, true
 }
 
-// Year files, routes and photos are named after their content: the same
-// name never changes. "private" keeps them out of shared caches such as
-// nginx's.
-func immutable(w http.ResponseWriter, contentType string) {
-	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-	w.Header().Set("Content-Type", contentType)
+// clearSiteCache tells the browser to drop what it cached of this site
+// (pentest F23): the user's files must not outlive signing out. Only
+// "cache": "storage" would also wipe the page's own settings (language,
+// style) and the service worker; the page empties the service worker's
+// caches itself (account.js, forgetData).
+func clearSiteCache(w http.ResponseWriter) {
+	w.Header().Set("Clear-Site-Data", `"cache"`)
+}
+
+// personal answers with one of the user's files: a year file, a route, a
+// photo, a note image or a picture. "private" keeps it out of shared caches
+// such as nginx's; "no-cache" makes the browser ask every time, so a copy
+// in its cache is never shown to whoever uses it after the session ended
+// (pentest F23). The ETag keeps asking cheap: an unchanged file is a 304.
+func personal(w http.ResponseWriter, req *http.Request, contentType string, data []byte) {
+	sum := sha256.Sum256(data)
+	tag := `"` + hex.EncodeToString(sum[:12]) + `"`
+	h := w.Header()
+	h.Set("Cache-Control", "private, no-cache")
+	h.Set("ETag", tag)
+	if match := req.Header.Get("If-None-Match"); match != "" && strings.Contains(match, tag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	h.Set("Content-Type", contentType)
+	w.Write(data)
 }
 
 // file serves a year file or a route of the principal's own stats; others'
@@ -710,8 +804,7 @@ func (a *app) file(folder string) func(http.ResponseWriter, *http.Request, *prin
 			http.NotFound(w, req)
 			return
 		}
-		immutable(w, "application/json")
-		w.Write(data)
+		personal(w, req, "application/json", data)
 	}
 }
 
@@ -738,8 +831,7 @@ func (a *app) photo(w http.ResponseWriter, req *http.Request, p *principal) {
 		http.NotFound(w, req)
 		return
 	}
-	immutable(w, mime.TypeByExtension(filepath.Ext(name)))
-	w.Write(clean)
+	personal(w, req, mime.TypeByExtension(filepath.Ext(name)), clean)
 }
 
 /* ---------- sync ---------- */

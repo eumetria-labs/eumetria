@@ -79,21 +79,23 @@ func main() {
 
 // config holds the settings shared by a one-off sync and serve mode.
 type config struct {
-	dataDir     string // the folder all of the following live in by default
-	dbPath      string // the app's own database (internal/db), serve mode only
-	historyPath string
-	outPath     string // -out: a local copy of everything for the page; "" writes none
-	photoDir    string
-	since       string
-	refreshDays int
-	refreshAll  bool
-	workers     int
-	demo        bool
-	interval    time.Duration // written to stats.json for the footer; 0 if unknown
-	googleToken string        // Google Health token file
-	backupDir   string        // where archives go
-	values      settings.Values
-	flags       map[string]bool // the flags given: they win over the settings
+	dataDir string // the folder all of the following live in by default
+	dbPath  string // the app's own database (internal/db), serve mode only
+	// Whether a note embeds a note image, for the backup (set per run).
+	noteImageUsed func(name string) bool
+	historyPath   string
+	outPath       string // -out: a local copy of everything for the page; "" writes none
+	photoDir      string
+	since         string
+	refreshDays   int
+	refreshAll    bool
+	workers       int
+	demo          bool
+	interval      time.Duration // written to stats.json for the footer; 0 if unknown
+	googleToken   string        // Google Health token file
+	backupDir     string        // where archives go
+	values        settings.Values
+	flags         map[string]bool // the flags given: they win over the settings
 }
 
 // with takes the settings in v for a run, except what a flag decided.
@@ -151,6 +153,7 @@ func run() error {
 	flag.StringVar(&cfg.backupDir, "backups", os.Getenv("BACKUP_DIR"), "folder for backup archives (default <data>/backups)")
 	flag.StringVar(&cfg.googleToken, "google-token", "", "private Google Health refresh token, written by -google-auth (default <data>/google-token.json)")
 	flag.StringVar(&accounts.createUser, "create-user", "", "create an account with this name and exit (asks for the password; -role)")
+	flag.StringVar(&accounts.email, "email", "", "with -create-user: invite the account at this e-mail address (welcome mail, they choose the password) instead of asking for a password")
 	flag.StringVar(&accounts.role, "role", "viewer", "with -create-user and -set-role: the role (admin, viewer or one made with -create-role)")
 	flag.StringVar(&accounts.setRole, "set-role", "", "give this account the role named by -role and exit")
 	flag.StringVar(&accounts.createRole, "create-role", "", "create a role with this name, or change the scopes of one made before, from -scopes, and exit")
@@ -158,6 +161,8 @@ func run() error {
 	flag.BoolVar(&accounts.listRoles, "list-roles", false, "list the roles with their scopes and users and exit")
 	flag.StringVar(&accounts.resetPassword, "reset-password", "", "set a new password for this account and end its sessions, then exit")
 	flag.StringVar(&accounts.resetFactors, "reset-second-factors", "", "remove every passkey, key, authenticator app and recovery code of this account (when all are lost) and end its sessions, then exit")
+	flag.BoolVar(&accounts.mail, "mail", false, "with -enrol-link: also send it to the account's confirmed e-mail address (needs SETTINGS_KEY)")
+	flag.StringVar(&accounts.enrolLink, "enrol-link", "", "make a new link with which this account sets up its first second factor (admins, sync and writers need one) and exit")
 	flag.StringVar(&accounts.createToken, "create-token", "", "make an API token for this account for scripts and exit (-token-name, -scopes, -expires)")
 	flag.StringVar(&accounts.tokenName, "token-name", "script", "with -create-token: what the token is for")
 	flag.StringVar(&accounts.scopes, "scopes", "", "with -create-token: read (the data the account's role sees) and/or sync, comma-separated (default sync); with -create-role: the role's scopes (see -list-roles)")

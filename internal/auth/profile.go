@@ -75,11 +75,13 @@ func (s *Store) Profile(ctx context.Context, u *User) (Profile, string, error) {
 	return p, AvatarURL(u.ID, avatar), err
 }
 
-// SaveProfile stores p as u's profile; the picture stays. p comes from Clean.
+// SaveProfile stores p as u's profile; the picture and the e-mail address
+// stay: the address changes only through SetEmail or a confirmation
+// (email.go). p comes from Clean.
 func (s *Store) SaveProfile(ctx context.Context, u *User, p Profile) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO profiles (user_id, first_name, surname, email, instagram) VALUES (?, ?, ?, ?, ?)
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO profiles (user_id, first_name, surname, instagram) VALUES (?, ?, ?, ?)
 		ON CONFLICT (user_id) DO UPDATE SET first_name = excluded.first_name, surname = excluded.surname,
-		email = excluded.email, instagram = excluded.instagram`, u.ID, p.FirstName, p.Surname, p.Email, p.Instagram)
+		instagram = excluded.instagram`, u.ID, p.FirstName, p.Surname, p.Instagram)
 	return err
 }
 

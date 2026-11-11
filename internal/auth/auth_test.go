@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -94,6 +95,65 @@ func TestLimiterLocksAndDoubles(t *testing.T) {
 	}
 	if l.Blocked("user:c") != 0 {
 		t.Error("failures outside the window locked the key")
+	}
+}
+
+// Reserve counts a try before it is checked: however many run at once, only
+// Max get through before the key locks (pentest F16).
+func TestLimiterReserveRace(t *testing.T) {
+	l := NewLimiter(5, 15*time.Minute, 15*time.Minute, time.Hour)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	through := 0
+	for range 60 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r, wait := l.Reserve("name:a")
+			if wait > 0 {
+				return
+			}
+			time.Sleep(5 * time.Millisecond) // the password check
+			mu.Lock()
+			through++
+			mu.Unlock()
+			r.Done(false)
+		}()
+	}
+	wg.Wait()
+	if through != 5 {
+		t.Errorf("%d tries got through, want 5", through)
+	}
+	if l.Blocked("name:a") == 0 {
+		t.Error("not locked after five failures")
+	}
+}
+
+// A try that works is taken back, also when it was the one that locked.
+func TestLimiterReserveSuccess(t *testing.T) {
+	l := NewLimiter(3, 15*time.Minute, 15*time.Minute, time.Hour)
+	for range 2 {
+		r, _ := l.Reserve("k")
+		r.Done(false)
+	}
+	r, wait := l.Reserve("k") // the third: locks
+	if wait != 0 || l.Blocked("k") == 0 {
+		t.Fatal("the third try didn't lock")
+	}
+	r.Done(true)
+	if l.Blocked("k") != 0 {
+		t.Error("still locked after the try worked")
+	}
+	if l.Failures("k") != 2 {
+		t.Errorf("failures = %d, want 2", l.Failures("k"))
+	}
+	// Max 0 only counts.
+	c := NewLimiter(0, 15*time.Minute, 15*time.Minute, time.Hour)
+	for range 100 {
+		c.Fail("x")
+	}
+	if c.Blocked("x") != 0 || c.Failures("x") != 100 {
+		t.Errorf("counter: blocked %v, failures %d", c.Blocked("x"), c.Failures("x"))
 	}
 }
 
@@ -216,7 +276,7 @@ func TestSessions(t *testing.T) {
 		t.Errorf("Sessions: %d, want 1", len(list))
 	}
 	keep, kept, _ := s.CreateSession(ctx, u, true, "", "")
-	if err := s.SetPassword(ctx, u, "a brand new long password", kept.ID); err != nil {
+	if err := s.SetPassword(ctx, u, "a brand new long password", kept.ID, Revoke{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.Session(ctx, tok); !errors.Is(err, ErrNotFound) {
@@ -278,6 +338,49 @@ func TestAuditLog(t *testing.T) {
 	}
 	if log[0].Action != "login" || log[0].Actor != "patrick" || log[1].Actor != "nobody" {
 		t.Errorf("newest first, actor from the user: %+v", log)
+	}
+}
+
+// Repeated failures are one row with a count; the log keeps 180 days and
+// at most AuditMaxRows (pentest F20).
+func TestAuditLogRepeatsAndPrunes(t *testing.T) {
+	s, now := newStore(t)
+	for range 30 {
+		s.Audit(ctx, nil, "admin", "login_failed", "", "203.0.113.5")
+		*now = now.Add(time.Minute)
+	}
+	s.Audit(ctx, nil, "admin", "login_failed", "", "198.51.100.1") // another address
+	*now = now.Add(RepeatWindow + time.Minute)
+	s.Audit(ctx, nil, "admin", "login_failed", "", "203.0.113.5") // after a pause: a new row
+	u, _ := s.CreateUser(ctx, "patrick", goodPassword, RoleAdmin)
+	s.Audit(ctx, u, "", "login", "", "203.0.113.5")
+	s.Audit(ctx, u, "", "login", "", "203.0.113.5") // successes never collapse
+	all, _ := s.AuditLog(ctx, 100)
+	if len(all) != 5 {
+		t.Fatalf("%d rows, want 5: %+v", len(all), all)
+	}
+	var counted int
+	for _, e := range all {
+		counted += max(e.Count, 1)
+	}
+	if counted != 34 {
+		t.Errorf("counts add up to %d, want 34", counted)
+	}
+	if f, _ := s.AuditLog(ctx, 100, AuditFailures); len(f) != 3 {
+		t.Errorf("failures = %+v", f)
+	}
+	if sec, _ := s.AuditLog(ctx, 100, AuditSecurity); len(sec) != 2 || sec[0].Action != "login" {
+		t.Errorf("security = %+v", sec)
+	}
+	// Half a year later only what is newer stays.
+	*now = now.Add(AuditKeep - time.Hour)
+	s.Audit(ctx, u, "", "logout", "", "")
+	*now = now.Add(2 * time.Hour)
+	if n, err := s.PruneAudit(ctx); err != nil || n != 5 {
+		t.Errorf("pruned %d, %v; want 5", n, err)
+	}
+	if left, _ := s.AuditLog(ctx, 100); len(left) != 1 || left[0].Action != "logout" {
+		t.Errorf("left = %+v", left)
 	}
 }
 

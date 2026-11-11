@@ -64,7 +64,7 @@
             <p class="menu-head"><span class="muted">Signed in as</span> <b id="account-name"></b></p>
             <button role="menuitem" type="button" data-action="profile"><b>Profile</b><span>Your details, picture, API tokens and devices.</span></button>
             <button role="menuitem" type="button" data-action="security"><b>Security</b><span>Passkeys, authenticator app, recovery codes.</span></button>
-            <button role="menuitem" type="button" data-action="admin" id="account-admin" hidden><b>Users &amp; roles</b><span>Accounts, who may see what, sessions, audit log.</span></button>
+            <button role="menuitem" type="button" data-action="admin" id="account-admin" hidden><b>Users &amp; Roles</b><span>Accounts, who may see what, sessions, audit log.</span></button>
             <button role="menuitem" type="button" data-action="settings" id="account-settings" hidden><b>Settings</b><span>Sync, Yazio, Google, weekly review, backups.</span></button>
             <button role="menuitem" type="button" data-action="theme" class="menu-sep"><b id="theme-label">Dark mode</b></button>
             <button role="menuitem" type="button" data-action="lang"><b id="lang-label">Deutsch</b></button>
@@ -99,6 +99,7 @@
       <span id="mfa-text">Admins need a second factor: until you set one up, syncing and the admin tools stay locked.</span>
       <button class="pill-btn" id="mfa-setup" type="button">Set up</button>
     </div>
+    <div class="notice sec-notices" id="sec-notices" role="status" hidden></div>
     <div class="notice notice-row" id="empty-notice" role="status" hidden>
       <span id="empty-text">Nothing synced yet.</span>
       <button class="pill-btn" id="empty-settings" type="button" hidden>Open settings</button>
