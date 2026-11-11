@@ -55,6 +55,7 @@ type pending struct {
 	wa       *webauthn.SessionData // the challenge of a WebAuthn ceremony
 	secret   string                // a TOTP secret waiting for its first code
 	name     string                // a key's name waiting for its registration
+	keyOnly  bool                  // a security key for the second step only, not a passkey
 	enrol    string                // the enrolment link a first factor is set up with
 }
 
@@ -406,8 +407,11 @@ func (a *app) loginKeyBegin(w http.ResponseWriter, req *http.Request, _ *princip
 }
 
 type credentialRequest struct {
-	Ticket     string          `json:"ticket,omitempty"`
-	Enrol      string          `json:"enrol,omitempty"` // an enrolment link's token (stepup.go)
+	Ticket string `json:"ticket,omitempty"`
+	Enrol  string `json:"enrol,omitempty"` // an enrolment link's token (stepup.go)
+	// With key/begin: "key" for a security key that is only the second
+	// step after the password (nothing stored on it); otherwise a passkey.
+	Kind       string          `json:"kind,omitempty"`
 	ID         string          `json:"id,omitempty"`
 	Remember   bool            `json:"remember,omitempty"`
 	Name       string          `json:"name,omitempty"`
@@ -699,9 +703,21 @@ func (a *app) keyBegin(w http.ResponseWriter, req *http.Request, p *principal) {
 		exclude = append(exclude, k.Credential.Descriptor())
 	}
 	// A passkey if the device can (it then signs in on its own), a plain
-	// security key otherwise.
-	opts, sd, err := rp.BeginRegistration(wu, webauthn.WithExclusions(exclude),
-		webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementPreferred))
+	// security key otherwise. Asked for a security key, nothing is stored on
+	// it and a touch is enough, as most sites register keys: some ways to a
+	// key (the CTAP proxy of Qubes OS, older keys) can't store passkeys, and
+	// the browser then gives up without the key even lighting up.
+	keyOnly := in.Kind == "key"
+	reg := webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementPreferred)
+	if keyOnly {
+		reg = webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
+			AuthenticatorAttachment: protocol.CrossPlatform,
+			ResidentKey:             protocol.ResidentKeyRequirementDiscouraged,
+			RequireResidentKey:      protocol.ResidentKeyNotRequired(),
+			UserVerification:        protocol.VerificationDiscouraged,
+		})
+	}
+	opts, sd, err := rp.BeginRegistration(wu, webauthn.WithExclusions(exclude), reg)
 	if err != nil {
 		log.Printf("webauthn: %v", err)
 		writeError(w, http.StatusInternalServerError, "server")
@@ -710,8 +726,11 @@ func (a *app) keyBegin(w http.ResponseWriter, req *http.Request, p *principal) {
 	name := strings.TrimSpace(in.Name)
 	if name == "" || len(name) > 60 {
 		name = "Passkey"
+		if keyOnly {
+			name = "Security key"
+		}
 	}
-	if _, err := a.pending.put(regKey(p), pendingKeyAdd, "", &pending{wa: sd, name: name, enrol: in.Enrol}); err != nil {
+	if _, err := a.pending.put(regKey(p), pendingKeyAdd, "", &pending{wa: sd, name: name, enrol: in.Enrol, keyOnly: keyOnly}); err != nil {
 		writeError(w, http.StatusTooManyRequests, "busy")
 		return
 	}
@@ -747,7 +766,8 @@ func (a *app) keyFinish(w http.ResponseWriter, req *http.Request, p *principal) 
 	if !ok {
 		return
 	}
-	if err := a.store.AddKey(ctx, p.user, t.name, cred, cred.Flags.UserVerified); err != nil {
+	// Signs in on its own only as a passkey that verified its user.
+	if err := a.store.AddKey(ctx, p.user, t.name, cred, cred.Flags.UserVerified && !t.keyOnly); err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}

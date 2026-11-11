@@ -193,12 +193,16 @@ function keysSection(s, body) {
   }
   const add = h('form', { class: 'sec-add' });
   const input = h('input', { class: 'field', type: 'text', maxlength: '60', placeholder: t('Name, e.g. iPhone or YubiKey'), 'aria-label': t('Name of the key') });
-  const button = h('button', { class: 'pill-btn', type: 'submit' }, t('Add passkey or key'));
-  add.append(input, button);
-  add.onsubmit = (e) => {
-    e.preventDefault();
-    change(body, button, async () => {
-      const res = await api('security/key/begin', 'POST', { name: input.value.trim(), enrol: enrolToken || undefined });
+  const button = h('button', { class: 'pill-btn', type: 'submit' }, t('Add passkey'));
+  // A security key only for the second step after the password: nothing is
+  // stored on it, as most sites register keys. For keys (or ways to them,
+  // such as the CTAP proxy of Qubes OS) that can't store a passkey.
+  const keyBtn = h('button', { class: 'pill-btn', type: 'button' }, t('Add security key'));
+  add.append(input, button, keyBtn, h('p', { class: 'muted set-hint' },
+    t('A passkey signs in on its own. A security key is the second step after the password; use it when adding the key as a passkey doesn’t work.')));
+  const register = (kind, btn) => {
+    change(body, btn, async () => {
+      const res = await api('security/key/begin', 'POST', { name: input.value.trim(), kind, enrol: enrolToken || undefined });
       if (!res.ok) return res;
       const cred = await navigator.credentials.create({ publicKey: creationOptions(await res.json()) });
       const fin = await api('security/key/finish', 'POST', { credential: credentialJSON(cred) });
@@ -206,6 +210,11 @@ function keysSection(s, body) {
       return fin;
     });
   };
+  add.onsubmit = (e) => {
+    e.preventDefault();
+    register(undefined, button);
+  };
+  keyBtn.onclick = () => register('key', keyBtn);
   sec.append(add);
   return sec;
 }

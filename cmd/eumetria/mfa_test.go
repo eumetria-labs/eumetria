@@ -248,6 +248,14 @@ func TestPasskeyCeremoniesStart(t *testing.T) {
 	if res.StatusCode != 200 || !strings.Contains(body, `"residentKey":"preferred"`) || !strings.Contains(body, `"name":"anna"`) {
 		t.Errorf("key begin = %d %s", res.StatusCode, body)
 	}
+	// A security key for the second step only: nothing stored on it, a
+	// touch is enough (what the Qubes CTAP proxy and older keys can do).
+	res, body = e.do(t, c, "POST", "/api/security/key/begin", `{"name":"YubiKey","kind":"key"}`, sameSite, cookies, host("localhost"))
+	for _, want := range []string{`"residentKey":"discouraged"`, `"userVerification":"discouraged"`, `"authenticatorAttachment":"cross-platform"`} {
+		if res.StatusCode != 200 || !strings.Contains(body, want) {
+			t.Errorf("security key begin = %d, want %s in %s", res.StatusCode, want, body)
+		}
+	}
 }
 
 // host sets the Host the server sees (an IP address is no WebAuthn

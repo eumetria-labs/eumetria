@@ -21,7 +21,7 @@
 // are kept, never a 401 or the sign-in; the page clears the data when the
 // user signs out, gets a 401 or another user signs in (account.js).
 
-const CACHE = 'stats-v47';
+const CACHE = 'stats-v48';
 const DATA = 'stats-data-v1';
 const FLAGS = 'eumetria-flags';
 const SHELL = [
