@@ -144,3 +144,23 @@ func TestClonedKeysAreRefused(t *testing.T) {
 		}
 	}
 }
+
+// As the second step, a key is asked for a touch only (no PIN), like most
+// sites ask; a passkey alone must still verify its user.
+func TestKeyStepAsksForATouchOnly(t *testing.T) {
+	e := newTestEnv(t, true)
+	anna, _ := e.store.UserByName(context.Background(), "anna")
+	newSoftKey(t, e, anna, 0)
+	ans, _ := e.password(t, "anna", viewerPassword)
+	if ans.Next != "second_factor" {
+		t.Fatalf("answer = %+v", ans)
+	}
+	res, body := e.do(t, e.client(), "POST", "/api/login/key/begin", `{"ticket":"`+ans.Ticket+`"}`, sameSite, host("localhost"))
+	if res.StatusCode != 200 || !strings.Contains(body, `"userVerification":"discouraged"`) {
+		t.Errorf("key begin = %d %s", res.StatusCode, body)
+	}
+	res, body = e.do(t, e.client(), "POST", "/api/login/passkey/begin", "{}", sameSite, host("localhost"))
+	if res.StatusCode != 200 || !strings.Contains(body, `"userVerification":"required"`) {
+		t.Errorf("passkey begin = %d %s", res.StatusCode, body)
+	}
+}

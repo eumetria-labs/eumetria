@@ -113,7 +113,7 @@ func (a *app) reauthKeyBegin(w http.ResponseWriter, req *http.Request, p *princi
 	if !ok {
 		return
 	}
-	opts, sd, err := rp.BeginLogin(wu)
+	opts, sd, err := rp.BeginLogin(wu, secondFactorUV)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "no_keys")
 		return

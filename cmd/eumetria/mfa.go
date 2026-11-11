@@ -397,7 +397,7 @@ func (a *app) loginKeyBegin(w http.ResponseWriter, req *http.Request, _ *princip
 	if !ok {
 		return
 	}
-	opts, sd, err := rp.BeginLogin(wu)
+	opts, sd, err := rp.BeginLogin(wu, secondFactorUV)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "no_keys")
 		return
@@ -907,3 +907,11 @@ func (a *app) cloned(ctx context.Context, req *http.Request, u *auth.User, wu *w
 	a.notify(ctx, u, "key_clone_warning", name, ip, nil)
 	return true
 }
+
+// secondFactorUV asks a key for a touch only, no PIN or fingerprint, where
+// it is the second step after the password (or confirms a signed-in user):
+// having the key is the factor, and a PIN would add nothing. That is how
+// most sites ask, and it keeps the request simple for the ways to a key
+// that can't do more, such as the CTAP proxy of Qubes OS. A passkey that
+// signs in on its own still has to verify its user (loginPasskeyBegin).
+var secondFactorUV = webauthn.WithUserVerification(protocol.VerificationDiscouraged)
