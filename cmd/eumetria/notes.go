@@ -147,12 +147,6 @@ func (a *app) noteDelete(w http.ResponseWriter, req *http.Request, p *principal)
 // noteImagePost takes an image for the workout's note and answers with the
 // address to embed. The note itself is saved later, or never (imageLoop).
 func (a *app) noteImagePost(w http.ResponseWriter, req *http.Request, p *principal) {
-	var in struct {
-		Image []byte `json:"image"` // base64
-	}
-	if !readJSONUpTo(w, req, &in, maxImageBody) {
-		return
-	}
 	b, ok := a.build(w, req, p)
 	if !ok {
 		return
@@ -163,20 +157,29 @@ func (a *app) noteImagePost(w http.ResponseWriter, req *http.Request, p *princip
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
+	if !a.imageRoom(w, req.Context(), p) {
+		return
+	}
+	held, ok := imageSlot(w, req)
+	if !ok {
+		return
+	}
+	defer held.Release()
+	var in struct {
+		Image []byte `json:"image"` // base64
+	}
+	if !readJSONUpTo(w, req, &in, maxImageBody) {
+		return
+	}
 	if len(in.Image) > maxImage {
 		writeError(w, http.StatusRequestEntityTooLarge, "too_long")
 		return
 	}
-	if !a.imageRoom(w, req.Context(), p) {
-		return
-	}
-	name, err := notes.SaveImage(a.noteImages, in.Image)
+	name, err := notes.SaveImage(held, a.noteImages, in.Image)
+	in.Image = nil
+	held.Release()
 	if errors.Is(err, picture.ErrBad) {
 		writeError(w, http.StatusBadRequest, "bad_image")
-		return
-	}
-	if errors.Is(err, picture.ErrBusy) {
-		writeError(w, http.StatusServiceUnavailable, "busy")
 		return
 	}
 	if err != nil {
@@ -208,6 +211,28 @@ func (a *app) noteImage(w http.ResponseWriter, req *http.Request, p *principal) 
 		return
 	}
 	personal(w, req, "image/jpeg", data)
+}
+
+// imageSlot takes the image slot for an upload before its body is read
+// (pentest re-test N3): uploads waiting for the slot would each hold their
+// body in memory, and enough of them kill the container. A body larger
+// than maxImageBody by its Content-Length gets 413, one without a length
+// 411, and a busy slot 503, all without reading a byte.
+func imageSlot(w http.ResponseWriter, req *http.Request) (picture.Held, bool) {
+	switch {
+	case req.ContentLength < 0:
+		writeError(w, http.StatusLengthRequired, "length_required")
+		return picture.Held{}, false
+	case req.ContentLength > maxImageBody:
+		writeError(w, http.StatusRequestEntityTooLarge, "too_long")
+		return picture.Held{}, false
+	}
+	held, err := picture.Acquire()
+	if err != nil {
+		busy(w)
+		return picture.Held{}, false
+	}
+	return held, true
 }
 
 // imageRoom answers 429 or 507 itself when p may not upload another image

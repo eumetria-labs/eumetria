@@ -97,11 +97,21 @@ async function send(body, button, run, words) {
   button.disabled = true;
   try {
     const res = await run();
-    if (res.ok) return await load(body, body.dataset.tab);
+    if (res.ok) {
+      // A new mail server doesn't get the old one's password (pentest
+      // re-test N4): the server cleared it, so ask for it again.
+      const done = res.status === 200 ? await res.clone().json().catch(() => ({})) : {};
+      await load(body, body.dataset.tab);
+      if (done.cleared?.includes('smtp_password')) {
+        body.prepend(h('p', { class: 'notice adm-error', role: 'status' }, t('The mail server changed, so its stored password was removed. Enter the password again.')));
+      }
+      return;
+    }
     const why = await (async () => { try { return await res.clone().json(); } catch { return {}; } })();
     if (why.error === 'reauth') return body.prepend(confirmNote());
     if (why.error === 'no_key') return showError(body, t('Secrets can’t be stored: SETTINGS_KEY isn’t set on the server.'));
-    showError(body, words?.(why) || (why.error === 'no_passphrase' && t('Set a passphrase first: nothing leaves the server unencrypted.')) || t('That didn’t work. Try again.'));
+    showError(body, words?.(why) || (why.error === 'no_passphrase' && t('Set a passphrase first: nothing leaves the server unencrypted.'))
+      || (why.error === 'needs_public_url' && t('Set the public URL first (General): links in mails go only there.')) || t('That didn’t work. Try again.'));
   } catch {
     showError(body, t('Server not reachable.'));
   } finally {
@@ -301,6 +311,20 @@ const MAIL_ERRORS = {
   demo: () => t('The demo never sends mail.'),
 };
 
+// What went wrong sending, by kind: the server says no more (pentest
+// re-test I4), its log has the details.
+const SEND_ERRORS = {
+  dns: () => t('the server’s name wasn’t found'),
+  refused: () => t('the server refused the connection'),
+  timeout: () => t('the server didn’t answer in time'),
+  tls: () => t('no secure connection (certificate or STARTTLS)'),
+  auth: () => t('user name or password refused'),
+  rejected: () => t('the server refused the mail'),
+  not_set_up: () => t('e-mail isn’t set up'),
+  other: () => t('see the server log'),
+};
+const sendError = (kind) => SEND_ERRORS[kind]?.() || kind;
+
 function mailTab(body, data) {
   const sec = section(t('Mail server'), t('Optional. Security alerts and links then reach people by e-mail too, at their confirmed address.'));
   sec.append(form(body, data, [
@@ -308,7 +332,7 @@ function mailTab(body, data) {
     { key: 'smtp_port', label: t('Port'), type: 'number', hint: t('587 with STARTTLS, 465 with TLS.') },
     { key: 'smtp_tls', label: t('Encryption'), options: [['starttls', 'STARTTLS'], ['implicit', 'TLS']], hint: t('Always encrypted: a server without it gets nothing.') },
     { key: 'smtp_user', label: t('User name') },
-    { key: 'smtp_password', label: t('Password') },
+    { key: 'smtp_password', label: t('Password'), hint: t('Changing the server, port, encryption or user name needs the password again.') },
     { key: 'smtp_from', label: t('Sender address'), type: 'email', hint: t('The address the mails come from; SPF and DKIM for it are your mail provider’s part.') },
   ]));
   const status = h('p', { class: 'muted' });
@@ -316,7 +340,7 @@ function mailTab(body, data) {
   const when = (d) => dfTime.format(new Date(d));
   status.textContent = [
     m.last_sent ? t('Last sent: {when}', { when: when(m.last_sent) }) : t('Nothing sent yet'),
-    m.last_error ? t('Last error ({when}): {why}', { when: when(m.error_at), why: m.last_error }) : '',
+    m.last_error ? t('Last error ({when}): {why}', { when: when(m.error_at), why: sendError(m.last_error) }) : '',
     m.waiting ? t('{n} waiting', { n: m.waiting }) : '',
   ].filter(Boolean).join(' · ');
   const msg = h('p', { class: 'sec-msg', role: 'status', hidden: '' });
@@ -332,7 +356,7 @@ function mailTab(body, data) {
     }
     const ans = res?.ok ? await res.json() : null;
     const why = !res?.ok && res ? await reason(res) : '';
-    msg.textContent = !res ? t('Server not reachable.') : ans?.ok ? t('Sent to {to}.', { to: ans.to }) : ans ? t('That didn’t work: {why}', { why: ans.error }) : MAIL_ERRORS[why]?.() || t('That didn’t work. Try again.');
+    msg.textContent = !res ? t('Server not reachable.') : ans?.ok ? t('Sent to {to}.', { to: ans.to }) : ans ? t('That didn’t work: {why}', { why: sendError(ans.error) }) : MAIL_ERRORS[why]?.() || t('That didn’t work. Try again.');
     msg.classList.toggle('lock-error', !ans?.ok);
     msg.hidden = false;
   };

@@ -195,8 +195,9 @@ func TestARequiredSecondFactorHoldsTheData(t *testing.T) {
 	admin := e.signIn(t, "patrick", adminPassword, false)
 	anna := e.signIn(t, "anna", viewerPassword, false)
 	id := e.userID(t, "anna")
-	if res, _ := e.do(t, admin, "PATCH", "/api/admin/users/"+id, `{"require_second_factor":true}`, sameSite); res.StatusCode != 204 {
-		t.Fatalf("require = %d", res.StatusCode)
+	// She has no factor yet: the answer brings an enrolment link for her.
+	if res, body := e.do(t, admin, "PATCH", "/api/admin/users/"+id, `{"require_second_factor":true}`, sameSite); res.StatusCode != 200 || !strings.Contains(body, `"enrol":"`) {
+		t.Fatalf("require = %d %s", res.StatusCode, body)
 	}
 	if res, body := e.do(t, anna, "GET", "/api/stats", ""); res.StatusCode != 403 || !strings.Contains(body, "second_factor_required") {
 		t.Errorf("stats = %d %s", res.StatusCode, body)

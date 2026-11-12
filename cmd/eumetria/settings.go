@@ -119,7 +119,13 @@ func (a *app) settingsSave(w http.ResponseWriter, req *http.Request, p *principa
 		writeError(w, http.StatusConflict, "no_passphrase")
 		return
 	}
-	err := a.runner.settings.Save(ctx, in.Values, in.Reset)
+	// Mail carries links, and those must not come from whatever Host a
+	// request names: a mail server needs the public URL (pentest re-test I3).
+	if after, err := a.runner.settings.Preview(ctx, in.Values, in.Reset); err == nil && after.SMTP.Host != "" && after.PublicURL == "" {
+		writeError(w, http.StatusConflict, "needs_public_url")
+		return
+	}
+	cleared, err := a.runner.settings.SaveReport(ctx, in.Values, in.Reset)
 	var bad settings.BadValue
 	switch {
 	case errors.As(err, &bad):
@@ -142,8 +148,17 @@ func (a *app) settingsSave(w http.ResponseWriter, req *http.Request, p *principa
 	}
 	sort.Strings(keys)
 	a.audit_(ctx, p.user, "", "settings_changed", strings.Join(keys, " "), clientIP(req))
+	for _, k := range cleared {
+		a.audit_(ctx, p.user, "", "setting_secret_cleared", k, clientIP(req))
+	}
 	if err := a.applySettings(ctx); err != nil {
 		a.failed(w, "settings", err)
+		return
+	}
+	if len(cleared) > 0 {
+		// The mail server changed, so its password went: the page asks for
+		// it again (pentest re-test N4).
+		writeJSON(w, http.StatusOK, map[string]any{"cleared": cleared})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

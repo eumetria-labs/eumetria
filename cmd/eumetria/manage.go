@@ -37,6 +37,9 @@ func (a *app) failed(w http.ResponseWriter, what string, err error) {
 	var reason string
 	code := http.StatusBadRequest
 	switch {
+	case errors.Is(err, auth.ErrBusy):
+		busy(w)
+		return
 	case errors.Is(err, auth.ErrNameTaken):
 		reason, code = "name_taken", http.StatusConflict
 	case errors.Is(err, auth.ErrBadName):
@@ -161,6 +164,7 @@ func (a *app) adminChangeUser(w http.ResponseWriter, req *http.Request, p *princ
 		return
 	}
 	ip := clientIP(req)
+	before := *u
 	if in.Role != nil {
 		if err := a.store.SetRole(ctx, u, role); err != nil {
 			a.failed(w, "change user", err)
@@ -190,6 +194,17 @@ func (a *app) adminChangeUser(w http.ResponseWriter, req *http.Request, p *princ
 			return
 		}
 		a.audit_(ctx, p.user, "", "second_factor_required", u.Name+" ("+strconv.FormatBool(*in.RequireSecondFactor)+")", ip)
+	}
+	// Now needing a second factor: the ones set up without a link go, and
+	// the admin gets an enrolment link to pass on (pentest re-test N5).
+	token, mailed, err := a.elevated(ctx, req, &before, p)
+	if err != nil {
+		a.failed(w, "change user", err)
+		return
+	}
+	if token != "" {
+		writeJSON(w, http.StatusOK, map[string]any{"enrol": token, "mailed": mailed})
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -271,11 +286,33 @@ func (a *app) adminSaveRole(w http.ResponseWriter, req *http.Request, p *princip
 			return
 		}
 	}
+	holders, err := roleHolders(ctx, a.store, name)
+	if err != nil {
+		a.failed(w, "save role", err)
+		return
+	}
 	if err := a.store.SaveRole(ctx, name, in.Scopes); err != nil {
 		a.failed(w, "save role", err)
 		return
 	}
 	a.audit_(ctx, p.user, "", "role_saved", string(name)+" ("+strings.Join(in.Scopes, " ")+")", clientIP(req))
+	// More rights for everyone with the role: those who now need a second
+	// factor lose the unverified ones (pentest re-test N5).
+	links := map[string]string{}
+	for _, u := range holders {
+		token, _, err := a.elevated(ctx, req, u, p)
+		if err != nil {
+			a.failed(w, "save role", err)
+			return
+		}
+		if token != "" {
+			links[u.Name] = token
+		}
+	}
+	if len(links) > 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"enrol": links})
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

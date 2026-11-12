@@ -85,8 +85,18 @@ func TestImages(t *testing.T) {
 	if err := png.Encode(&src, image.NewNRGBA(image.Rect(0, 0, 4, 4))); err != nil {
 		t.Fatal(err)
 	}
+	held := func() picture.Held {
+		h, err := picture.Acquire()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(h.Release)
+		return h
+	}
 	save := func() string {
-		name, err := SaveImage(dir, src.Bytes())
+		h := held()
+		defer h.Release()
+		name, err := SaveImage(h, dir, src.Bytes())
 		if err != nil || !ValidImageName(name) {
 			t.Fatalf("save = %q, %v", name, err)
 		}
@@ -106,9 +116,11 @@ func TestImages(t *testing.T) {
 		t.Errorf("a transparent pixel = %v", img.At(1, 1))
 	}
 
-	if _, err := SaveImage(dir, []byte("<svg onload=alert(1)>")); !errors.Is(err, picture.ErrBad) {
+	h := held()
+	if _, err := SaveImage(h, dir, []byte("<svg onload=alert(1)>")); !errors.Is(err, picture.ErrBad) {
 		t.Errorf("not an image: %v", err)
 	}
+	h.Release()
 
 	// Pruning leaves what a note uses and what may still be used.
 	if _, _, err := s.Put(ctx, "w1", "![](note-images/"+used+")", anna.ID); err != nil {

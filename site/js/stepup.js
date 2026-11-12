@@ -59,6 +59,7 @@ async function ask() {
       const why = r ? await errorOf(r) : '';
       msg.textContent = r?.status === 429 ? t('Too many attempts. Try again later.')
         : why === 'invalid' ? t('That didn’t work. Try again.')
+        : why === 'busy' ? t('The server is busy. Try again in a moment.')
         : r ? t('That didn’t work. Try again.') : t('Server not reachable.');
       msg.hidden = false;
     };

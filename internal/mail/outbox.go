@@ -18,8 +18,9 @@ type Outbox struct {
 	Tries  int             // default 3
 	Pause  []time.Duration // before the 2nd, 3rd, … try; default 1 and 5 minutes
 
-	once  sync.Once
-	queue chan Message
+	once   sync.Once
+	queue  chan Message
+	urgent chan Message // security alerts: they go first
 
 	mu     sync.Mutex
 	status Status
@@ -41,6 +42,16 @@ func (o *Outbox) Start(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
+			case m := <-o.urgent:
+				o.deliver(ctx, m)
+				continue
+			default:
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case m := <-o.urgent:
+				o.deliver(ctx, m)
 			case m := <-o.queue:
 				o.deliver(ctx, m)
 			}
@@ -49,14 +60,24 @@ func (o *Outbox) Start(ctx context.Context) {
 }
 
 func (o *Outbox) init() {
-	o.once.Do(func() { o.queue = make(chan Message, 200) })
+	o.once.Do(func() { o.queue, o.urgent = make(chan Message, 200), make(chan Message, 200) })
 }
 
 // Queue adds m; false when the queue is full (it is then dropped).
 func (o *Outbox) Queue(m Message) bool {
 	o.init()
+	return o.put(o.queue, m)
+}
+
+// QueueUrgent adds m ahead of what Queue added: for security alerts.
+func (o *Outbox) QueueUrgent(m Message) bool {
+	o.init()
+	return o.put(o.urgent, m)
+}
+
+func (o *Outbox) put(q chan Message, m Message) bool {
 	select {
-	case o.queue <- m:
+	case q <- m:
 		return true
 	default:
 		log.Printf("mail: queue full, dropped a mail to %s", m.To)
@@ -70,7 +91,7 @@ func (o *Outbox) Status() Status {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	s := o.status
-	s.Waiting = len(o.queue)
+	s.Waiting = len(o.queue) + len(o.urgent)
 	return s
 }
 
@@ -113,7 +134,7 @@ func (o *Outbox) deliver(ctx context.Context, m Message) {
 	}
 	log.Printf("mail: gave up on %q to %s after %d tries: %v", m.Subject, m.To, tries, err)
 	o.mu.Lock()
-	o.status.LastError, o.status.ErrorAt = err.Error(), time.Now()
+	o.status.LastError, o.status.ErrorAt = Category(err), time.Now()
 	o.mu.Unlock()
 }
 
@@ -129,7 +150,7 @@ func (o *Outbox) Send(ctx context.Context, m Message) error {
 	if err == nil {
 		o.status.LastSent = time.Now()
 	} else {
-		o.status.LastError, o.status.ErrorAt = err.Error(), time.Now()
+		o.status.LastError, o.status.ErrorAt = Category(err), time.Now()
 	}
 	o.mu.Unlock()
 	return err

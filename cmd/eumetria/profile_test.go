@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"image/jpeg"
+	"io"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"eumetria/internal/auth"
+	"eumetria/internal/picture"
 )
 
 func TestProfile(t *testing.T) {
@@ -222,5 +225,46 @@ func TestTokensInTheProfile(t *testing.T) {
 	}
 	if !saw["token_created"] || !saw["token_deleted"] {
 		t.Errorf("audit log = %v", saw)
+	}
+}
+
+// trapBody fails the test when the handler reads it.
+type trapBody struct{ t *testing.T }
+
+func (b trapBody) Read([]byte) (int, error) {
+	b.t.Error("the body was read")
+	return 0, io.EOF
+}
+func (trapBody) Close() error { return nil }
+
+// Pentest re-test N3: an upload takes the image slot before it reads its
+// body, so uploads waiting for the slot hold no body in memory.
+func TestImageSlotBeforeBody(t *testing.T) {
+	release := picture.HoldSlot(10 * time.Millisecond)
+	defer release()
+	for name, c := range map[string]struct {
+		length int64
+		code   int
+	}{
+		"busy":      {1000, 503},
+		"too large": {maxImageBody + 1, 413},
+		"no length": {-1, 411},
+	} {
+		req := httptest.NewRequest("POST", "/api/profile/avatar", nil)
+		req.Body, req.ContentLength = trapBody{t}, c.length
+		rec := httptest.NewRecorder()
+		if _, ok := imageSlot(rec, req); ok || rec.Code != c.code {
+			t.Errorf("%s: imageSlot = %v %d, want %d", name, ok, rec.Code, c.code)
+		}
+	}
+
+	// Through the server: the slot taken means 503 for avatars and note images.
+	e := newTestEnv(t, true)
+	release()
+	anna := e.signIn(t, "anna", viewerPassword, false)
+	defer picture.HoldSlot(10 * time.Millisecond)()
+	body := `{"image":"` + uploadImage(t, "x") + `"}`
+	if res, out := e.do(t, anna, "POST", "/api/profile/avatar", body, sameSite); res.StatusCode != 503 || !strings.Contains(out, "busy") {
+		t.Errorf("avatar with the slot taken = %d %s", res.StatusCode, out)
 	}
 }

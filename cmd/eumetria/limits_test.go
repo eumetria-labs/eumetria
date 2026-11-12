@@ -3,11 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"eumetria/internal/auth"
 )
 
 func TestSubnet(t *testing.T) {
@@ -44,25 +48,116 @@ func TestALockedNameStillSignsInElsewhere(t *testing.T) {
 	}
 }
 
-// Many failures for one name from many networks slow it down and show up
-// in the audit log once.
+// Many failures for one name from many networks: from browsers that never
+// signed in to it, only a budget's worth are checked, one at a time, and
+// the audit log says so once. The owner's own browser still gets in
+// (pentest F2, re-test N2).
 func TestNamePressure(t *testing.T) {
 	step, most := slowStep, slowMax
 	slowStep, slowMax = time.Millisecond, 5*time.Millisecond
 	t.Cleanup(func() { slowStep, slowMax = step, most })
 	e := newTestEnv(t, true)
-	for i := range pressureAlert + 5 {
+	owner := e.signIn(t, "anna", viewerPassword, false) // now carries the device cookie
+
+	codes := map[int]int{}
+	for i := range 100 {
 		// 4 per network: below the name lock, below the address lock.
-		if code := e.wrongLogin(t, "patrick", fmt.Sprintf("198.51.%d.%d", i/4, i%4+1)); code != 401 {
-			t.Fatalf("try %d = %d, want 401: never locked for everyone", i, code)
-		}
+		codes[e.wrongLogin(t, "anna", fmt.Sprintf("198.51.%d.%d", i/4, i%4+1))]++
+	}
+	if checked := codes[401]; checked > slowAfter+1+unknownBudget || codes[429] == 0 {
+		t.Errorf("100 guesses from 25 networks: %v, want at most %d checked", codes, slowAfter+1+unknownBudget)
 	}
 	log, _ := e.store.AuditLog(context.Background(), 1000)
 	if n := strings.Count(jsonOf(t, log), "login_pressure"); n != 1 {
 		t.Errorf("%d login_pressure events, want 1", n)
 	}
-	// The owner still gets in.
-	e.signIn(t, "patrick", adminPassword, false)
+	right := `{"name":"anna","password":"` + viewerPassword + `"}`
+	// Even the right password from a new browser waits for the hour now…
+	if res, _ := e.do(t, e.client(), "POST", "/api/login", right, sameSite, header("X-Real-IP", "192.0.2.1")); res.StatusCode != 429 {
+		t.Errorf("right password from an unknown device under attack = %d, want 429", res.StatusCode)
+	}
+	// …and a cookie made for someone else or forged doesn't help…
+	for _, value := range []string{"1.2.3", "garbage", deviceTokenFor(t, e, "coach")} {
+		c := e.client()
+		c.Jar.SetCookies(mustURL(t, e.srv.URL), []*http.Cookie{{Name: deviceCookie, Value: value, Path: "/"}})
+		if res, _ := e.do(t, c, "POST", "/api/login", right, sameSite, header("X-Real-IP", "192.0.2.2")); res.StatusCode != 429 {
+			t.Errorf("device cookie %q for anna = %d, want 429", value, res.StatusCode)
+		}
+	}
+	// …but the owner's browser goes on as usual, at once.
+	start := time.Now()
+	if res, body := e.do(t, owner, "POST", "/api/login", right, sameSite, header("X-Real-IP", "192.0.2.3")); res.StatusCode != 200 {
+		t.Errorf("owner's browser under attack = %d %s", res.StatusCode, body)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("owner's browser waited %v", d)
+	}
+}
+
+func deviceTokenFor(t *testing.T, e *testEnv, name string) string {
+	u, err := e.store.UserByName(context.Background(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := e.store.DeviceToken(context.Background(), u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+func mustURL(t *testing.T, raw string) *url.URL {
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u
+}
+
+// A new password makes older device cookies worthless.
+func TestDeviceTokenEndsWithPassword(t *testing.T) {
+	e := newTestEnv(t, true)
+	ctx := context.Background()
+	u, _ := e.store.UserByName(ctx, "anna")
+	token := deviceTokenFor(t, e, "anna")
+	if e.store.DeviceUser(ctx, token) != u.ID {
+		t.Fatal("a fresh device token isn't taken")
+	}
+	e.now = e.now.Add(time.Second)
+	if err := e.store.SetPassword(ctx, u, "a brand new long password", 0, auth.Revoke{}); err != nil {
+		t.Fatal(err)
+	}
+	if e.store.DeviceUser(ctx, token) != 0 {
+		t.Error("a device token outlives a new password")
+	}
+	e.now = e.now.Add(auth.DeviceMax + time.Hour)
+	if e.store.DeviceUser(ctx, deviceTokenFor(t, e, "anna")) == 0 {
+		t.Error("a fresh token at a later time isn't taken")
+	}
+}
+
+// Under pressure, sign-ins from unknown devices run one at a time.
+func TestNameGate(t *testing.T) {
+	var g gates
+	ctx := context.Background()
+	if !g.enter(ctx, "a", time.Second) {
+		t.Fatal("an empty gate didn't let in")
+	}
+	if g.enter(ctx, "a", 20*time.Millisecond) {
+		t.Error("a second holder got in")
+	}
+	if !g.enter(ctx, "b", time.Second) {
+		t.Error("another key had to wait")
+	}
+	g.leave("b")
+	go func() { time.Sleep(20 * time.Millisecond); g.leave("a") }()
+	if !g.enter(ctx, "a", time.Second) {
+		t.Error("the next one didn't get its turn")
+	}
+	g.leave("a")
+	if len(g.m) != 0 {
+		t.Errorf("gates left behind: %v", g.m)
+	}
 }
 
 // Parallel wrong passwords: only the limit's worth are checked (pentest F16).
@@ -116,5 +211,24 @@ func TestTrustedProxy(t *testing.T) {
 	}
 	if err := setTrustedProxies("nginx"); err == nil {
 		t.Error("a name was taken as an address")
+	}
+}
+
+// Pentest re-test N1: with every password check slot taken a sign-in is
+// answered 503 at once, and it counts as no failure, so a flood can't use
+// up the owner's lock either.
+func TestBusySignInCountsNothing(t *testing.T) {
+	e := newTestEnv(t, true)
+	release := auth.HoldHashSlots(10 * time.Millisecond)
+	for range 10 {
+		res, body := e.do(t, e.client(), "POST", "/api/login", `{"name":"anna","password":"wrong wrong wrong"}`, sameSite, header("X-Real-IP", "203.0.113.7"))
+		if res.StatusCode != 503 || !strings.Contains(body, "busy") || res.Header.Get("Retry-After") == "" {
+			t.Fatalf("sign-in with no free slot = %d %s", res.StatusCode, body)
+		}
+	}
+	release()
+	res, body := e.do(t, e.client(), "POST", "/api/login", `{"name":"anna","password":"`+viewerPassword+`"}`, sameSite, header("X-Real-IP", "203.0.113.7"))
+	if res.StatusCode != 200 {
+		t.Errorf("anna after 10 busy answers = %d %s, want 200", res.StatusCode, body)
 	}
 }

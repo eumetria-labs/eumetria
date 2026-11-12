@@ -73,9 +73,14 @@ var Failures = []string{"login_failed", "second_factor_failed", "reauth_failed",
 const RepeatWindow = 15 * time.Minute
 
 // How long the audit log keeps entries, and how many at most (PruneAudit).
-const (
-	AuditKeep    = 180 * 24 * time.Hour
-	AuditMaxRows = 100_000
+// Failures (wrong passwords and codes) have their own, smaller limits, so a
+// flood of them can't push the security events out early (pentest re-test
+// I5). Variables, so tests can make them small.
+var (
+	AuditKeep       = 180 * 24 * time.Hour
+	AuditMaxRows    = 100_000
+	FailuresKeep    = 30 * 24 * time.Hour
+	FailuresMaxRows = 50_000
 )
 
 // How long a session lasts. With "Remember me" it ends after a week
@@ -211,13 +216,19 @@ func (s *Store) Authenticate(ctx context.Context, name, password string) (*User,
 	var hash string
 	u, err := scanUser(s.DB.QueryRowContext(ctx, "SELECT "+userCols+", u.password_hash FROM users u"+roleJoin+" WHERE u.name = ?", name), &hash)
 	if errors.Is(err, ErrNotFound) {
-		CheckNoUser(password)
+		if err := CheckNoUser(password); err != nil {
+			return nil, err
+		}
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if !CheckPassword(hash, password) || u.Disabled {
+	ok, err := CheckPassword(hash, password)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || u.Disabled {
 		return nil, ErrNotFound
 	}
 	return u, nil
@@ -229,7 +240,7 @@ func (s *Store) PasswordMatches(ctx context.Context, u *User, password string) (
 	if err := s.DB.QueryRowContext(ctx, "SELECT password_hash FROM users WHERE id = ?", u.ID).Scan(&hash); err != nil {
 		return false, err
 	}
-	return CheckPassword(hash, password), nil
+	return CheckPassword(hash, password)
 }
 
 // SetPassword replaces a user's password and ends their sessions, all but
@@ -468,21 +479,32 @@ const (
 	AuditSecurity = "security" // everything but Failures
 )
 
-// PruneAudit deletes entries older than AuditKeep, then all but the newest
-// AuditMaxRows. It returns how many it deleted.
+// PruneAudit deletes failures older than FailuresKeep and other entries
+// older than AuditKeep, then all but the newest FailuresMaxRows failures
+// and AuditMaxRows others. It returns how many it deleted.
 func (s *Store) PruneAudit(ctx context.Context) (int64, error) {
-	res, err := s.DB.ExecContext(ctx, "DELETE FROM audit_log WHERE at < ?", s.Now().Add(-AuditKeep).Unix())
-	if err != nil {
-		return 0, err
+	failures := "'" + strings.Join(Failures, "','") + "'"
+	now := s.Now()
+	var total int64
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{"DELETE FROM audit_log WHERE action IN (" + failures + ") AND at < ?", []any{now.Add(-FailuresKeep).Unix()}},
+		{"DELETE FROM audit_log WHERE action NOT IN (" + failures + ") AND at < ?", []any{now.Add(-AuditKeep).Unix()}},
+		{`DELETE FROM audit_log WHERE action IN (` + failures + `) AND id NOT IN
+			(SELECT id FROM audit_log WHERE action IN (` + failures + `) ORDER BY at DESC, id DESC LIMIT ?)`, []any{FailuresMaxRows}},
+		{`DELETE FROM audit_log WHERE action NOT IN (` + failures + `) AND id NOT IN
+			(SELECT id FROM audit_log WHERE action NOT IN (` + failures + `) ORDER BY at DESC, id DESC LIMIT ?)`, []any{AuditMaxRows}},
+	} {
+		res, err := s.DB.ExecContext(ctx, q.sql, q.args...)
+		if err != nil {
+			return total, err
+		}
+		n, _ := res.RowsAffected()
+		total += n
 	}
-	n, _ := res.RowsAffected()
-	res, err = s.DB.ExecContext(ctx, `DELETE FROM audit_log WHERE id NOT IN
-		(SELECT id FROM audit_log ORDER BY at DESC, id DESC LIMIT ?)`, AuditMaxRows)
-	if err != nil {
-		return n, err
-	}
-	m, _ := res.RowsAffected()
-	return n + m, nil
+	return total, nil
 }
 
 // AuditLog returns the newest entries first, at most limit, of which (one

@@ -110,7 +110,7 @@ func (s *SMTP) Send(ctx context.Context, m Message) error {
 	}
 	if s.User != "" {
 		if err := c.Auth(smtp.PlainAuth("", s.User, s.Password, s.Host)); err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrAuth, err)
 		}
 	}
 	if err := c.Mail(s.From); err != nil {

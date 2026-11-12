@@ -105,6 +105,7 @@ const PASSWORD_ERRORS = {
   common: () => t('That password is one of the most used ones. Pick another.'),
   is_name: () => t('The password can’t be your user name.'),
   same: () => t('The new password is the same as the current one.'),
+  busy: () => t('The server is busy. Try again in a moment.'),
 };
 
 function passwordSection(s, body) {
@@ -169,6 +170,17 @@ function passwordSection(s, body) {
   return sec;
 }
 
+// originNote says from where, as which role and how a factor was set up
+// (pentest re-test N5), so one the owner doesn't know stands out.
+function originNote(o) {
+  if (!o) return [];
+  const out = [];
+  if (o.ip) out.push(t('from {ip}', { ip: o.ip }));
+  if (o.role) out.push(t('as {role}', { role: o.role }));
+  if (o.via === 'link') out.push(t('with an enrolment link'));
+  return out;
+}
+
 /* ---------- passkeys and security keys ---------- */
 
 function keysSection(s, body) {
@@ -180,6 +192,7 @@ function keysSection(s, body) {
     const note = [t('added {date}', { date: dfDate.format(new Date(k.created_at)) })];
     if (k.last_used) note.push(t('used {date}', { date: dfDate.format(new Date(k.last_used)) }));
     if (k.passwordless) note.push(t('signs in on its own'));
+    note.push(...originNote(k.origin));
     const remove = h('button', { class: 'pill-btn', type: 'button' }, t('Remove'));
     remove.onclick = () => {
       if (confirm(t('Remove “{name}”?', { name: k.name }))) change(body, remove, () => api('security/key/' + k.id, 'DELETE'));
@@ -228,7 +241,12 @@ function totpSection(s, body) {
     remove.onclick = () => {
       if (confirm(t('Remove the authenticator app?'))) change(body, remove, () => api('security/totp', 'DELETE'));
     };
-    sec.append(h('p', { class: 'muted' }, t('Codes from your app work as the second step after the password.')), remove);
+    sec.append(h('p', { class: 'muted' }, t('Codes from your app work as the second step after the password.')));
+    if (s.totp_info) {
+      const note = [t('added {date}', { date: dfDate.format(new Date(s.totp_info.created_at)) }), ...originNote(s.totp_info.origin)];
+      sec.append(h('p', { class: 'muted' }, note.join(' · ')));
+    }
+    sec.append(remove);
     return sec;
   }
   const start = h('button', { class: 'pill-btn', type: 'button' }, t('Set up'));

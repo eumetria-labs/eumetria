@@ -25,8 +25,11 @@ func (a *app) inviteMail(ctx context.Context, req *http.Request, u *auth.User, a
 	if !ok {
 		return "mail_off"
 	}
-	m := inviteMessage(v, u, addr, a.siteURL(req)+"/#invite="+token, expires, by)
-	if !a.mailTo(ctx, u.ID, addr, m.Subject, m.Body) {
+	if v.PublicURL == "" {
+		return "no_public_url" // links only to the public URL (pentest re-test I3)
+	}
+	m := inviteMessage(v, u, addr, v.PublicURL+"/#invite="+token, expires, by)
+	if !a.mailTo(ctx, bulkMail, u.ID, addr, m.Subject, m.Body) {
 		return "not_sent"
 	}
 	return ""

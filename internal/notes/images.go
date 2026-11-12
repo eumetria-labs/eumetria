@@ -26,9 +26,10 @@ var imageName = regexp.MustCompile(`^[0-9a-f]{32}\.jpg$`)
 // ValidImageName reports whether name can be an image's file name.
 func ValidImageName(name string) bool { return imageName.MatchString(name) }
 
-// SaveImage writes raw anew into dir and returns its file name.
-func SaveImage(dir string, raw []byte) (string, error) {
-	clean, err := picture.Clean(raw, picture.NotePixels, nil)
+// SaveImage writes raw anew into dir and returns its file name. The caller
+// holds the image slot (picture.Acquire).
+func SaveImage(h picture.Held, dir string, raw []byte) (string, error) {
+	clean, err := picture.Clean(h, raw, picture.NotePixels, nil)
 	if err != nil {
 		return "", err
 	}

@@ -209,3 +209,29 @@ func TestEnrolLinkCommand(t *testing.T) {
 		t.Error("a link for an account with a factor")
 	}
 }
+
+// Pentest re-test I1: a notice of a new way in takes a step-up to dismiss,
+// so whoever holds a stolen session can't hide the key they added.
+func TestNewFactorNoticeNeedsStepUp(t *testing.T) {
+	e := newTestEnv(t, true)
+	ctx := context.Background()
+	anna := e.signIn(t, "anna", viewerPassword, false)
+	u, _ := e.store.UserByName(ctx, "anna")
+	e.store.AddNotice(ctx, u, "key_added", "evil key", "203.0.113.9", "")
+	e.now = e.now.Add(10 * time.Minute) // the sign-in isn't recent any more
+	if res, body := e.do(t, anna, "POST", "/api/notices/seen", `{"up_to":0}`, sameSite); res.StatusCode != 403 || !strings.Contains(body, "reauth") {
+		t.Fatalf("dismiss a key_added notice with a stale session = %d %s", res.StatusCode, body)
+	}
+	if res, body := e.do(t, anna, "POST", "/api/security/reauth", `{"password":"`+viewerPassword+`"}`, sameSite); res.StatusCode != 204 {
+		t.Fatalf("reauth = %d %s", res.StatusCode, body)
+	}
+	if res, _ := e.do(t, anna, "POST", "/api/notices/seen", `{"up_to":0}`, sameSite); res.StatusCode != 204 {
+		t.Errorf("dismiss after step-up = %d", res.StatusCode)
+	}
+	// Other notices need nothing more.
+	e.store.AddNotice(ctx, u, "password_changed", "", "", "")
+	e.now = e.now.Add(10 * time.Minute)
+	if res, _ := e.do(t, anna, "POST", "/api/notices/seen", `{"up_to":0}`, sameSite); res.StatusCode != 204 {
+		t.Errorf("dismiss password_changed = %d", res.StatusCode)
+	}
+}

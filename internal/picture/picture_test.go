@@ -52,7 +52,11 @@ func TestDecode(t *testing.T) {
 }
 
 func TestClean(t *testing.T) {
-	out, err := Clean(encode(t, image.NewRGBA(image.Rect(0, 0, 40, 20))), AvatarPixels, func(img *image.RGBA) *image.RGBA {
+	h, err := Acquire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Clean(h, encode(t, image.NewRGBA(image.Rect(0, 0, 40, 20))), AvatarPixels, func(img *image.RGBA) *image.RGBA {
 		return Square(img, 10)
 	})
 	if err != nil {
@@ -63,14 +67,19 @@ func TestClean(t *testing.T) {
 		t.Errorf("clean = %s %dx%d, %v", format, cfg.Width, cfg.Height, err)
 	}
 	// Only one at a time: with the slot taken, the next one waits, then gives up.
-	slot <- struct{}{}
-	defer func() { <-slot }()
 	wait := slotWait
 	slotWait = 10 * time.Millisecond
 	defer func() { slotWait = wait }()
-	if _, err := Clean(encode(t, image.NewRGBA(image.Rect(0, 0, 2, 2))), AvatarPixels, nil); !errors.Is(err, ErrBusy) {
+	if _, err := Acquire(); !errors.Is(err, ErrBusy) {
 		t.Errorf("with the slot taken: %v", err)
 	}
+	h.Release()
+	h.Release() // twice is fine
+	h2, err := Acquire()
+	if err != nil {
+		t.Errorf("after release: %v", err)
+	}
+	h2.Release()
 }
 
 func TestSquare(t *testing.T) {

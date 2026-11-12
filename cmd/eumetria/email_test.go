@@ -306,3 +306,31 @@ func TestEnrolLinkCommandMails(t *testing.T) {
 		t.Errorf("mail = %+v", got)
 	}
 }
+
+// Pentest re-test I2: confirmations to any address someone types use their
+// own budget, so they can't hold up a security alert.
+func TestBulkMailLeavesRoomForAlerts(t *testing.T) {
+	e := newTestEnv(t, true)
+	withMail(t, e)
+	a := &app{runner: e.runner, store: e.store}
+	a.startMail()
+	ctx := context.Background()
+	sent := 0
+	for i := range 3 * bulkPerHour {
+		if a.mailTo(ctx, bulkMail, int64(100+i/bulkPerUser), "someone@example.org", "confirm", "x") {
+			sent++
+		}
+	}
+	if sent != bulkPerHour {
+		t.Errorf("%d bulk mails went out, want %d", sent, bulkPerHour)
+	}
+	if a.mailTo(ctx, bulkMail, 1, "x@example.org", "x", "x") {
+		t.Error("a bulk mail over the hour's budget went out")
+	}
+	if !a.mailTo(ctx, alertMail, 1, "anna@example.org", "alert", "x") {
+		t.Error("an alert was held up by bulk mail")
+	}
+	if _, own, _, perUser := bulkMail.budget(7); own == "user:7" || perUser != bulkPerUser {
+		t.Errorf("bulk budget shares the alerts' key: %s", own)
+	}
+}

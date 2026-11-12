@@ -385,3 +385,31 @@ func TestRewritingTheReviews(t *testing.T) {
 		t.Errorf("status after = %+v", st)
 	}
 }
+
+// Pentest re-test N4 and I3 through the page: a mail server needs the
+// public URL, and a new one clears the password, says so, and the audit
+// log has it.
+func TestSettingsSaveMailServer(t *testing.T) {
+	e := newTestEnv(t, true)
+	admin := e.signIn(t, "patrick", adminPassword, false)
+	// A mail server needs the public URL, for the links in mails (I3).
+	if res, body := e.do(t, admin, "PUT", "/api/admin/settings", `{"values":{"smtp_host":"mail.example.org","smtp_password":"relay secret"}}`, sameSite); res.StatusCode != 409 || !strings.Contains(body, "needs_public_url") {
+		t.Fatalf("mail server without a public URL = %d %s", res.StatusCode, body)
+	}
+	if res, body := e.do(t, admin, "PUT", "/api/admin/settings", `{"values":{"smtp_host":"mail.example.org","smtp_password":"relay secret","public_url":"https://eumetria.example.org"}}`, sameSite); res.StatusCode != 204 {
+		t.Fatalf("set = %d %s", res.StatusCode, body)
+	}
+	if res, _ := e.do(t, admin, "PUT", "/api/admin/settings", `{"reset":["public_url"]}`, sameSite); res.StatusCode != 409 {
+		t.Errorf("removing the public URL with a mail server = %d, want 409", res.StatusCode)
+	}
+	res, body := e.do(t, admin, "PUT", "/api/admin/settings", `{"values":{"smtp_host":"evil.example"}}`, sameSite)
+	if res.StatusCode != 200 || !strings.Contains(body, `"cleared":["smtp_password"]`) {
+		t.Fatalf("new host = %d %s", res.StatusCode, body)
+	}
+	if v, _ := e.runner.settings.Values(context.Background()); v.SMTP.Password != "" {
+		t.Error("the password stayed for the new host")
+	}
+	if log, _ := e.store.AuditLog(context.Background(), 20); !strings.Contains(jsonOf(t, log), "setting_secret_cleared") {
+		t.Error("no setting_secret_cleared in the audit log")
+	}
+}

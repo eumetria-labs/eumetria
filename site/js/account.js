@@ -207,6 +207,7 @@ const NOTICES = {
   password_changed: () => t('Your password was changed'),
   password_reset: (n) => t('An admin ({name}) set a new password', { name: n.detail }),
   factors_reset: () => t('Your second factors were removed on the server'),
+  factors_dropped: () => t('Your account got new rights: second factors set up without an enrolment link were removed'),
 };
 const noticeTime = new Intl.DateTimeFormat(DATE_LOCALE, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -417,6 +418,7 @@ const PASSWORD_TEXTS = {
   too_long: () => t('The new password is too long.'),
   common: () => t('That password is one of the most used ones. Pick another.'),
   is_name: () => t('The password can’t be your user name.'),
+  busy: () => t('The server is busy. Try again in a moment.'),
 };
 
 // passkeySignIn signs in with a passkey alone; mediation "conditional"
@@ -527,6 +529,7 @@ function secondStep({ ticket, methods }) {
 async function failure(res) {
   if (res.status === 401) return t('Wrong name or password.');
   if (res.status === 429) return lockedText(res);
+  if (res.status === 503 && (await reason(res.clone())) === 'busy') return t('The server is busy. Try again in a moment.');
   return t('Sign-in failed (HTTP {status}).', { status: res.status });
 }
 

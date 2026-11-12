@@ -23,10 +23,33 @@ import (
 // mailPerUser per user and mailPerHour in all per hour. There is no
 // password reset by mail: the mailbox doesn't become a way in.
 
+// Mail limits per hour, in two budgets (pentest re-test I2): security
+// alerts to confirmed addresses, and the rest (address confirmations to
+// any address someone types, invitations, test mails). The rest can't use
+// up the alerts' budget, and alerts are sent first.
 const (
 	mailPerUser = 10
 	mailPerHour = 100
+	bulkPerUser = 3
+	bulkPerHour = 30
 )
+
+// mailKind says which budget a mail counts against.
+type mailKind int
+
+const (
+	alertMail mailKind = iota
+	bulkMail
+)
+
+// budget returns the limiter keys of kind: for everyone and for user.
+func (k mailKind) budget(user int64) (all, own string, perHour, perUser int) {
+	id := strconv.FormatInt(user, 10)
+	if k == bulkMail {
+		return "bulk:all", "bulk:user:" + id, bulkPerHour, bulkPerUser
+	}
+	return "all", "user:" + id, mailPerHour, mailPerUser
+}
 
 // mailSender is how mail goes out; tests replace it.
 var mailSender = func(m settings.SMTP) mail.Sender {
@@ -57,20 +80,24 @@ func (a *app) mailValues(ctx context.Context) (settings.Values, bool) {
 
 // mailTo queues a mail to addr for user (0: none), within the limits. It
 // reports whether it was queued.
-func (a *app) mailTo(ctx context.Context, user int64, addr, subject, body string) bool {
+func (a *app) mailTo(ctx context.Context, kind mailKind, user int64, addr, subject, body string) bool {
 	if _, ok := a.mailValues(ctx); !ok || addr == "" {
 		return false
 	}
-	key := "user:" + strconv.FormatInt(user, 10)
-	if a.mailLimit.Failures("all") >= mailPerHour || user != 0 && a.mailLimit.Failures(key) >= mailPerUser {
+	all, key, perHour, perUser := kind.budget(user)
+	if a.mailLimit.Failures(all) >= perHour || user != 0 && a.mailLimit.Failures(key) >= perUser {
 		log.Printf("mail: over the limit, not sending %q to %s", subject, addr)
 		return false
 	}
-	a.mailLimit.Fail("all")
+	a.mailLimit.Fail(all)
 	if user != 0 {
 		a.mailLimit.Fail(key)
 	}
-	return a.outbox.Queue(mail.Message{To: addr, Subject: subject, Body: body})
+	m := mail.Message{To: addr, Subject: subject, Body: body}
+	if kind == alertMail {
+		return a.outbox.QueueUrgent(m)
+	}
+	return a.outbox.Queue(m)
 }
 
 // mailUser mails u at their confirmed address, if they have one.
@@ -79,7 +106,7 @@ func (a *app) mailUser(ctx context.Context, u *auth.User, subject, body string) 
 	if err != nil {
 		log.Printf("mail: %v", err)
 	}
-	return err == nil && a.mailTo(ctx, u.ID, addr, subject, body)
+	return err == nil && a.mailTo(ctx, alertMail, u.ID, addr, subject, body)
 }
 
 /* ---------- what the mails say ---------- */
@@ -101,6 +128,7 @@ var alertTexts = map[string]map[string]mailText{
 		"login_pressure":      {"Many failed sign-ins", "There were many failed sign-ins for your account name lately. Nobody got in with them; they only slow sign-ins down."},
 		"email_changing":      {"Your e-mail address is changing", "Your account's e-mail address is being changed to %s. Until that address is confirmed, mail keeps coming here."},
 		"email_removed":       {"Your e-mail address was removed", "The e-mail address was removed from your account: no more alerts will come here."},
+		"factors_dropped":     {"Set up your second factor again", "Your account got new rights (by %s), which need a second factor. The second factors set up without an enrolment link were removed, in case someone else set them up. You get a link to set up a new one."},
 	},
 	"de": {
 		"key_added":           {"Ein Passkey oder Schlüssel wurde hinzugefügt", "Deinem Konto wurde ein Passkey oder Schlüssel „%s“ hinzugefügt."},
@@ -115,6 +143,7 @@ var alertTexts = map[string]map[string]mailText{
 		"login_pressure":      {"Viele fehlgeschlagene Anmeldungen", "Zuletzt gab es viele fehlgeschlagene Anmeldungen für deinen Kontonamen. Hereingekommen ist damit niemand; sie verlangsamen nur die Anmeldung."},
 		"email_changing":      {"Deine E-Mail-Adresse wird geändert", "Die E-Mail-Adresse deines Kontos wird in %s geändert. Bis diese Adresse bestätigt ist, kommen Mails weiter hierher."},
 		"email_removed":       {"Deine E-Mail-Adresse wurde entfernt", "Die E-Mail-Adresse wurde aus deinem Konto entfernt: Hierher kommen keine Hinweise mehr."},
+		"factors_dropped":     {"Richte deinen zweiten Faktor neu ein", "Dein Konto hat neue Rechte (durch %s), die einen zweiten Faktor brauchen. Die zweiten Faktoren, die ohne Einrichtungslink eingerichtet wurden, sind entfernt, falls jemand anderes sie eingerichtet hat. Du bekommst einen Link, um einen neuen einzurichten."},
 	},
 }
 
@@ -164,7 +193,7 @@ func (a *app) alertTo(ctx context.Context, u *auth.User, addr, kind, detail, ip 
 	body := a.mailBody(v, lang, line, ip, true)
 	subject := v.Title + ": " + t.subject
 	if addr != "" {
-		a.mailTo(ctx, u.ID, addr, subject, body)
+		a.mailTo(ctx, alertMail, u.ID, addr, subject, body)
 		return
 	}
 	a.mailUser(ctx, u, subject, body)
@@ -227,13 +256,16 @@ func (a *app) sendConfirmation(ctx context.Context, req *http.Request, u *auth.U
 	if err != nil {
 		return false, err
 	}
-	link := a.siteURL(req) + "/#email=" + token
+	if v.PublicURL == "" {
+		return false, nil // no address for the link (pentest re-test I3)
+	}
+	link := v.PublicURL + "/#email=" + token
 	subject, line := "Confirm your e-mail address", "To get your account's security alerts at this address, open this link (once, within a day) while signed in as %s:"
 	if mailLang(v) == "de" {
 		subject, line = "Bestätige deine E-Mail-Adresse", "Damit die Sicherheitshinweise deines Kontos an diese Adresse gehen, öffne diesen Link (einmal, innerhalb eines Tages), angemeldet als %s:"
 	}
 	body := fmt.Sprintf(line, u.Name) + "\n\n" + link + "\n\n" + fmt.Sprintf(mailWords[mailLang(v)]["sign"], v.Title) + "\n"
-	if !a.mailTo(ctx, u.ID, email, v.Title+": "+subject, body) {
+	if !a.mailTo(ctx, bulkMail, u.ID, email, v.Title+": "+subject, body) {
 		return true, errors.New("not sent: over the limit or the queue is full")
 	}
 	return true, nil
@@ -359,19 +391,22 @@ func (a *app) smtpTest(w http.ResponseWriter, req *http.Request, p *principal) {
 		writeError(w, http.StatusConflict, "no_address")
 		return
 	}
-	key := "user:" + strconv.FormatInt(p.user.ID, 10)
-	if a.mailLimit.Failures(key) >= mailPerUser {
+	all, key, _, perUser := bulkMail.budget(p.user.ID)
+	if a.mailLimit.Failures(key) >= perUser {
 		writeError(w, http.StatusTooManyRequests, "too_many")
 		return
 	}
 	a.mailLimit.Fail(key)
-	a.mailLimit.Fail("all")
+	a.mailLimit.Fail(all)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	err = a.outbox.Send(ctx, mail.Message{To: addr, Subject: v.Title + ": test mail", Body: a.mailBody(v, mailLang(v), "This is a test mail from the settings. E-mail works.", "", false)})
 	answer := map[string]any{"ok": err == nil, "to": addr}
 	if err != nil {
-		answer["error"] = err.Error()
+		// Only the kind: the details would let the admin page probe hosts
+		// and ports (pentest re-test I4). The log has them.
+		log.Printf("mail: test mail to %s: %v", addr, err)
+		answer["error"] = mail.Category(err)
 	}
 	a.audit_(ctx, p.user, "", "mail_test", addr, clientIP(req))
 	writeJSON(w, http.StatusOK, answer)
@@ -387,14 +422,17 @@ func (a *app) mailEnrolLink(ctx context.Context, req *http.Request, u *auth.User
 	if err != nil || addr == "" {
 		return "no_address", false
 	}
-	link := a.siteURL(req) + "/#enrol=" + token
+	if v.PublicURL == "" {
+		return "no_public_url", false // links only to the public URL (pentest re-test I3)
+	}
+	link := v.PublicURL + "/#enrol=" + token
 	when := expires.In(v.Zone).Format("2006-01-02 15:04")
 	subject, line := "Set up your second factor", "Your account %s needs a second factor. Set up the first one with this link: open it, sign in and add a passkey or an authenticator app. It works once, until %s. If you didn't expect this mail, ignore it and tell your admin."
 	if mailLang(v) == "de" {
 		subject, line = "Richte deinen zweiten Faktor ein", "Dein Konto %s braucht einen zweiten Faktor. Richte den ersten mit diesem Link ein: öffnen, anmelden und einen Passkey oder eine Authenticator-App hinzufügen. Er funktioniert einmal, bis %s. Hast du diese Mail nicht erwartet, ignoriere sie und sag deinem Admin Bescheid."
 	}
 	body := fmt.Sprintf(line, u.Name, when) + "\n\n" + link + "\n\n" + fmt.Sprintf(mailWords[mailLang(v)]["sign"], v.Title) + "\n"
-	if !a.mailTo(ctx, u.ID, addr, v.Title+": "+subject, body) {
+	if !a.mailTo(ctx, alertMail, u.ID, addr, v.Title+": "+subject, body) {
 		return "not_sent", false
 	}
 	return "", true

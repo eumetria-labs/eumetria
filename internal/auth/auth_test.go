@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -24,14 +25,21 @@ func TestPasswordHashes(t *testing.T) {
 	if !strings.HasPrefix(h, "$argon2id$v=19$m=19456,t=2,p=1$") {
 		t.Errorf("hash %q doesn't carry its parameters", h)
 	}
-	if !CheckPassword(h, goodPassword) || CheckPassword(h, goodPassword+"!") || CheckPassword(h, "") {
+	check := func(encoded, pw string) bool {
+		ok, err := CheckPassword(encoded, pw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	if !check(h, goodPassword) || check(h, goodPassword+"!") || check(h, "") {
 		t.Error("CheckPassword accepts the wrong password or rejects the right one")
 	}
 	if h2, _ := HashPassword(goodPassword); h2 == h {
 		t.Error("two hashes of one password are equal: the salt isn't random")
 	}
 	for _, broken := range []string{"", "$argon2i$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA", h[:len(h)-4] + "!!!!", strings.Replace(h, "v=19", "v=1", 1)} {
-		if CheckPassword(broken, goodPassword) {
+		if check(broken, goodPassword) {
 			t.Errorf("accepted a broken hash %q", broken)
 		}
 	}
@@ -451,5 +459,35 @@ func TestRoles(t *testing.T) {
 	roles, _ := s.Roles(ctx)
 	if len(roles) != 2 || roles[0].Name != RoleAdmin || !roles[1].Builtin {
 		t.Errorf("roles = %+v", roles)
+	}
+}
+
+// Pentest re-test I5: a flood of failures can't push security events out
+// of the audit log; failures are pruned on their own.
+func TestPruneAuditKeepsSecurityEvents(t *testing.T) {
+	s, now := newStore(t)
+	u, _ := s.CreateUser(ctx, "patrick", goodPassword, RoleAdmin)
+	rows, keep := AuditMaxRows, FailuresMaxRows
+	AuditMaxRows, FailuresMaxRows = 3, 2
+	t.Cleanup(func() { AuditMaxRows, FailuresMaxRows = rows, keep })
+	s.Audit(ctx, u, "", "key_added", "old key", "")
+	for i := range 10 {
+		*now = now.Add(time.Minute)
+		s.Audit(ctx, nil, "name"+strconv.Itoa(i), "login_failed", "", "198.51.100."+strconv.Itoa(i))
+	}
+	if _, err := s.PruneAudit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := s.AuditLog(ctx, 100, AuditFailures); len(f) != 2 {
+		t.Errorf("%d failures left, want 2", len(f))
+	}
+	if sec, _ := s.AuditLog(ctx, 100, AuditSecurity); len(sec) != 1 || sec[0].Action != "key_added" {
+		t.Errorf("security events = %+v, want the old key_added", sec)
+	}
+	// Failures go after a month, security events stay.
+	*now = now.Add(FailuresKeep + time.Hour)
+	s.PruneAudit(ctx)
+	if all, _ := s.AuditLog(ctx, 100); len(all) != 1 {
+		t.Errorf("after a month: %+v", all)
 	}
 }

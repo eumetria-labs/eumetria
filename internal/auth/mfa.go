@@ -88,17 +88,54 @@ func CheckTOTP(secret, code string, now time.Time, lastStep int64) (int64, bool)
 	return 0, false
 }
 
+// Ways a second factor was set up (Origin.Via).
+const (
+	ViaLink     = "link"     // with an enrolment link
+	ViaElevated = "elevated" // by an account that needed a factor and had one
+	ViaPlain    = "plain"    // by an account that needed none
+	ViaUnknown  = "unknown"  // before this was recorded
+)
+
+// Origin is how, from where and under which role a factor was set up
+// (pentest re-test N5).
+type Origin struct {
+	Via  string `json:"via"`
+	IP   string `json:"ip,omitempty"`
+	Role string `json:"role,omitempty"`
+}
+
+func origin(o []Origin) Origin {
+	if len(o) == 0 || o[0].Via == "" {
+		return Origin{Via: ViaUnknown}
+	}
+	return o[0]
+}
+
 // SetTOTP turns the authenticator app on with secret; lastStep is the step
-// of the code that confirmed it.
-func (s *Store) SetTOTP(ctx context.Context, u *User, secret string, lastStep int64) error {
+// of the code that confirmed it, o how it was set up (none: unknown).
+func (s *Store) SetTOTP(ctx context.Context, u *User, secret string, lastStep int64, o ...Origin) error {
 	stored, err := s.sealTOTP(u.ID, secret)
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.ExecContext(ctx, `INSERT INTO totp (user_id, secret, last_step, created_at) VALUES (?, ?, ?, ?)
-		ON CONFLICT (user_id) DO UPDATE SET secret = excluded.secret, last_step = excluded.last_step, created_at = excluded.created_at`,
-		u.ID, stored, lastStep, s.now())
+	or := origin(o)
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO totp (user_id, secret, last_step, created_at, enrolled_via, created_ip, created_role) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET secret = excluded.secret, last_step = excluded.last_step, created_at = excluded.created_at,
+			enrolled_via = excluded.enrolled_via, created_ip = excluded.created_ip, created_role = excluded.created_role`,
+		u.ID, stored, lastStep, s.now(), or.Via, or.IP, or.Role)
 	return err
+}
+
+// TOTPOrigin returns when and how u's authenticator app was set up; ok is
+// false without one.
+func (s *Store) TOTPOrigin(ctx context.Context, u *User) (at time.Time, o Origin, ok bool, err error) {
+	var created int64
+	err = s.DB.QueryRowContext(ctx, "SELECT created_at, enrolled_via, created_ip, created_role FROM totp WHERE user_id = ?", u.ID).
+		Scan(&created, &o.Via, &o.IP, &o.Role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, o, false, nil
+	}
+	return time.Unix(created, 0), o, err == nil, err
 }
 
 // An authenticator app's secret is sealed with SETTINGS_KEY when there is
@@ -299,6 +336,7 @@ type Key struct {
 	CreatedAt    time.Time
 	LastUsed     time.Time // zero: not yet
 	Credential   webauthn.Credential
+	Origin       Origin
 }
 
 // WebAuthnHandle returns u's user handle for passkeys, making one on first use.
@@ -324,7 +362,7 @@ func (s *Store) UserByHandle(ctx context.Context, handle []byte) (*User, error) 
 }
 
 func (s *Store) Keys(ctx context.Context, u *User) ([]Key, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id, name, passwordless, created_at, last_used_at, data FROM webauthn_credentials WHERE user_id = ? ORDER BY id", u.ID)
+	rows, err := s.DB.QueryContext(ctx, "SELECT id, name, passwordless, created_at, last_used_at, data, enrolled_via, created_ip, created_role FROM webauthn_credentials WHERE user_id = ? ORDER BY id", u.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -335,7 +373,7 @@ func (s *Store) Keys(ctx context.Context, u *User) ([]Key, error) {
 		var created int64
 		var used sql.NullInt64
 		var data string
-		if err := rows.Scan(&k.ID, &k.Name, &k.Passwordless, &created, &used, &data); err != nil {
+		if err := rows.Scan(&k.ID, &k.Name, &k.Passwordless, &created, &used, &data, &k.Origin.Via, &k.Origin.IP, &k.Origin.Role); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(data), &k.Credential); err != nil {
@@ -350,13 +388,17 @@ func (s *Store) Keys(ctx context.Context, u *User) ([]Key, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) AddKey(ctx context.Context, u *User, name string, c *webauthn.Credential, passwordless bool) error {
+// AddKey stores a new passkey or security key; o is how it was set up
+// (none: unknown).
+func (s *Store) AddKey(ctx context.Context, u *User, name string, c *webauthn.Credential, passwordless bool, o ...Origin) error {
 	data, err := json.Marshal(c)
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.ExecContext(ctx, "INSERT INTO webauthn_credentials (user_id, credential_id, name, data, passwordless, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-		u.ID, c.ID, name, string(data), passwordless, s.now())
+	or := origin(o)
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO webauthn_credentials (user_id, credential_id, name, data, passwordless, created_at, enrolled_via, created_ip, created_role)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, c.ID, name, string(data), passwordless, s.now(), or.Via, or.IP, or.Role)
 	return err
 }
 
@@ -424,6 +466,44 @@ func (s *Store) ResetFactors(ctx context.Context, u *User) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// DropUnverifiedFactors removes u's second factors that weren't set up
+// with an enrolment link or under step-up by an account that already had
+// one (ViaPlain, ViaUnknown), for when u starts to need a factor (pentest
+// re-test N5): whoever knew the password of an account that needed none
+// could have set them up. When it removes any, the recovery codes and
+// sessions go too. It returns how many factors it removed.
+func (s *Store) DropUnverifiedFactors(ctx context.Context, u *User) (int, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	n := 0
+	for _, q := range []string{
+		"DELETE FROM webauthn_credentials WHERE user_id = ? AND enrolled_via IN ('plain', 'unknown')",
+		"DELETE FROM totp WHERE user_id = ? AND enrolled_via IN ('plain', 'unknown')",
+	} {
+		res, err := tx.ExecContext(ctx, q, u.ID)
+		if err != nil {
+			return 0, err
+		}
+		m, _ := res.RowsAffected()
+		n += int(m)
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	for _, q := range []string{
+		"DELETE FROM recovery_codes WHERE user_id = ?",
+		"DELETE FROM sessions WHERE user_id = ?",
+	} {
+		if _, err := tx.ExecContext(ctx, q, u.ID); err != nil {
+			return 0, err
+		}
+	}
+	return n, tx.Commit()
 }
 
 // SetAuthenticated marks the session's user as having just proved who they

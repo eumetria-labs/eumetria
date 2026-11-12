@@ -330,6 +330,7 @@ func (a *app) startSession(w http.ResponseWriter, req *http.Request, u *auth.Use
 	}
 	a.byName.Reset(nameKey(u.Name, ip))
 	setSessionCookie(w, token, remember)
+	a.rememberDevice(w, ctx, u)
 	a.audit_(ctx, u, "", "login", how, ip)
 	return true
 }
@@ -589,11 +590,18 @@ func (a *app) loginPasskeyFinish(w http.ResponseWriter, req *http.Request, _ *pr
 /* ---------- one's own factors ---------- */
 
 type keyInfo struct {
-	ID           int64      `json:"id"`
-	Name         string     `json:"name"`
-	Passwordless bool       `json:"passwordless"`
-	CreatedAt    time.Time  `json:"created_at"`
-	LastUsed     *time.Time `json:"last_used,omitempty"`
+	ID           int64       `json:"id"`
+	Name         string      `json:"name"`
+	Passwordless bool        `json:"passwordless"`
+	CreatedAt    time.Time   `json:"created_at"`
+	LastUsed     *time.Time  `json:"last_used,omitempty"`
+	Origin       auth.Origin `json:"origin"`
+}
+
+// totpInfo is when and how the authenticator app was set up.
+type totpInfo struct {
+	CreatedAt time.Time   `json:"created_at"`
+	Origin    auth.Origin `json:"origin"`
 }
 
 func (a *app) security(w http.ResponseWriter, req *http.Request, p *principal) {
@@ -606,20 +614,26 @@ func (a *app) security(w http.ResponseWriter, req *http.Request, p *principal) {
 	}
 	list := []keyInfo{}
 	for _, k := range keys {
-		ki := keyInfo{ID: k.ID, Name: k.Name, Passwordless: k.Passwordless, CreatedAt: k.CreatedAt.UTC()}
+		ki := keyInfo{ID: k.ID, Name: k.Name, Passwordless: k.Passwordless, CreatedAt: k.CreatedAt.UTC(), Origin: k.Origin}
 		if !k.LastUsed.IsZero() {
 			lu := k.LastUsed.UTC()
 			ki.LastUsed = &lu
 		}
 		list = append(list, ki)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	answer := map[string]any{
 		"fresh":         a.isFresh(p),
 		"required":      a.needsFactor(p.user),
 		"totp":          f.TOTP,
 		"recovery_left": f.RecoveryLeft,
 		"keys":          list,
-	})
+	}
+	// When, from where, under which role and how each factor was set up
+	// (pentest re-test N5): one the owner doesn't know stands out.
+	if at, o, ok, err := a.store.TOTPOrigin(ctx, p.user); err == nil && ok {
+		answer["totp_info"] = totpInfo{CreatedAt: at.UTC(), Origin: o}
+	}
+	writeJSON(w, http.StatusOK, answer)
 }
 
 type passwordChange struct {
@@ -667,6 +681,10 @@ func (a *app) changePassword(w http.ResponseWriter, req *http.Request, p *princi
 	}
 	ok, err = a.store.PasswordMatches(ctx, p.user, in.Current)
 	tries.done(ok || err != nil)
+	if errors.Is(err, auth.ErrBusy) {
+		busy(w)
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
 		return
@@ -684,6 +702,10 @@ func (a *app) changePassword(w http.ResponseWriter, req *http.Request, p *princi
 	}
 	revoke := auth.Revoke{Tokens: in.RevokeTokens == nil || *in.RevokeTokens, Passkeys: in.RevokePasskeys}
 	if err := a.store.SetPassword(ctx, p.user, in.New, p.session.ID, revoke); err != nil {
+		if errors.Is(err, auth.ErrBusy) {
+			busy(w)
+			return
+		}
 		if why, ok := passwordReasons[err]; ok {
 			writeError(w, http.StatusBadRequest, why)
 			return
@@ -788,12 +810,12 @@ func (a *app) keyFinish(w http.ResponseWriter, req *http.Request, p *principal) 
 		writeError(w, http.StatusBadRequest, "invalid")
 		return
 	}
-	first, ok := a.firstFactor(w, ctx, p.user, t.enrol)
+	first, origin, ok := a.firstFactor(w, req, p.user, t.enrol)
 	if !ok {
 		return
 	}
 	// Signs in on its own only as a passkey that verified its user.
-	if err := a.store.AddKey(ctx, p.user, t.name, cred, cred.Flags.UserVerified && !t.keyOnly); err != nil {
+	if err := a.store.AddKey(ctx, p.user, t.name, cred, cred.Flags.UserVerified && !t.keyOnly, origin); err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
@@ -868,11 +890,11 @@ func (a *app) totpConfirm(w http.ResponseWriter, req *http.Request, p *principal
 		writeError(w, http.StatusBadRequest, "invalid")
 		return
 	}
-	first, ok := a.firstFactor(w, ctx, p.user, t.enrol)
+	first, origin, ok := a.firstFactor(w, req, p.user, t.enrol)
 	if !ok {
 		return
 	}
-	if err := a.store.SetTOTP(ctx, p.user, t.secret, step); err != nil {
+	if err := a.store.SetTOTP(ctx, p.user, t.secret, step, origin); err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}

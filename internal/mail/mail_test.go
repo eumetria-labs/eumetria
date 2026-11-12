@@ -10,10 +10,14 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"math/big"
 	"net"
+	"net/textproto"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -239,7 +243,25 @@ func TestOutboxRetries(t *testing.T) {
 	for i := 0; i < 100 && o.Status().LastError == ""; i++ {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if o.Status().LastError != "try again" {
+	if o.Status().LastError != "other" {
 		t.Errorf("status = %+v", o.Status())
+	}
+}
+
+// Pentest re-test I4: the admin page gets only the kind of an error.
+func TestCategory(t *testing.T) {
+	for want, err := range map[string]error{
+		"":         nil,
+		"tls":      ErrNoTLS,
+		"auth":     fmt.Errorf("%w: 535 nope", ErrAuth),
+		"dns":      &net.DNSError{Err: "no such host", Name: "evil.example"},
+		"refused":  &net.OpError{Op: "dial", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)},
+		"timeout":  context.DeadlineExceeded,
+		"rejected": &textproto.Error{Code: 550, Msg: "no"},
+		"other":    errors.New("something"),
+	} {
+		if got := Category(err); got != want {
+			t.Errorf("Category(%v) = %q, want %q", err, got, want)
+		}
 	}
 }

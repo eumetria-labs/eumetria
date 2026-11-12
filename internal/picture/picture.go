@@ -13,6 +13,7 @@ import (
 	_ "image/png" // what a pasted screenshot may be
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -33,23 +34,55 @@ var (
 	ErrBusy = errors.New("too many images at once")
 )
 
-// one image is worked on at a time: decoding is what needs the memory, and
-// the container has little of it.
+// One image is worked on at a time: decoding is what needs the memory, and
+// the container has little of it. An upload takes the slot (Acquire)
+// before it reads its body, so that waiting uploads don't each hold one in
+// memory either (pentest re-test N3).
 var (
 	slot     = make(chan struct{}, 1)
-	slotWait = 20 * time.Second
+	slotWait = 5 * time.Second
 )
 
-// Clean decodes raw (Decode), hands the pixels to shape when it isn't nil and
-// writes the result as a new JPEG, one image at a time. It gives up with
-// ErrBusy when others keep it waiting too long.
-func Clean(raw []byte, maxPixels int, shape func(*image.RGBA) *image.RGBA) ([]byte, error) {
+// Held is the slot, from Acquire. Release gives it back; more than once is
+// fine.
+type Held struct{ once *sync.Once }
+
+// Acquire takes the slot, or gives up with ErrBusy after a short wait.
+func Acquire() (Held, error) {
+	t := time.NewTimer(slotWait)
+	defer t.Stop()
 	select {
 	case slot <- struct{}{}:
-	case <-time.After(slotWait):
-		return nil, ErrBusy
+		return Held{once: new(sync.Once)}, nil
+	case <-t.C:
+		return Held{}, ErrBusy
 	}
-	defer func() { <-slot }()
+}
+
+// HoldSlot takes the slot until release is called, and makes Acquire give
+// up after wait meanwhile: for tests outside this package.
+func HoldSlot(wait time.Duration) (release func()) {
+	h, err := Acquire()
+	if err != nil {
+		panic(err)
+	}
+	w := slotWait
+	slotWait = wait
+	return func() { slotWait = w; h.Release() }
+}
+
+func (h Held) Release() {
+	if h.once != nil {
+		h.once.Do(func() { <-slot })
+	}
+}
+
+// Clean decodes raw (Decode), hands the pixels to shape when it isn't nil and
+// writes the result as a new JPEG. The caller holds the slot (Acquire).
+func Clean(h Held, raw []byte, maxPixels int, shape func(*image.RGBA) *image.RGBA) ([]byte, error) {
+	if h.once == nil {
+		panic("picture.Clean without the slot")
+	}
 	img, err := Decode(raw, maxPixels)
 	if err != nil {
 		return nil, err

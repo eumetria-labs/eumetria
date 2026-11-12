@@ -207,9 +207,21 @@ func runAccountCommand(ctx context.Context, cfg config, c accountCommand) error 
 		}
 		store.Audit(ctx, nil, "cli", "role_set", u.Name+" ("+c.role+")", "")
 		fmt.Printf("%s has the role %s now.\n", u.Name, c.role)
+		if err := elevatedCLI(ctx, store, u, c.mail); err != nil {
+			return err
+		}
 	case c.createRole != "":
+		holders, err := roleHolders(ctx, store, auth.Role(c.createRole))
+		if err != nil {
+			return err
+		}
 		if err := store.SaveRole(ctx, auth.Role(c.createRole), scopeList(c.scopes)); err != nil {
 			return err
+		}
+		for _, u := range holders {
+			if err := elevatedCLI(ctx, store, u, c.mail); err != nil {
+				return err
+			}
 		}
 		store.Audit(ctx, nil, "cli", "role_saved", c.createRole+" ("+c.scopes+")", "")
 		fmt.Printf("Saved the role %s. Give it to someone with -set-role <name> -role %q.\n", c.createRole, c.createRole)
@@ -314,6 +326,55 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// elevatedCLI is the command line's app.elevated (stepup.go): before is
+// the account before its role or the role's scopes changed. When it now
+// needs a second factor, the factors set up without a link are removed
+// and, with none left, an enrolment link is printed (pentest re-test N5).
+func elevatedCLI(ctx context.Context, store *auth.Store, before *auth.User, send bool) error {
+	if needsFactor(before, false) {
+		return nil
+	}
+	u, err := store.UserByID(ctx, before.ID)
+	if err != nil || !needsFactor(u, false) {
+		return err
+	}
+	n, err := store.DropUnverifiedFactors(ctx, u)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		store.Audit(ctx, nil, "cli", "factors_dropped", fmt.Sprintf("%s: %d set up without a link, role %s", u.Name, n, u.Role), "")
+		if err := store.AddNotice(ctx, u, "factors_dropped", "", "", ""); err != nil {
+			return err
+		}
+		fmt.Printf("%s now needs a second factor: removed %d set up without an enrolment link, and ended their sessions.\n", u.Name, n)
+	}
+	f, err := store.Factors(ctx, u)
+	if err != nil || f.Any() {
+		return err
+	}
+	return printEnrolLink(ctx, store, u, send)
+}
+
+// roleHolders returns the accounts with the role called name, as they are.
+func roleHolders(ctx context.Context, store *auth.Store, name auth.Role) ([]*auth.User, error) {
+	list, err := store.UserList(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []*auth.User
+	for _, info := range list {
+		if strings.EqualFold(string(info.Role), string(name)) {
+			u, err := store.UserByID(ctx, info.ID)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, u)
+		}
+	}
+	return out, nil
 }
 
 // printEnrolLink makes an enrolment link for u (stepup.go) and prints it:

@@ -49,6 +49,11 @@ type def struct {
 	secret             bool
 	atLeast            int // a secret's shortest length
 	valid              func(string) bool
+	// boundTo, for a secret: the settings that say where it is sent. A
+	// change to one of them clears the secret unless the same save sets
+	// it again (pentest re-test N4): else whoever may change the settings
+	// could point it to their own server and read it there.
+	boundTo []string
 }
 
 var defs = []def{
@@ -85,7 +90,7 @@ var defs = []def{
 	{key: "smtp_port", env: "SMTP_PORT", fallback: "587", valid: number(1, 65535)},
 	{key: "smtp_tls", env: "SMTP_TLS", fallback: "starttls", valid: oneOf("starttls", "implicit")},
 	{key: "smtp_user", env: "SMTP_USER", valid: text(256, true)},
-	{key: "smtp_password", env: "SMTP_PASSWORD", secret: true},
+	{key: "smtp_password", env: "SMTP_PASSWORD", secret: true, boundTo: []string{"smtp_host", "smtp_port", "smtp_tls", "smtp_user"}},
 	{key: "smtp_from", env: "SMTP_FROM", valid: email},
 }
 
@@ -311,6 +316,50 @@ func (s *Store) Import(ctx context.Context) (int, error) {
 // a plain setting removes its row, so the environment or the default applies
 // again. A secret stays gone: an empty row hides what the environment has.
 func (s *Store) Save(ctx context.Context, values map[string]string, reset []string) error {
+	_, err := s.SaveReport(ctx, values, reset)
+	return err
+}
+
+// SaveReport is Save that also returns the secrets it cleared because a
+// setting they are bound to changed (def.boundTo).
+func (s *Store) SaveReport(ctx context.Context, values map[string]string, reset []string) (cleared []string, err error) {
+	have, err := s.rows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := func(key string) string {
+		if v, ok := have[key]; ok {
+			return v
+		}
+		return fromEnv(find(key))
+	}
+	for _, d := range defs {
+		if len(d.boundTo) == 0 || slices.Contains(reset, d.key) {
+			continue
+		}
+		if _, set := values[d.key]; set {
+			continue
+		}
+		// Nothing to clear: no row, and nothing from the environment.
+		if stored, ok := have[d.key]; ok && stored == "" || !ok && fromEnv(&d) == "" {
+			continue
+		}
+		for _, k := range d.boundTo {
+			v, set := values[k]
+			if set && strings.TrimSpace(v) != strings.TrimSpace(now(k)) ||
+				slices.Contains(reset, k) && now(k) != fromEnv(find(k)) {
+				cleared = append(cleared, d.key)
+				break
+			}
+		}
+	}
+	if err := s.save(ctx, values, append(slices.Clone(reset), cleared...)); err != nil {
+		return nil, err
+	}
+	return cleared, nil
+}
+
+func (s *Store) save(ctx context.Context, values map[string]string, reset []string) error {
 	type row struct{ key, value string }
 	var rows []row
 	for k, v := range values {
@@ -517,6 +566,36 @@ func (s *Store) Values(ctx context.Context) (Values, error) {
 			return ""
 		}
 		return plain
+	}), nil
+}
+
+// Preview returns the settings as they would be after saving values and
+// resetting reset, without saving anything; a secret set by values counts
+// as set (its value isn't checked). For rules across settings.
+func (s *Store) Preview(ctx context.Context, values map[string]string, reset []string) (Values, error) {
+	have, err := s.rows(ctx)
+	if err != nil {
+		return Values{}, err
+	}
+	return resolve(func(key string) string {
+		d := find(key)
+		if v, ok := values[key]; ok {
+			return v
+		}
+		if slices.Contains(reset, key) {
+			if d.secret {
+				return ""
+			}
+			return fromEnv(d)
+		}
+		stored, set := have[key]
+		switch {
+		case !set:
+			return fromEnv(d)
+		case !d.secret || stored == "":
+			return stored
+		}
+		return "set" // a sealed secret: only whether there is one matters here
 	}), nil
 }
 

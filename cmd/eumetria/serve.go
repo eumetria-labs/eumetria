@@ -103,6 +103,9 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	cfg = cfg.with(values)
 	if values.PublicURL == "" {
 		log.Printf("no public URL set (Settings → General, or PUBLIC_URL): passkeys and Google sign-in take the address from each request")
+		if values.SMTP.Ready() {
+			log.Printf("e-mail is set up, but without a public URL no mail with a link (invitations, enrolment and confirmation links) is sent")
+		}
 	} else {
 		log.Printf("public URL: %s", values.PublicURL)
 	}

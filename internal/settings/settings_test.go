@@ -291,3 +291,64 @@ func TestPublicURL(t *testing.T) {
 		}
 	}
 }
+
+// Pentest re-test N4: the SMTP password goes where the settings say, so a
+// new server doesn't get the old password unless the same save sets it.
+func TestSMTPPasswordFollowsTheServer(t *testing.T) {
+	ctx := context.Background()
+	s := open(t, testKey)
+	password := func() string {
+		v, err := s.Values(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v.SMTP.Password
+	}
+	if err := s.Save(ctx, map[string]string{"smtp_host": "mail.example.org", "smtp_user": "me", "smtp_password": "relay secret"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string]struct {
+		values map[string]string
+		reset  []string
+		keep   bool
+	}{
+		"same host again":       {map[string]string{"smtp_host": "mail.example.org", "smtp_from": "a@example.org"}, nil, true},
+		"another field":         {map[string]string{"smtp_from": "b@example.org"}, nil, true},
+		"new host":              {map[string]string{"smtp_host": "evil.example"}, nil, false},
+		"new port":              {map[string]string{"smtp_port": "2525"}, nil, false},
+		"new tls":               {map[string]string{"smtp_tls": "implicit"}, nil, false},
+		"new user":              {map[string]string{"smtp_user": "other"}, nil, false},
+		"host reset":            {nil, []string{"smtp_host"}, false},
+		"new host and password": {map[string]string{"smtp_host": "evil.example", "smtp_password": "relay secret"}, nil, true},
+	} {
+		// Start each case from the same server and password.
+		s.Save(ctx, map[string]string{"smtp_host": "mail.example.org", "smtp_port": "587", "smtp_tls": "starttls", "smtp_user": "me", "smtp_password": "relay secret"}, nil)
+		cleared, err := s.SaveReport(ctx, c.values, c.reset)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := password() == "relay secret"; got != c.keep {
+			t.Errorf("%s: password kept = %v, want %v (cleared %v)", name, got, c.keep, cleared)
+		}
+		if !c.keep && (len(cleared) != 1 || cleared[0] != "smtp_password") {
+			t.Errorf("%s: cleared = %v", name, cleared)
+		}
+	}
+}
+
+// From the environment too: a server changed in the page hides it.
+func TestSMTPPasswordFromEnvFollowsTheServer(t *testing.T) {
+	t.Setenv("SMTP_HOST", "mail.example.org")
+	t.Setenv("SMTP_PASSWORD", "env secret")
+	ctx := context.Background()
+	s := open(t, testKey)
+	if cleared, err := s.SaveReport(ctx, map[string]string{"smtp_host": "mail.example.org"}, nil); err != nil || len(cleared) != 0 {
+		t.Fatalf("same host as the env: %v %v", cleared, err)
+	}
+	if cleared, err := s.SaveReport(ctx, map[string]string{"smtp_host": "evil.example"}, nil); err != nil || len(cleared) != 1 {
+		t.Fatalf("new host: %v %v", cleared, err)
+	}
+	if v, _ := s.Values(ctx); v.SMTP.Password != "" {
+		t.Errorf("the env's password still goes to the new host")
+	}
+}

@@ -192,6 +192,10 @@ type app struct {
 	// nameLoad counts a name's failures from everywhere: it slows sign-ins
 	// down, it never locks.
 	byName, byIP, nameLoad *auth.Limiter
+	// unknownDevice is a name's budget for sign-ins from browsers without
+	// its device cookie while the name is under pressure (limits.go).
+	unknownDevice *auth.Limiter
+	nameGate      gates
 	// Note images each user uploaded within the last hour (notes.go).
 	uploads *auth.Limiter
 	// E-mail (email.go): the queue, and how much went out per hour and day.
@@ -209,22 +213,23 @@ type app struct {
 
 func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, avatars string, store *auth.Store) http.Handler {
 	a := &app{
-		runner:     r,
-		demo:       r != nil && r.cfg.demo,
-		store:      store,
-		notes:      &notes.Store{DB: store.DB, Now: store.Now},
-		lifts:      &lifts.Store{DB: store.DB, Now: store.Now},
-		wods:       &wods.Store{DB: store.DB, Now: store.Now},
-		data:       data,
-		photoDir:   photoDir,
-		noteImages: noteImages,
-		avatars:    avatars,
-		site:       http.FileServerFS(noDirs{pages}),
-		tags:       etags(pages),
-		byName:     auth.NewLimiter(5, 15*time.Minute, 15*time.Minute, 24*time.Hour),
-		byIP:       auth.NewLimiter(20, 15*time.Minute, 15*time.Minute, 24*time.Hour),
-		nameLoad:   auth.NewLimiter(0, 15*time.Minute, 0, 0),
-		uploads:    auth.NewLimiter(0, time.Hour, 0, 0),
+		runner:        r,
+		demo:          r != nil && r.cfg.demo,
+		store:         store,
+		notes:         &notes.Store{DB: store.DB, Now: store.Now},
+		lifts:         &lifts.Store{DB: store.DB, Now: store.Now},
+		wods:          &wods.Store{DB: store.DB, Now: store.Now},
+		data:          data,
+		photoDir:      photoDir,
+		noteImages:    noteImages,
+		avatars:       avatars,
+		site:          http.FileServerFS(noDirs{pages}),
+		tags:          etags(pages),
+		byName:        auth.NewLimiter(5, 15*time.Minute, 15*time.Minute, 24*time.Hour),
+		byIP:          auth.NewLimiter(20, 15*time.Minute, 15*time.Minute, 24*time.Hour),
+		nameLoad:      auth.NewLimiter(0, 15*time.Minute, 0, 0),
+		unknownDevice: auth.NewLimiter(unknownBudget, time.Hour, time.Hour, 24*time.Hour),
+		uploads:       auth.NewLimiter(0, time.Hour, 0, 0),
 	}
 	a.startMail()
 	mux := http.NewServeMux()
@@ -539,9 +544,31 @@ func (a *app) login(w http.ResponseWriter, req *http.Request, _ *principal) {
 	if !ok {
 		return
 	}
-	a.slowDown(ctx, in.Name)
+	// Under a guessing attack on the name, browsers it signed in from go
+	// on as usual; the rest wait their turn and share a budget (limits.go).
+	if a.pressured(in.Name) && !a.knownDevice(req, in.Name) {
+		more, ok := a.unknownTry(w, in.Name)
+		if !ok {
+			tries.done(true)
+			return
+		}
+		tries = append(tries, more...)
+		if !a.nameGate.enter(ctx, loadKey(in.Name), gateWait) {
+			tries.done(true)
+			locked(w, gateWait)
+			return
+		}
+		defer a.nameGate.leave(loadKey(in.Name))
+		a.slowDown(ctx, in.Name)
+	}
 	u, err := a.store.Authenticate(ctx, in.Name, in.Password)
-	tries.done(err == nil)
+	// Only a wrong name or password counts; a busy server (auth.ErrBusy)
+	// says nothing about the password.
+	tries.done(!errors.Is(err, auth.ErrNotFound))
+	if errors.Is(err, auth.ErrBusy) {
+		busy(w)
+		return
+	}
 	if errors.Is(err, auth.ErrNotFound) {
 		a.nameFailed(ctx, in.Name, ip)
 		log.Printf("login: failed for %q from %s", truncate(in.Name, 64), ip)
@@ -886,6 +913,13 @@ func readJSONUpTo(w http.ResponseWriter, req *http.Request, v any, limit int64) 
 		return false
 	}
 	return true
+}
+
+// busy answers 503 "busy": too many password checks or images at once
+// (pentest re-test N1, N3). Nothing was counted against the caller.
+func busy(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "2")
+	writeError(w, http.StatusServiceUnavailable, "busy")
 }
 
 func writeError(w http.ResponseWriter, code int, reason string) {

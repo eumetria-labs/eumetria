@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -89,6 +90,10 @@ func (a *app) reauth(w http.ResponseWriter, req *http.Request, p *principal) {
 		ok, err = a.store.PasswordMatches(ctx, p.user, in.Password)
 	}
 	tries.done(ok || err != nil)
+	if errors.Is(err, auth.ErrBusy) {
+		busy(w)
+		return
+	}
 	if err != nil {
 		log.Printf("reauth: %v", err)
 		writeError(w, http.StatusInternalServerError, "server")
@@ -287,6 +292,51 @@ func enrolLink(base, token string) string {
 	return "<your site's address>/#enrol=" + token
 }
 
+/* ---------- elevation ---------- */
+
+// elevated looks at an account that may have just started to need a
+// second factor (its role, its role's scopes or require_second_factor
+// changed); before is the account as it was (pentest re-test N5). Whoever
+// knew the password of an account that needed no factor could set one up
+// without a link, and it would then count for the new rights. So the
+// factors not set up with a link or by an account that already needed one
+// are removed (auth.DropUnverifiedFactors), and when none is left, a new
+// enrolment link is made and mailed to the confirmed address. It returns
+// that link's token ("" when none was made) and whether it was mailed.
+func (a *app) elevated(ctx context.Context, req *http.Request, before *auth.User, by *principal) (token string, mailed bool, err error) {
+	if a.demo || a.needsFactor(before) {
+		return "", false, nil
+	}
+	u, err := a.store.UserByID(ctx, before.ID)
+	if err != nil || !a.needsFactor(u) {
+		return "", false, err
+	}
+	n, err := a.store.DropUnverifiedFactors(ctx, u)
+	if err != nil {
+		return "", false, err
+	}
+	ip := clientIP(req)
+	byName := ""
+	if by != nil {
+		byName = by.user.Name
+	}
+	if n > 0 {
+		a.audit_(ctx, nil, u.Name, "factors_dropped", strconv.Itoa(n)+" set up without a link, role "+string(u.Role), ip)
+		a.notify(ctx, u, "factors_dropped", byName, ip, nil)
+	}
+	f, err := a.store.Factors(ctx, u)
+	if err != nil || f.Any() {
+		return "", false, err
+	}
+	token, expires, err := a.store.NewEnrolment(ctx, u)
+	if err != nil {
+		return "", false, err
+	}
+	a.audit_(ctx, nil, u.Name, "enrol_link_made", u.Name, ip)
+	_, mailed = a.mailEnrolLink(ctx, req, u, token, expires)
+	return token, mailed, nil
+}
+
 /* ---------- notices ---------- */
 
 // notify records a security notice for u about a change by (and logs a
@@ -304,6 +354,10 @@ func (a *app) notify(ctx context.Context, u *auth.User, kind, detail, ip string,
 	a.alert(ctx, u, kind, detail, ip)
 }
 
+// stepUpNotices are the notices that take a step-up to dismiss: a new way
+// into the account.
+var stepUpNotices = map[string]bool{"key_added": true, "totp_added": true, "key_clone_warning": true, "token_created": true}
+
 // noticesSeen dismisses the user's notices, up to the newest one they saw.
 func (a *app) noticesSeen(w http.ResponseWriter, req *http.Request, p *principal) {
 	var in struct {
@@ -311,6 +365,19 @@ func (a *app) noticesSeen(w http.ResponseWriter, req *http.Request, p *principal
 	}
 	if !readJSON(w, req, &in) {
 		return
+	}
+	// A notice of a new way in can't be waved away by whoever holds a
+	// stolen session: that needs the user to confirm it's them (pentest
+	// re-test I1).
+	list, err := a.store.Notices(req.Context(), p.user, p.session.Key)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server")
+		return
+	}
+	for _, n := range list {
+		if (in.UpTo == 0 || n.ID <= in.UpTo) && stepUpNotices[n.Kind] && !a.fresh(w, p) {
+			return
+		}
 	}
 	if err := a.store.SeeNotices(req.Context(), p.user, in.UpTo); err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
@@ -324,22 +391,31 @@ func expiresText(t time.Time) string { return t.Local().Format("2006-01-02 15:04
 
 // firstFactor checks, before a new factor is saved, whether it is the
 // user's first and, if they needed an enrolment link for it, uses the link
-// up. It reports whether to go on; if not, it has answered.
-func (a *app) firstFactor(w http.ResponseWriter, ctx context.Context, u *auth.User, enrol string) (first, ok bool) {
+// up. It also says how the factor is set up, to store with it (pentest
+// re-test N5). It reports whether to go on; if not, it has answered.
+func (a *app) firstFactor(w http.ResponseWriter, req *http.Request, u *auth.User, enrol string) (first bool, o auth.Origin, ok bool) {
+	ctx := req.Context()
 	f, err := a.store.Factors(ctx, u)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
-		return false, false
+		return false, o, false
 	}
 	needed, err := a.needsEnrolLink(ctx, u)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
-		return false, false
+		return false, o, false
 	}
 	if needed && !a.useEnrol(w, ctx, u, enrol) {
-		return false, false
+		return false, o, false
 	}
-	return !f.Any(), true
+	o = auth.Origin{Via: auth.ViaPlain, IP: clientIP(req), Role: string(u.Role)}
+	switch {
+	case needed:
+		o.Via = auth.ViaLink
+	case a.needsFactor(u):
+		o.Via = auth.ViaElevated
+	}
+	return !f.Any(), o, true
 }
 
 // factorAdded records a new factor: in the audit log, and as a notice. The

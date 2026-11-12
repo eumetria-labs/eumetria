@@ -90,6 +90,11 @@ func avatarFile(id int64) string { return strconv.FormatInt(id, 10) + ".jpg" }
 
 // avatarPost takes a new picture: decoded, cut to a square and written anew.
 func (a *app) avatarPost(w http.ResponseWriter, req *http.Request, p *principal) {
+	held, ok := imageSlot(w, req)
+	if !ok {
+		return
+	}
+	defer held.Release()
 	var in struct {
 		Image []byte `json:"image"` // base64
 	}
@@ -100,13 +105,11 @@ func (a *app) avatarPost(w http.ResponseWriter, req *http.Request, p *principal)
 		writeError(w, http.StatusRequestEntityTooLarge, "too_long")
 		return
 	}
-	data, err := picture.Clean(in.Image, picture.AvatarPixels, func(img *image.RGBA) *image.RGBA {
+	data, err := picture.Clean(held, in.Image, picture.AvatarPixels, func(img *image.RGBA) *image.RGBA {
 		return picture.Square(img, avatarSide)
 	})
-	if errors.Is(err, picture.ErrBusy) {
-		writeError(w, http.StatusServiceUnavailable, "busy")
-		return
-	}
+	in.Image = nil
+	held.Release()
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "bad_image")
 		return

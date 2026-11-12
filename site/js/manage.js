@@ -47,6 +47,7 @@ const ERRORS = {
   bad_email: () => t('That isn’t an e-mail address.'),
   mail_off: () => t('Inviting needs e-mail (Settings → Email). Give them a password instead.'),
   not_sent: () => t('The invitation couldn’t be sent. Try again later.'),
+  no_public_url: () => t('Mails with links need the public URL (Settings → General).'),
   not_invited: () => t('They chose their password already.'),
   not_disabled: () => t('Disable the account first, then delete it.'),
 };
@@ -64,7 +65,7 @@ const ACTIONS = {
   totp_added: () => t('set up an authenticator app'), totp_removed: () => t('removed the authenticator app'),
   recovery_codes_made: () => t('made recovery codes'), recovery_code_used: () => t('used a recovery code'),
   token_created: () => t('made an API token'),
-  enrol_link_made: () => t('made an enrolment link'), first_factor_enrolled: () => t('set up their first second factor'),
+  enrol_link_made: () => t('made an enrolment link'), factors_dropped: () => t('lost second factors set up without a link (new rights)'), first_factor_enrolled: () => t('set up their first second factor'),
   reauth: () => t('confirmed it’s them'), reauth_failed: () => t('failed to confirm it’s them'),
   login_pressure: () => t('was guessed at often (sign-ins slowed down)'),
   email_change_requested: () => t('changed their e-mail address'), email_verified: () => t('confirmed their e-mail address'),
@@ -201,7 +202,7 @@ function usersTab(body, users, roleData) {
     info.append(name, h('span', { class: 'muted' }, facts.join(' · ')));
     const role = roleSelect(roles, u.role, t('Role of {name}', { name: u.name }));
     role.disabled = u.name === me;
-    role.onchange = () => change(body, role, () => api('admin/users/' + u.id, 'PATCH', { role: role.value }));
+    role.onchange = () => promote(body, role, () => api('admin/users/' + u.id, 'PATCH', { role: role.value }), u.name);
 
     const actions = h('div', { class: 'sec-row adm-actions' });
     const pw = h('button', { class: 'pill-btn', type: 'button' }, t('New password'));
@@ -209,7 +210,7 @@ function usersTab(body, users, roleData) {
     pw.onclick = () => row.querySelector('.adm-pw') ? row.querySelector('.adm-pw').remove() : row.append(passwordForm(body, u));
     const mfa = h('button', { class: 'pill-btn', type: 'button' }, u.require_second_factor ? t('Don’t require a second factor') : t('Require a second factor'));
     mfa.hidden = u.second_factor && !u.require_second_factor;
-    mfa.onclick = () => change(body, mfa, () => api('admin/users/' + u.id, 'PATCH', { require_second_factor: !u.require_second_factor }));
+    mfa.onclick = () => promote(body, mfa, () => api('admin/users/' + u.id, 'PATCH', { require_second_factor: !u.require_second_factor }), u.name);
     const off = h('button', { class: 'pill-btn', type: 'button' }, u.disabled ? t('Enable') : t('Disable'));
     off.hidden = u.name === me;
     off.onclick = () => {
@@ -292,6 +293,37 @@ async function enrolLink(body, row, button, u) {
   } finally {
     button.disabled = false;
   }
+}
+
+// promote runs a change that may give someone rights that need a second
+// factor. The server then removes the factors they set up without an
+// enrolment link and answers with new links (pentest re-test N5): for
+// name, or by name for a role's holders. They are shown above the list.
+function promote(body, button, run, name) {
+  let links = null;
+  change(body, button, async () => {
+    const res = await run();
+    if (res.status === 200) {
+      const a = await res.clone().json().catch(() => null);
+      links = typeof a?.enrol === 'string' ? { [name]: a.enrol } : a?.enrol || null;
+    }
+    return res;
+  }).then(() => { if (links) enrolNote(body, links); });
+}
+
+function enrolNote(body, links) {
+  const box = h('div', { class: 'notice adm-error', role: 'status' });
+  box.append(h('p', {}, t('These accounts need a second factor now. Factors they set up without an enrolment link were removed and their sessions ended. Hand each the link to set up a new one (it works once, within a day):')));
+  for (const [name, token] of Object.entries(links)) {
+    const url = location.origin + location.pathname + '#enrol=' + token;
+    const field = h('input', { class: 'field', type: 'text', readonly: '', value: url, 'aria-label': t('Enrolment link for {name}', { name }) });
+    const copy = h('button', { class: 'pill-btn', type: 'button' }, t('Copy'));
+    copy.onclick = () => navigator.clipboard?.writeText(url).then(() => { copy.textContent = t('Copied'); });
+    const line = h('div', { class: 'sec-add' });
+    line.append(h('b', {}, name), field, copy);
+    box.append(line);
+  }
+  body.prepend(box);
 }
 
 // invitedNote says above the list how an invitation went. "On its way":
@@ -416,7 +448,7 @@ function roleSection(body, r, scopes, taken = []) {
       return body.prepend(h('p', { class: 'lock-error adm-error', role: 'alert' }, t('That name is taken.')));
     }
     const picked = boxes.filter((b) => b.checked).map((b) => b.value);
-    change(body, save, () => api('admin/roles/' + encodeURIComponent(role), 'PUT', { scopes: picked }));
+    promote(body, save, () => api('admin/roles/' + encodeURIComponent(role), 'PUT', { scopes: picked }));
   };
   sec.append(form);
   return sec;

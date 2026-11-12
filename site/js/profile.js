@@ -95,7 +95,8 @@ function pictureSection(p) {
         return;
       }
       const why = await reason(res);
-      say(msg, res.status === 413 ? t('That image is too large.') : why === 'bad_image' ? t('That image can’t be used.') : t('That didn’t work. Try again.'), true);
+      say(msg, res.status === 413 ? t('That image is too large.') : why === 'bad_image' ? t('That image can’t be used.')
+        : why === 'busy' ? t('The server is busy with other images. Try again in a moment.') : t('That didn’t work. Try again.'), true);
     } catch (err) {
       say(msg, err instanceof TypeError ? t('Server not reachable.') : t('That image can’t be used.'), true);
     } finally {
