@@ -93,6 +93,30 @@ export function sortFoods(entries, key, q = '') {
     : (a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
 }
 
+// Protein per meal: for each meal, the days it was logged, its average
+// protein on those days and the days it reached target grams. A meal is
+// what Yazio files under it, so two snacks count as one.
+export function proteinPerMeal(rows, target) {
+  const out = {};
+  for (const [m] of [['breakfast'], ['lunch'], ['dinner'], ['snack']]) out[m] = { days: 0, avg: 0, hits: 0 };
+  for (const r of rows) {
+    const by = {};
+    for (const x of r.foods || []) if (x.m in out) by[x.m] = (by[x.m] || 0) + (x.pr || 0);
+    for (const [m, g] of Object.entries(by)) {
+      const o = out[m];
+      o.avg += g;
+      o.days++;
+      if (g >= target) o.hits++;
+    }
+  }
+  for (const o of Object.values(out)) o.avg = o.days ? o.avg / o.days : 0;
+  return out;
+}
+
+// The protein a meal should have: 0.4 g per kg of body weight (the amount
+// studies find a meal's muscle building tops out at), 30 g without a weight.
+export const mealProteinTarget = (weight) => (weight ? Math.round(weight * 0.4) : 30);
+
 // Where the macros of rows come from, per food name: entries (n), kcal (e)
 // and grams of protein (pr), carbs (c), fat (f). Fibre (fi), sugar (su) and
 // saturated fat (sf) count only entries that have them, with the kcal,

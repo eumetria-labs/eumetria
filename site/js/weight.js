@@ -4,6 +4,7 @@
 import { addDays, avgOf, dfLong, dfMonthYear, fmt, iso, parse, signed } from './format.js';
 import { $, h, svg } from './dom.js';
 import { state } from './state.js';
+import { legendToggles } from './legend.js';
 import { drawGoalMarks, fadeArea, goalMarks, goalTipRows, linePath, smoothPath, stepPath, timeChart, valuePill } from './charts.js';
 import { energyBalance, goalForecast, slope, weightForecast, weightGoalAt, weightGoalLine, weightTrendAt } from './insights.js';
 import { t, tn } from './i18n.js';
@@ -17,14 +18,17 @@ export function renderWeight(s) {
   shownRows = rows;
   const g = state.data.goals || {};
   // Trailing 7-day mean of weigh-ins, looking back before the range start.
-  const trend = rows.map((r) => weightTrendAt(state.byDate, r.date));
-  const pts = rows.map((r) => r.weight ?? null);
+  const on = legendToggles($('#weight-card .legend'), 'weight', () => renderWeight(s));
+  // A hidden series draws as no values; the forecast goes with the average.
+  const none = rows.map(() => null);
+  const trend = on('trend') ? rows.map((r) => weightTrendAt(state.byDate, r.date)) : none;
+  const pts = on('weighin') ? rows.map((r) => r.weight ?? null) : none;
 
   const weighed = rows.map((r, i) => [i, r.weight]).filter(([, w]) => w != null);
   const perDay = weighed.length >= 3 ? slope(weighed) : null;
   $('#weight-sub').textContent = tn(weighed.length, '{n} weigh-in', '{n} weigh-ins') + (perDay != null ? ' · ' + t('trend {kg} kg/week', { kg: signed(perDay * 7, 1) }) : '');
 
-  const f = forecastFor(rows);
+  const f = on('trend') ? forecastFor(rows) : null;
   const n = f?.n ?? rows.length;
   const ahead = f?.ahead ?? [];
   const dates = Array.from({ length: n }, (_, i) => addDays(parse(rows[0].date), i));

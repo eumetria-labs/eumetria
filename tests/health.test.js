@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares } from '../site/js/health.js';
+import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares, strengthTrend } from '../site/js/health.js';
 
 test('zoneOf uses the lower bounds of moderate, vigorous and peak', () => {
   const limits = [109, 133, 163];
@@ -199,4 +199,19 @@ test('training days: workouts without walks, noted results and bests', () => {
   // Two weeks from Monday Nov 2 to Sunday Nov 15: 3 days, both weeks active.
   assert.deepEqual(trainingSummary(trained, '2026-11-02', '2026-11-15'), { days: 3, perWeek: 1.5, pbs: 1, longestWeeks: 2 });
   assert.equal(trainingSummary(trained, '2026-10-01', '2026-10-31').days, 0);
+});
+
+test('strength over time takes the best estimate of each day across rep counts', () => {
+  const entries = [
+    { lift: 'Back Squat', kg: 100, reps: 1, date: '2026-01-01' },
+    { lift: 'back squat', kg: 90, reps: 5, date: '2026-01-01' }, // 105 estimated: the day's best
+    { lift: 'Back Squat', kg: 100, reps: 3, date: '2026-02-01' }, // 110
+    { lift: 'Back Squat', kg: 100, reps: 1, date: '2026-03-01' },
+    { lift: 'Deadlift', kg: 200, reps: 1, date: '2026-03-01' },
+  ];
+  const bw = (d) => (d === '2026-03-01' ? null : 80);
+  const p = strengthTrend(entries, 'Back Squat', bw);
+  assert.deepEqual(p.map((x) => [x.date, Math.round(x.est * 100) / 100, x.pb]), [['2026-01-01', 105, false], ['2026-02-01', 110, true], ['2026-03-01', 100, false]]);
+  assert.equal(p[0].ratio, 105 / 80);
+  assert.equal(p[2].ratio, null);
 });

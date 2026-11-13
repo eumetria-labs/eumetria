@@ -1,9 +1,10 @@
 // The Movement card: steps, calories burned by activities and Fitbit's
-// active zone minutes, one chart below the other.
+// active zone minutes, each in its own tab.
 
 import { actLabel, actName, activityDetail, avgOf, compact, fmt, mean } from './format.js';
-import { $ } from './dom.js';
-import { can, state } from './state.js';
+import { $, panelTabs } from './dom.js';
+import { can, state, store } from './state.js';
+import { legendToggles } from './legend.js';
 import { barChart, bucketTitle, drawStacks, timeChart } from './charts.js';
 import { t } from './i18n.js';
 
@@ -11,15 +12,13 @@ export function renderMovement(s) {
   const { buckets, weekly, complete } = s;
   // Without view.activity only Fitbit's zone minutes remain (renderZoneMinutes).
   const hasSteps = can('view.activity');
-  $('#steps-part').hidden = !hasSteps;
   $('#movement-card').hidden = !hasSteps && !state.data.days.some((d) => d.azm);
   $('#steps-sub').textContent = weekly ? t('weekly averages') : '';
-  if (!hasSteps) return void ($('#activity-part').hidden = true);
+  if (!hasSteps) return;
   const goal = state.data.goals?.steps;
   const steps = buckets.map((b) => avgOf(b.rows, 'steps'));
   const burned = buckets.map((b) => avgOf(b.rows, 'activity_energy'));
   const hasActivity = state.data.days.some((d) => d.activity_energy > 0);
-  const hasAzm = state.data.days.some((d) => d.azm);
   const avgSteps = avgOf(complete, 'steps');
   // Days without activities count as 0 kcal burned, not as missing.
   const avgBurn = mean(complete.map((r) => r.activity_energy || 0));
@@ -30,15 +29,11 @@ export function renderMovement(s) {
     aria: t('Steps per day'),
     series: { cls: 's3', label: t('steps'), values: steps, unit: '' },
     goal: goal ? { value: goal, label: t('Goal {steps}', { steps: compact.format(goal) }) } : null,
-    // Only the bottom chart of the card labels the dates.
-    noXLabels: hasActivity || hasAzm,
   });
-  $('#activity-part').hidden = !hasActivity;
   if (!hasActivity) return;
   barChart($('#chart-activity'), s, {
     aria: t('Calories burned by activities per day'),
     series: { cls: 's3', label: t('burned'), values: burned, unit: 'kcal' },
-    noXLabels: hasAzm,
     extra: (i) => buckets[i].rows.flatMap((r) => r.activities || []).map((a) => {
       const detail = activityDetail(a, ', ');
       const name = actLabel(actName(a.name));
@@ -52,19 +47,21 @@ export function renderMovement(s) {
 // already counts cardio and peak minutes double, as the WHO does.
 const AZM_ZONES = [['z2', t('fat burn')], ['z3', t('cardio')], ['z4', t('peak')]];
 
-export function renderZoneMinutes(s) {
+export function renderZoneMinutes(s, redraw = false) {
   const { buckets, weekly, complete } = s;
-  const has = state.data.days.some((d) => d.azm);
-  $('#azm-part').hidden = !has;
-  if (!has) return;
+  if (!state.data.days.some((d) => d.azm)) return;
+  const on = legendToggles($('#azm-part .legend'), 'azm', () => renderZoneMinutes(s, true));
+  // A zone switched off counts as 0 in the stack.
+  const shown = AZM_ZONES.map(([c]) => on(c));
   const vals = buckets.map((b) => {
     const days = b.rows.filter((r) => r.azm);
-    return days.length ? [0, 1, 2].map((k) => mean(days.map((r) => r.azm[k]))) : null;
+    return days.length ? [0, 1, 2].map((k) => (shown[k] ? mean(days.map((r) => r.azm[k])) : 0)) : null;
   });
   const days = complete.filter((r) => r.azm);
   const perWeek = days.length ? (days.reduce((a, r) => a + r.azm[0] + r.azm[1] + r.azm[2], 0) / days.length) * 7 : null;
   const sub = $('#steps-sub');
-  if (perWeek != null) sub.textContent = [sub.textContent, t('{min} active zone min/week', { min: fmt(perWeek) })].filter(Boolean).join(' · ');
+  // Once per render: a legend switch redraws only the chart.
+  if (perWeek != null && !redraw) sub.textContent = [sub.textContent, t('{min} active zone min/week', { min: fmt(perWeek) })].filter(Boolean).join(' · ');
   const ref = 150 / 7;
   const max = Math.max(ref, ...vals.map((v) => (v ? v[0] + v[1] + v[2] : 0)));
   timeChart($('#chart-azm'), {
@@ -90,4 +87,15 @@ export function renderZoneMinutes(s) {
     onPick: weekly ? null : (i) => buckets[i].rows[0],
     pickTab: 'activities',
   });
+}
+
+// The card's tabs, after both renders above: only the charts with data.
+export function renderMovementTabs() {
+  if ($('#movement-card').hidden) return;
+  const hasSteps = can('view.activity');
+  panelTabs($('#movement-tabs'), [
+    hasSteps && ['steps', t('Steps'), '👟'],
+    hasSteps && state.data.days.some((d) => d.activity_energy > 0) && ['burned', t('Burned'), '🔥'],
+    state.data.days.some((d) => d.azm) && ['azm', t('Zone minutes'), '⚡'],
+  ].filter(Boolean), store.get('movementTab'), (key) => store.set('movementTab', key));
 }

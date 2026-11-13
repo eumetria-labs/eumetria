@@ -234,7 +234,7 @@ func TestAdminMail(t *testing.T) {
 	}
 	json.Unmarshal([]byte(body), &ans)
 	got := f.to("newbie@example.org")
-	if !ans.Mailed || len(got) != 1 || !strings.Contains(got[0].Body, "#enrol="+ans.Token) {
+	if res.StatusCode != 201 || !ans.Mailed || len(got) != 1 || !strings.Contains(got[0].Body, "#enrol="+ans.Token) {
 		t.Fatalf("enrol link by mail = %s, %+v", body, got)
 	}
 	if _, body := e.do(t, admin, "GET", "/api/admin/users", ""); !strings.Contains(body, `"email_verified":true`) {

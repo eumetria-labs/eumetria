@@ -5,7 +5,7 @@
 // day; a lift's best is its heaviest, the rest is its history.
 
 import { NUM_LOCALE, dfLong, dfShort, dfMonthYear, parse } from './format.js';
-import { COMMON_LIFTS, bestDays, bestsReadiness, liftBoard, loadable, oneRepMax, percentages, platesFor, wodBestDays } from './health.js';
+import { COMMON_LIFTS, bestDays, bestsReadiness, liftBoard, loadable, oneRepMax, percentages, platesFor, strengthTrend, wodBestDays } from './health.js';
 import { $, emoji, h, nameCell } from './dom.js';
 import { drawProgress, progressChart } from './charts.js';
 import { chart, list, shareTools, tiles } from './share.js';
@@ -90,7 +90,8 @@ export function renderLifts() {
     return;
   }
   host.replaceChildren(...rows.map((r) => {
-    const detail = [shortDate(r.best.date), r.gain ? gainKg(r.gain) : ''].filter(Boolean).join(' · ');
+    const bw = bodyweight(r.best);
+    const detail = [shortDate(r.best.date), r.gain ? gainKg(r.gain) : '', bw ? t('{x}× bodyweight', { x: nfX.format(bw) }) : ''].filter(Boolean).join(' · ');
     const row = h('button', { class: 'day-item workout-row lift-row', type: 'button', 'aria-label': t('{label}: {value}, {detail}. Show history', { label: rowName(r), value: fmtKg(r.best.kg), detail }) });
     const name = nameCell(r.lift, false, '🏋️');
     if (r.reps > 1) name.append(h('span', { class: 'lift-rm' }, rm(r.reps)));
@@ -147,7 +148,7 @@ export function openLift(key, returnFocus) {
     const bw = bodyweight(r.best);
     sub.textContent = [t('Best {value} on {date}', { value: fmtKg(r.best.kg), date: dfLong.format(parse(r.best.date)) }), bw ? t('{x}× bodyweight', { x: nfX.format(bw) }) : ''].filter(Boolean).join(' · ');
     const plates = plateSection(r.best.kg);
-    body.replaceChildren(...[progressSection(r), percentSection(r, plates.show), plates.sec, historySection(r, draw)].filter(Boolean));
+    body.replaceChildren(...[progressSection(r), strengthSection(r), percentSection(r, plates.show), plates.sec, historySection(r, draw)].filter(Boolean));
   };
   draw();
 }
@@ -206,6 +207,50 @@ function progressSection(r) {
     yFmt: (v) => nfKg.format(v),
     aria: t('{lift}: {n} results from {from} to {to}, best {value}', { lift: rowName(r), n: points.length, from: fmtKg(points[0].value), to: fmtKg(points.at(-1).value), value: fmtKg(r.best.kg) }),
   }));
+  return sec;
+}
+
+// The lift's strength over time with every rep count in it, as estimated
+// 1 RM or as a multiple of the bodyweight. Only when it says more than the
+// progress above: other rep counts, or weigh-ins to compare with.
+function strengthSection(r) {
+  const bwAt = (date) => (state.byDate ? weightTrendAt(state.byDate, date) : null);
+  const points = strengthTrend(state.lifts, r.lift, bwAt);
+  const otherReps = state.lifts.some((e) => e.lift.toLowerCase() === r.lift.toLowerCase() && e.reps !== r.reps);
+  const ratios = points.filter((p) => p.ratio != null);
+  if (points.length < 2 || (!otherReps && ratios.length < 2)) return null;
+  const views = [
+    ['kg', t('Est. 1 RM'), points.map((p) => ({ date: p.date, value: p.est, pb: p.pb })), (v) => nfKg.format(v)],
+    ratios.length >= 2 && ['bw', t('× bodyweight'), ratios.map((p) => ({ date: p.date, value: p.ratio, pb: p.pb })), (v) => nfX.format(v) + '×'],
+  ].filter(Boolean);
+  let view = views.some(([k]) => k === store.get('strengthView')) ? store.get('strengthView') : views[0][0];
+  const sec = h('section', { class: 'wo-sec' });
+  const hd = h('div', { class: 'wo-sec-head' });
+  hd.append(h('h3', {}, t('Strength over time')), h('span', { class: 'muted' }, otherReps
+    ? t('all rep counts, as estimated 1 RM')
+    : t('estimated 1 RM')));
+  const pills = h('div', { class: 'strength-view', role: 'group', 'aria-label': t('Show as') });
+  const host = h('div', { class: 'prog-chart' });
+  const note = h('p', { class: 'muted strength-note' });
+  const draw = () => {
+    const [, label, pts, yFmt] = views.find(([k]) => k === view);
+    for (const b of pills.children) b.setAttribute('aria-pressed', String(b.dataset.view === view));
+    progressChart(host, [{ points: pts }], {
+      yFmt, aria: t('{lift}, {what}: from {from} to {to}', { lift: r.lift, what: label, from: yFmt(pts[0].value), to: yFmt(pts.at(-1).value) }),
+    });
+    const a = pts[0], b = pts.at(-1);
+    note.textContent = t('{from} on {d0}, {to} on {d1}', { from: yFmt(a.value), d0: shortDate(a.date), to: yFmt(b.value), d1: shortDate(b.date) });
+  };
+  if (views.length > 1) {
+    for (const [k, label] of views) {
+      const b = h('button', { class: 'pill-btn', type: 'button', 'data-view': k }, label);
+      b.onclick = () => { view = k; store.set('strengthView', k); draw(); };
+      pills.append(b);
+    }
+    hd.append(pills);
+  }
+  sec.append(hd, host, note);
+  requestAnimationFrame(draw);
   return sec;
 }
 

@@ -86,6 +86,24 @@ func (a *app) profileSave(w http.ResponseWriter, req *http.Request, p *principal
 	a.profile(w, req, p)
 }
 
+// layoutSave stores the order of the dashboard's cards and the hidden ones.
+func (a *app) layoutSave(w http.ResponseWriter, req *http.Request, p *principal) {
+	var in auth.Layout
+	if !readJSON(w, req, &in) {
+		return
+	}
+	l, err := in.Clean()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_layout")
+		return
+	}
+	if err := a.store.SaveLayout(req.Context(), p.user, l); err != nil {
+		a.failed(w, "layout", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, l)
+}
+
 func avatarFile(id int64) string { return strconv.FormatInt(id, 10) + ".jpg" }
 
 // avatarPost takes a new picture: decoded, cut to a square and written anew.

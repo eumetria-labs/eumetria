@@ -2,11 +2,11 @@
 // the range come from, and the best sources per calorie. Every row opens
 // that food's history window.
 
-import { fmt } from './format.js';
-import { $, h, hbar, tabButton, tabKeys } from './dom.js';
-import { store } from './state.js';
+import { MEALS, fmt } from './format.js';
+import { $, h, hbar, meter, tabButton, tabKeys } from './dom.js';
+import { state, store } from './state.js';
 import { historyLink, openFood } from './history.js';
-import { MACRO_TABS, macroSources, rankSources } from './query.js';
+import { MACRO_TABS, macroSources, mealProteinTarget, proteinPerMeal, rankSources } from './query.js';
 import { t } from './i18n.js';
 
 const ICONS = { pr: '💪', c: '🍞', f: '🥑', fi: '🌾', su: '🍬' };
@@ -60,6 +60,8 @@ export function renderSources(s) {
       name, openFood,
     )) : [h('p', { class: 'empty-tab' }, t('Nothing logged'))]));
 
+    renderProteinMeals(s, tab === 'pr');
+
     const [title, unit, show] = BEST[tab];
     $('#sources-best-title').textContent = title;
     $('#sources-best-note').textContent = unit;
@@ -86,4 +88,31 @@ export function renderSources(s) {
   };
   tabs.onkeydown = (e) => tabKeys(e, tabs);
   draw();
+}
+
+// On the protein tab: how much protein each meal brings, and how often it
+// reaches what a meal should have for the user's weight.
+function renderProteinMeals(s, show) {
+  const box = $('#protein-meals');
+  const rows = s.rows.filter((r) => r.foods?.length);
+  box.hidden = !show || !rows.length;
+  if (box.hidden) return;
+  const end = s.rows.at(-1)?.date;
+  const weight = state.data.days.findLast((d) => d.weight && (!end || d.date <= end))?.weight;
+  const target = mealProteinTarget(weight);
+  $('#protein-meals-note').textContent = weight
+    ? t('average on the days it was logged · goal {g} g a meal (0.4 g per kg)', { g: fmt(target) })
+    : t('average on the days it was logged · goal {g} g a meal', { g: fmt(target) });
+  const per = proteinPerMeal(rows, target);
+  $('#protein-meals-list').replaceChildren(...MEALS.map(([key, label]) => {
+    const m = per[key];
+    const el = h('div', { class: 'stat' });
+    const k = h('div', { class: 'k' });
+    k.append(h('span', {}, label), h('span', {}, m.days ? `${fmt((m.hits / m.days) * 100)}%` : ''));
+    const v = h('div', { class: 'v' }, m.days ? fmt(m.avg) : '–');
+    v.append(h('small', {}, 'g'));
+    el.append(k, v, meter(m.days ? m.hits / m.days : 0),
+      h('p', { class: 'note' }, m.days ? t('{hits} of {days} days with {g} g or more', { hits: fmt(m.hits), days: fmt(m.days), g: fmt(target) }) : t('Not logged')));
+    return el;
+  }));
 }

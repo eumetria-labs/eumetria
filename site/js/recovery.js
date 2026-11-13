@@ -5,6 +5,7 @@
 import { addDays, avgOf, fmt, iso, logged, parse, signed } from './format.js';
 import { median, nightsAfter } from './insights.js';
 import { RESTLESS, STAGES, fmtSleep, nightBreaks, stageRow } from './health.js';
+import { legendToggles } from './legend.js';
 import { $, h, svg, showTip, hideTip, panelTabs } from './dom.js';
 import { state, store } from './state.js';
 import { timeChart, bucketTitle, drawStacks, fadeArea, smoothPath, valuePill } from './charts.js';
@@ -89,6 +90,9 @@ const STACK_LABEL = { deep: t('Deep'), light: t('Light'), rem: 'REM', awake: t('
 
 function sleepChart(s) {
   const { buckets, weekly } = s;
+  // A stage switched off leaves the stack (the tooltip still says the time asleep).
+  const on = legendToggles($('#chart-sleep').parentElement.querySelector('.legend'), 'sleep-stages', () => sleepChart(s));
+  const shown = STACK.filter((k) => on(k));
   // Per bucket: average minutes per stage over the nights in it.
   const vals = buckets.map((b) => {
     const nights = b.rows.filter((r) => r.sleep).map((r) => r.sleep);
@@ -100,7 +104,7 @@ function sleepChart(s) {
     if (!staged) out.light = out.asleep;
     return out;
   });
-  const max = Math.max(...vals.map((v) => (v ? STACK.reduce((a, k) => a + v[k], 0) : 0)));
+  const max = Math.max(...vals.map((v) => (v ? shown.reduce((a, k) => a + v[k], 0) : 0)));
   timeChart($('#chart-sleep'), {
     aria: t('Sleep per night by stage'),
     kind: 'band',
@@ -111,7 +115,7 @@ function sleepChart(s) {
     y: [0, Math.max(8, (max / 60) * 1.05)],
     yFmt: (hrs) => `${hrs} h`,
     draw(g, { x, y: yh, bw }) {
-      drawStacks(g, vals.map((v) => v && STACK.map((k) => v[k])), STACK.map((k) => STACK_CLS[k]), x, (min) => yh(min / 60), bw);
+      drawStacks(g, vals.map((v) => v && shown.map((k) => v[k])), shown.map((k) => STACK_CLS[k]), x, (min) => yh(min / 60), bw);
     },
     tip(i) {
       const v = vals[i];
@@ -121,7 +125,7 @@ function sleepChart(s) {
         title: bucketTitle(buckets[i], weekly) + (night ? ` · ${night.start}–${night.end}` : ''),
         rows: [
           { value: fmtSleep(v.asleep), label: weekly ? t('avg asleep') : t('asleep') },
-          ...[...STACK].reverse().filter((k) => v[k] > 0).map((k) => ({ cls: 'rect ' + STACK_CLS[k], value: fmtSleep(v[k]), label: STACK_LABEL[k] })),
+          ...[...shown].reverse().filter((k) => v[k] > 0).map((k) => ({ cls: 'rect ' + STACK_CLS[k], value: fmtSleep(v[k]), label: STACK_LABEL[k] })),
         ],
       };
     },
@@ -132,8 +136,9 @@ function sleepChart(s) {
 
 function metricChart(host, s, m) {
   const { buckets, weekly } = s;
-  const vals = buckets.map((b) => avgOf(b.rows, m.key));
-  const vals2 = m.key2 ? buckets.map((b) => avgOf(b.rows, m.key2)) : [];
+  const on = legendToggles(host.parentElement.querySelector('.legend'), host.id, () => metricChart(host, s, m));
+  const vals = buckets.map((b) => (on('s1') ? avgOf(b.rows, m.key) : null));
+  const vals2 = m.key2 && on('s2') ? buckets.map((b) => avgOf(b.rows, m.key2)) : [];
   const present = [...vals, ...vals2].filter((v) => v != null);
   const lo = Math.min(...present), hi = Math.max(...present);
   const pad = Math.max(1, (hi - lo) * 0.15);
@@ -153,8 +158,10 @@ function metricChart(host, s, m) {
         g.append(svg('path', { d: smoothPath(vs, x, y), class: 'mark-line ' + cls, pathLength: 1 }));
         if (buckets.length <= 45) vs.forEach((v, i) => { if (v != null) g.append(svg('circle', { cx: x(i), cy: y(v), r: 3, class: 'mark-dot ' + cls })); });
       });
-      const li = vals.findLastIndex((v) => v != null);
-      if (li >= 0) valuePill(g, x(li), y(vals[li]), `${fmt(vals[li], m.digits || 0)} ${m.unit}`, ctx);
+      // The latest value of the main line, or of the second one alone.
+      const [lead, cls] = vals.some((v) => v != null) ? [vals, ''] : [vals2, 's2'];
+      const li = lead.findLastIndex((v) => v != null);
+      if (li >= 0) valuePill(g, x(li), y(lead[li]), `${fmt(lead[li], m.digits || 0)} ${m.unit}`, ctx, cls);
     },
     tip(i) {
       if (vals[i] == null && vals2[i] == null) return { title: bucketTitle(buckets[i], weekly), rows: [{ value: t('Not measured'), label: '' }] };

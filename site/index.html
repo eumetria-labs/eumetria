@@ -66,6 +66,7 @@
             <button role="menuitem" type="button" data-action="security"><b>Security</b><span>Passkeys, authenticator app, recovery codes.</span></button>
             <button role="menuitem" type="button" data-action="admin" id="account-admin" hidden><b>Users &amp; Roles</b><span>Accounts, who may see what, sessions, audit log.</span></button>
             <button role="menuitem" type="button" data-action="settings" id="account-settings" hidden><b>Settings</b><span>Sync, Yazio, Google, weekly review, backups.</span></button>
+            <button role="menuitem" type="button" data-action="layout"><b>Customize dashboard</b><span>Order of the cards, and which ones you see.</span></button>
             <button role="menuitem" type="button" data-action="theme" class="menu-sep"><b id="theme-label">Dark mode</b></button>
             <button role="menuitem" type="button" data-action="lang"><b id="lang-label">Deutsch</b></button>
             <button role="menuitem" type="button" data-out="this" class="menu-sep"><b>Sign out</b><span>On this device.</span></button>
@@ -84,9 +85,9 @@
       <nav class="sections" id="sections" aria-label="Sections" hidden>
         <a href="#today" data-cards="today review-card tiles">Today</a>
         <a href="#energy-card" data-cards="energy-card">Nutrition</a>
-        <a href="#weight-card" data-cards="weight-card">Body</a>
+        <a href="#weight-card" data-cards="weight-card movement-card">Body</a>
         <a href="#recovery-card" data-cards="recovery-card">Sleep</a>
-        <a href="#training-card" data-cards="training-card movement-card">Training</a>
+        <a href="#training-card" data-cards="training-card">Training</a>
         <a href="#foods-card" data-cards="foods-card top-activities-card sources-card quality-card">Foods</a>
         <a href="#data-card" data-cards="data-card">Data</a>
       </nav>
@@ -181,7 +182,7 @@
         <article class="card tile"></article><article class="card tile"></article>
       </section>
 
-      <section class="grid">
+      <section class="grid" id="cards">
         <article class="card span-2" id="energy-card">
           <header class="card-head">
             <div><h2>Calories</h2><p class="muted" id="cal-sub"></p></div>
@@ -190,11 +191,11 @@
           <div class="card-panel" id="energy-chart-panel" role="tabpanel" data-tab="chart">
             <div id="energy-part">
               <ul class="legend energy-legend">
-                <li><span class="key line s1"></span>Eaten</li>
-                <li id="leg-avg" hidden><span class="key line s1 thick"></span>7-day average</li>
-                <li><span class="key line ink"></span>Goal incl. activity</li>
-                <li id="leg-burned" hidden><span class="key line s2"></span>Burned (Fitbit)</li>
-                <li><span class="key dash"></span>Base goal</li>
+                <li data-s="eaten"><span class="key line s1"></span>Eaten</li>
+                <li data-s="goal"><span class="key line ink"></span>Goal incl. activity</li>
+                <li data-s="base"><span class="key dash"></span>Base goal</li>
+                <li data-s="avg" id="leg-avg" hidden><span class="key line s1 thick"></span>7-day average</li>
+                <li data-s="burned" id="leg-burned" hidden><span class="key line s2"></span>Burned (Fitbit)</li>
               </ul>
               <div class="chart tall" id="chart-energy"></div>
             </div>
@@ -221,16 +222,37 @@
           </div>
         </article>
 
-        <article class="card span-2" id="weight-card" data-share="custom">
+        <article class="card" id="weight-card" data-share="custom">
           <header class="card-head">
             <div><h2>Weight</h2><p class="muted" id="weight-sub"></p></div>
             <ul class="legend">
-              <li><span class="key dot s1-soft"></span>Weigh-in</li>
-              <li><span class="key line s1"></span>7-day average</li>
+              <li data-s="weighin"><span class="key dot s1-soft"></span>Weigh-in</li>
+              <li data-s="trend"><span class="key line s1"></span>7-day average</li>
             </ul>
           </header>
           <div class="chart" id="chart-weight"></div>
           <div class="stat-row" id="weight-insights" aria-label="Maintenance calories and goal forecast"></div>
+        </article>
+
+        <article class="card" id="movement-card">
+          <header class="card-head">
+            <div><h2>Movement</h2><p class="muted" id="steps-sub"></p></div>
+          </header>
+          <div class="tabs" role="tablist" aria-label="Movement" id="movement-tabs"></div>
+          <div class="card-panel" id="steps-part" role="tabpanel" data-tab="steps">
+            <div class="chart" id="chart-steps"></div>
+          </div>
+          <div class="card-panel" id="activity-part" role="tabpanel" data-tab="burned" hidden>
+            <div class="chart" id="chart-activity"></div>
+          </div>
+          <div class="card-panel" id="azm-part" role="tabpanel" data-tab="azm" hidden>
+            <ul class="legend">
+              <li data-s="z2"><span class="key z2"></span>Fat burn</li>
+              <li data-s="z3"><span class="key z3"></span>Cardio</li>
+              <li data-s="z4"><span class="key z4"></span>Peak</li>
+            </ul>
+            <div class="chart" id="chart-azm"></div>
+          </div>
         </article>
 
         <article class="card span-2" id="recovery-card" hidden>
@@ -241,11 +263,11 @@
           <div class="card-panel" id="recovery-sleep" role="tabpanel" data-tab="sleep">
             <div id="scores-part" hidden>
               <div class="mini-head">
-                <h3 class="mini-title">Eumetria scores <span class="muted">our own formulas, not Fitbit’s</span></h3>
+                <h3 class="mini-title">Eumetria scores <span class="muted">our own formulas, not Fitbit’s</span> <span class="muted" id="scores-avg" hidden>· 7-day averages</span></h3>
                 <ul class="legend mini-legend">
-                  <li><span class="key line s3"></span>Readiness</li>
-                  <li><span class="key line s2"></span>Sleep</li>
-                  <li><span class="key line s1"></span>Recovery</li>
+                  <li data-s="readiness"><span class="key line s3"></span>Readiness</li>
+                  <li data-s="sleep"><span class="key line s2"></span>Sleep</li>
+                  <li data-s="recovery"><span class="key line s1"></span>Recovery</li>
                 </ul>
               </div>
               <div class="chart short" id="chart-scores"></div>
@@ -254,10 +276,10 @@
               <div class="mini-head">
                 <h3 class="mini-title">Sleep per night</h3>
                 <ul class="legend mini-legend">
-                  <li><span class="key st-deep"></span>Deep</li>
-                  <li><span class="key st-light"></span>Light</li>
-                  <li><span class="key st-rem"></span>REM</li>
-                  <li><span class="key st-awake"></span>Awake</li>
+                  <li data-s="deep"><span class="key st-deep"></span>Deep</li>
+                  <li data-s="light"><span class="key st-light"></span>Light</li>
+                  <li data-s="rem"><span class="key st-rem"></span>REM</li>
+                  <li data-s="awake"><span class="key st-awake"></span>Awake</li>
                 </ul>
               </div>
               <div class="chart" id="chart-sleep"></div>
@@ -267,16 +289,16 @@
             <div>
               <h3 class="mini-title">Heart rate (bpm)</h3>
               <ul class="legend mini-legend">
-                <li><span class="key line s1"></span>Resting</li>
-                <li id="leg-sleep-hr" hidden><span class="key line s2"></span>Sleeping (non-REM)</li>
+                <li data-s="s1"><span class="key line s1"></span>Resting</li>
+                <li data-s="s2" id="leg-sleep-hr" hidden><span class="key line s2"></span>Sleeping (non-REM)</li>
               </ul>
               <div class="chart short" id="chart-rhr"></div>
             </div>
             <div>
               <h3 class="mini-title">Heart rate variability (ms)</h3>
               <ul class="legend mini-legend">
-                <li><span class="key line s1"></span>Whole night</li>
-                <li id="leg-hrv-deep" hidden><span class="key line s2"></span>Deep sleep</li>
+                <li data-s="s1"><span class="key line s1"></span>Whole night</li>
+                <li data-s="s2" id="leg-hrv-deep" hidden><span class="key line s2"></span>Deep sleep</li>
               </ul>
               <div class="chart short" id="chart-hrv"></div>
             </div>
@@ -300,8 +322,8 @@
                 <div class="mini-head">
                   <h3 class="mini-title">Training load <span class="muted" id="load-sub"></span></h3>
                   <ul class="legend mini-legend">
-                    <li><span class="key line s1"></span>7 days vs. 28 days</li>
-                    <li><span class="key load-zone"></span>Usual load</li>
+                    <li data-s="ratio"><span class="key line s1"></span>7 days vs. 28 days</li>
+                    <li data-s="zone"><span class="key load-zone"></span>Usual load</li>
                   </ul>
                 </div>
                 <div class="chart short" id="chart-load"></div>
@@ -352,6 +374,7 @@
             </div>
             <div class="heatmap train-cal" id="train-cal"></div>
             <p class="muted cal-summary" id="train-cal-summary"></p>
+            <div class="yr-links" id="train-cal-years"></div>
           </div>
           <div class="card-panel" id="training-routes" role="tabpanel" data-tab="routes" hidden>
             <div class="mini-head">
@@ -360,31 +383,6 @@
             </div>
             <div class="wo-map training-map" id="training-map" role="img" aria-label="Map of the GPS routes in the selected range"></div>
             <p class="empty-tab" id="training-routes-empty" hidden>No routes in this range</p>
-          </div>
-        </article>
-
-        <article class="card span-2" id="movement-card">
-          <header class="card-head">
-            <div><h2>Movement</h2><p class="muted" id="steps-sub"></p></div>
-          </header>
-          <div id="steps-part">
-            <h3 class="mini-title">Steps</h3>
-            <div class="chart short" id="chart-steps"></div>
-          </div>
-          <div id="activity-part">
-            <h3 class="mini-title">Calories burned by activities</h3>
-            <div class="chart short" id="chart-activity"></div>
-          </div>
-          <div id="azm-part" hidden>
-            <div class="mini-head">
-              <h3 class="mini-title">Active zone minutes</h3>
-              <ul class="legend mini-legend">
-                <li><span class="key z2"></span>Fat burn</li>
-                <li><span class="key z3"></span>Cardio</li>
-                <li><span class="key z4"></span>Peak</li>
-              </ul>
-            </div>
-            <div class="chart short" id="chart-azm"></div>
           </div>
         </article>
 
@@ -412,6 +410,10 @@
           <header class="card-head"><div><h2>Macro sources</h2><p class="muted" id="sources-sub"></p></div></header>
           <div class="tabs" role="tablist" aria-label="Macro" id="sources-tabs"></div>
           <div class="sources-lists" id="sources-lists" role="tabpanel">
+            <div class="protein-meals" id="protein-meals" hidden>
+              <h3 class="mini-title">Protein per meal <span class="muted" id="protein-meals-note"></span></h3>
+              <div class="meal-split" id="protein-meals-list" aria-label="Average protein per meal"></div>
+            </div>
             <div>
               <h3 class="mini-title">Biggest sources <span class="muted">share of the total · times eaten</span></h3>
               <div class="hbars" id="sources-top"></div>

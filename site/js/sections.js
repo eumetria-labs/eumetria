@@ -7,7 +7,7 @@ import { reduceMotion } from './state.js';
 
 const nav = $('#sections');
 const links = [...nav.querySelectorAll('a')];
-const cardsOf = (a) => a.dataset.cards.split(' ').map((id) => document.getElementById(id)).filter((el) => el && !el.hidden);
+const cardsOf = (a) => a.dataset.cards.split(' ').map((id) => document.getElementById(id)).filter((el) => el && !el.hidden && !el.hasAttribute('data-off'));
 
 // After a click the clicked link stays marked until the user scrolls
 // themselves: sections near the end can't scroll up to the header.

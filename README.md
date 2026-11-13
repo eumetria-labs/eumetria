@@ -9,6 +9,8 @@
 Eumetria puts the data of the apps you already use onto one page on your own server. From [Yazio](https://www.yazio.com) it takes calories, macros, meals, foods, recipes, weight, steps and activities. Optionally it adds what a Fitbit or Pixel Watch records through the [Google Health API](https://developers.google.com/health): workouts with heart rate and route, sleep stages and overnight measurements.
 
 - 📊 Charts for calories, macros, weight (with a forecast to your goal), movement, sleep and recovery
+- 💪 Macro sources per food, and protein per meal against 0.4 g per kg of bodyweight (30 g without a weigh-in)
+- 🎉 A year in review: the year's numbers, new bests and favourite foods, as a picture to share too
 - 🔍 Search across your whole history, food and activity histories, a sortable data table
 - 🏋️ Workout details: heart rate by zone, splits, route map, elevation
 - 🤖 An optional weekly review written by Claude
@@ -119,6 +121,8 @@ Two roles are built in: **admin** (everything) and **viewer** (every `view.*` sc
 
 **Your profile** (account menu → **Profile**) holds a picture, shown in the menu and next to your notes, your name, e-mail and Instagram handle, all optional and visible only to you except the picture. It also lists your API tokens and the devices you're signed in on. Style and language are in the same menu.
 
+**Customize dashboard** (account menu) sets the order of the cards and hides the ones you don't need. It's stored with your account, so it's the same on every device; **Reset** brings back the page's own order. On a wide screen two half-width cards next to each other (Weight, Movement, Most logged foods, Top activities) share a row; one alone takes the full width.
+
 Admins manage all of this in the page: account menu → **Users & Roles**. There you add people (with e-mail set up, give their address instead of a password: they get a welcome mail, choose their password through its link, once within three days, and set up a second factor right away if their role needs one; their address then counts as confirmed), give them a role, set a new password for someone who forgot theirs (that also ends their sessions and API tokens), require a second factor (until they set one up they see no data, only their own account settings), disable an account and then delete it for good (what they wrote stays, without an author), edit roles as checkboxes, end anyone's session and read the audit log. Changes need a recent proof of who you are: within 5 minutes of signing in, or the page asks you to confirm it with a passkey, key or code from your app (the password, for an account without a second factor). You can't disable or demote your own account, and the site always keeps one admin. A changed role applies to the user's next request; they stay signed in.
 
 - **Passwords:** at least 12 characters, no common ones, stored as argon2id hashes. Change yours under account menu → **Security**; that signs out your other devices and, unless you untick it, ends your API tokens. If you have passkeys that sign in on their own, you can remove them in the same step: do so if someone else may have had your account.
@@ -157,7 +161,9 @@ Each sync fetches the last 3 days again (they may still change) and any missing 
 
 Optional. With a Fitbit or Pixel Watch the page also shows workouts (heart rate by zone, splits, route, elevation), sleep stages, resting heart rate, HRV, breathing rate, blood oxygen, skin temperature, the calories Fitbit counts, active zone minutes and VO2 max with Fitbit's rating (Fitbit's cardio fitness estimate). The Training card shows the training load: the zone minutes of the last 7 days against the last 28, as a plain ratio.
 
-The Training card has three tabs: **Overview** (this week, training load, VO2 max), **Personal bests** and **Routes**; Sleep & Recovery has **Sleep** (scores and stages), **Heart** (heart rate and HRV) and **Patterns**. The page remembers the tab you picked.
+The Training card has three tabs: **Overview** (this week, training load, VO2 max), **Personal bests** and **Routes**; Sleep & Recovery has **Sleep** (scores and stages), **Heart** (heart rate and HRV) and **Patterns**. The Movement card has **Steps**, **Burned** and **Zone minutes**. The page remembers the tab you picked.
+
+Every chart's legend switches its lines, bars or zones on and off with a tap (one always stays), and the device remembers it per chart; on the routes map it does the same per workout type. The calorie chart starts with what you ate, the goal incl. activity and the base goal; the 7-day average and **Burned (Fitbit)** are a tap away. The Eumetria scores chart shows 7-day averages when a range has more than a week of days; the tooltip has the day's own score too.
 
 **Lifts.** Under **Personal bests** you note your results in lifts such as Power Clean, Strict Press or Split Jerk: weight, reps (1 for a one-rep max), date and an optional note, with **Add result**. Each lift and rep count keeps its heaviest result as the best, with the gain over the one before; selecting it shows every result and the training weights from 50 to 95 % of the one-rep max (estimated from a 3- or 5-rep max with Epley's formula); selecting a weight shows the plates for each side of a 20, 15 or 10 kg bar. The window also charts the results over time and shows each one as a multiple of your bodyweight that week (from the Yazio weigh-ins). Everyone with `view.health` sees them, `edit.lifts` writes them. They live in `app.db`, so they are backed up.
 
@@ -165,7 +171,9 @@ The Training card has three tabs: **Overview** (this week, training load, VO2 ma
 
 **Bests elsewhere.** A lift or workout whose best got better in the last 7 days shows as a chip on the Today card. Each result shows that morning's Readiness, and the tab compares the mornings of all your new bests with every morning in that time. The weekly review gets the week's results, with new bests marked, so the coach can mention them. The day window lists what was noted that day under **Bests**, search finds lifts and workouts by name, and the export adds `lifts`, `benchmark_results` and `benchmark_workouts` tables.
 
-**Calendar.** The Training card's **Calendar** tab shows the last year (as much as the screen fits) with every day trained, darker the longer the workouts were, walks aside; a day with a noted result counts too, and a dot marks a new best. Below it: days trained, per week, the longest run of weeks with training and the days with a new best. A day opens its window.
+**Strength over time.** A lift's window shows its estimated 1 RM over time with every rep count in it (a 5-rep max counts by Epley's formula), and the same as a multiple of your bodyweight that week. The list of bests shows that multiple too.
+
+**Calendar.** The Training card's **Calendar** tab shows the last year (as much as the screen fits) with every day trained, darker the longer the workouts were, walks aside; a day with a noted result counts too, and a dot marks a new best. Below it: days trained, per week, the longest run of weeks with training and the days with a new best. A day opens its window. Under it, **2026 in review** (one button per year) opens the year in review: days trained (per month too), hours, distance, the new bests with where each lift started the year, steps, sleep, weight and the foods eaten most often, each only with the data your role sees. In December and January the Today card offers it as well, and `#year=2026` opens it from a link.
 
 Scores computed in the Fitbit app (readiness, sleep score, cardio load) aren't in the API and aren't imitated. Eumetria has **scores of its own** instead, each from 0 to 100, with a breakdown in the day's Sleep tab:
 

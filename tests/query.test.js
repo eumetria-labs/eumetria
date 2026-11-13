@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MACRO_TABS, activityHistory, dayActivities, macroSources, rankSources, referencedFiles, sessionsPerWeek, filterDays, foodHistory, matchRank, matchesQuery, noteSnippet, rangeDays, searchAll, searchNotes, sortBy, sortFoods } from '../site/js/query.js';
+import { MACRO_TABS, activityHistory, mealProteinTarget, proteinPerMeal, dayActivities, macroSources, rankSources, referencedFiles, sessionsPerWeek, filterDays, foodHistory, matchRank, matchesQuery, noteSnippet, rangeDays, searchAll, searchNotes, sortBy, sortFoods } from '../site/js/query.js';
 
 const days = [
   { date: '2026-10-11', energy: 2300, energy_goal: 2100, foods: [{ n: 'Pizza Margherita', m: 'dinner', e: 800 }] },
@@ -231,4 +231,19 @@ test('a note\'s snippet shows where it matched', () => {
   assert.equal(noteSnippet(text, 'warm'), 'Warm-Up 3 Rounds 1:00 Erg 6 Scapular Pull-Ups Skill Accumulation Rowing Intervals');
   assert.match(noteSnippet(text, 'rowing'), /^…Skill.*Rowing Intervals$|^…[^…]*Rowing Intervals$/);
   assert.ok(!noteSnippet('Müsli danach', 'muesli').startsWith('…'));
+});
+
+test('protein per meal sums each meal of a day before comparing it with the target', () => {
+  const rows = [
+    { date: 'a', foods: [{ m: 'breakfast', pr: 20 }, { m: 'breakfast', pr: 12 }, { m: 'dinner', pr: 25 }] },
+    { date: 'b', foods: [{ m: 'breakfast', pr: 10 }, { m: 'snack' }] },
+    { date: 'c' },
+  ];
+  const p = proteinPerMeal(rows, 30);
+  assert.deepEqual(p.breakfast, { days: 2, avg: 21, hits: 1 });
+  assert.deepEqual(p.dinner, { days: 1, avg: 25, hits: 0 });
+  assert.deepEqual(p.lunch, { days: 0, avg: 0, hits: 0 });
+  assert.deepEqual(p.snack, { days: 1, avg: 0, hits: 0 });
+  assert.equal(mealProteinTarget(78.4), 31);
+  assert.equal(mealProteinTarget(null), 30);
 });

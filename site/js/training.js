@@ -14,6 +14,9 @@ import { hasWods, renderWods } from './wods.js';
 import { openDay } from './sheet.js';
 import { loadLeaflet, loadRoute, mapControls, openWorkout } from './workout.js';
 import { t, tn } from './i18n.js';
+import { legendToggles } from './legend.js';
+import { openYear } from './yearreview.js';
+import { yearsOf } from './year.js';
 
 export function renderTraining(s) {
   const card = $('#training-card');
@@ -110,6 +113,7 @@ function renderLoad(s) {
   const last = [...all.values()].at(-1);
   $('#load-sub').textContent = `${fmtRatio(last.ratio)} · ${loadLabel(last.ratio)}`;
   const lo = Math.min(0.5, ...present), hi = Math.max(1.6, ...present);
+  const on = legendToggles($('#load-part .legend'), 'load', () => renderLoad(s));
   timeChart($('#chart-load'), {
     aria: t('Training load: active zone minutes of the last 7 days compared with the last 28 days'),
     kind: 'line',
@@ -122,7 +126,8 @@ function renderLoad(s) {
       const { x, y, right } = ctx;
       // The usual range as a band behind the line.
       const y0 = y(LOAD_ZONE[1]), y1 = y(LOAD_ZONE[0]);
-      g.append(svg('rect', { x: x(0) - ctx.step / 2, y: y0, width: right - x(0) + ctx.step / 2, height: y1 - y0, class: 'load-zone-band' }));
+      if (on('zone')) g.append(svg('rect', { x: x(0) - ctx.step / 2, y: y0, width: right - x(0) + ctx.step / 2, height: y1 - y0, class: 'load-zone-band' }));
+      if (!on('ratio')) return;
       g.append(svg('path', { d: smoothPath(ratios, x, y), class: 'mark-line s1', pathLength: 1 }));
       if (buckets.length <= 45) ratios.forEach((v, i) => { if (v != null) g.append(svg('circle', { cx: x(i), cy: y(v), r: 3, class: 'mark-dot s1' })); });
       const li = ratios.findLastIndex((v) => v != null);
@@ -320,25 +325,35 @@ async function drawRoutes() {
   const css = getComputedStyle(document.documentElement);
   const types = [...new Set(todo.map((r) => workoutName(r.w.type)))];
   const color = (type) => css.getPropertyValue(SERIES[types.indexOf(type) % SERIES.length]).trim() || '#2a78d6';
-  layer.clearLayers();
+  const lines = [];
   for (const { date, w } of todo) {
     if (!(w.route?.length > 1)) continue;
     const type = workoutName(w.type);
-    const line = L.polyline(w.route.map((p) => [p[0], p[1]]), { color: color(type), weight: 3, opacity: 0.85, lineJoin: 'round' });
+    const line = L.polyline(w.route.map((p) => [p[0], p[1]]), { color: color(type), weight: 3, opacity: 0.85, lineJoin: 'round', type });
     // A node, not a string: Leaflet puts strings in as HTML, and the type can
     // be whatever Google sent (pentest F12).
     line.bindTooltip(h('span', {}, `${actLabel(type)} · ${dfShort.format(parse(date))} · ${fmtDistance(w.dist || 0)}`), { sticky: true });
     line.on('mouseover', () => line.setStyle({ weight: 5, opacity: 1 }));
     line.on('mouseout', () => line.setStyle({ weight: 3, opacity: 0.85 }));
     line.on('click', () => showWorkout(date, w.id));
-    layer.addLayer(line);
+    lines.push(line);
   }
+  // The view fits every route; a type switched off in the legend only
+  // leaves the map.
+  layer.clearLayers();
+  for (const l of lines) layer.addLayer(l);
   fitRoutes();
   $('#training-legend').replaceChildren(...types.map((type, i) => {
-    const li = h('li');
+    const li = h('li', { 'data-s': type });
     li.append(h('span', { class: 'key line ' + ['s1', 's2', 's3'][i % 3] }), actLabel(type));
     return li;
   }));
+  const apply = () => {
+    const on = legendToggles($('#training-legend'), 'routes', apply);
+    layer.clearLayers();
+    for (const l of lines) if (on(l.options.type)) layer.addLayer(l);
+  };
+  apply();
 }
 
 /* ---------- the training calendar ---------- */
@@ -415,4 +430,10 @@ function renderCalendar() {
   host._draw = draw;
   resizer.observe(host);
   draw();
+  // Each year with data in review.
+  $('#train-cal-years').replaceChildren(...yearsOf(state.data.days).map((y) => {
+    const b = h('button', { class: 'pill-btn', type: 'button' }, t('{year} in review', { year: y }));
+    b.onclick = () => openYear(y, b);
+    return b;
+  }));
 }

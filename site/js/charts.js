@@ -332,19 +332,6 @@ export function valuePill(g, cx, cy, text, { top, bottom, right, x }, cls = '', 
   g.append(pill);
 }
 
-export function areaPath(values, x, y, y0) {
-  let d = '', run = [];
-  const flush = () => {
-    if (run.length) {
-      d += 'M' + x(run[0]).toFixed(1) + ',' + y0 + run.map((i) => 'L' + x(i).toFixed(1) + ',' + y(values[i]).toFixed(1)).join('') + 'L' + x(run.at(-1)).toFixed(1) + ',' + y0 + 'Z';
-    }
-    run = [];
-  };
-  values.forEach((v, i) => (v == null ? flush() : run.push(i)));
-  flush();
-  return d;
-}
-
 function barPath(x, y, w, hgt, r) {
   if (hgt <= 0) return '';
   r = Math.min(r, hgt);

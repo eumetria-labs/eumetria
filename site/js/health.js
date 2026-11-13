@@ -217,6 +217,26 @@ export const oneRepMax = (kg, reps) => (reps > 1 ? kg * (1 + reps / 30) : kg);
 // Round to what a barbell can be loaded to, in half kilos.
 export const loadable = (kg) => Math.round(kg * 2) / 2;
 
+// A lift's strength over time, all rep counts together: each day's best
+// estimated 1 RM, and as a multiple of the bodyweight then (bwAt(date), null
+// without weigh-ins). pb marks a day that raised the estimate.
+export function strengthTrend(entries, lift, bwAt) {
+  const name = lift.toLowerCase();
+  const byDay = new Map();
+  for (const e of entries) {
+    if (e.lift.toLowerCase() !== name) continue;
+    const est = oneRepMax(e.kg, e.reps);
+    if (!byDay.has(e.date) || est > byDay.get(e.date)) byDay.set(e.date, est);
+  }
+  let top = 0;
+  return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, est], i) => {
+    const pb = i > 0 && est > top;
+    top = Math.max(top, est);
+    const bw = bwAt(date);
+    return { date, est, ratio: bw ? est / bw : null, pb };
+  });
+}
+
 // The personal bests: one row per lift and number of reps (a 5-rep max is a
 // record of its own), the heaviest result first reached. prev is the best
 // before it, for the gain; recent marks a best from the last `days` days.

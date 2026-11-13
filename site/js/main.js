@@ -13,7 +13,7 @@ import { renderToday, renderTiles } from './today.js';
 import { renderEnergy, renderEnergyTabs, renderMeals, renderWeekdays } from './energy.js';
 import { renderInsights, renderWeight } from './weight.js';
 import { renderMacros } from './macros.js';
-import { renderMovement, renderZoneMinutes } from './movement.js';
+import { renderMovement, renderMovementTabs, renderZoneMinutes } from './movement.js';
 import { renderFoods, renderTopActivities } from './foods.js';
 import { renderSources } from './sources.js';
 import { renderRecovery } from './recovery.js';
@@ -33,6 +33,8 @@ import { enableSearch, initSearch } from './search.js';
 import { rangeDays, referencedFiles } from './query.js';
 import { addSnapButtons } from './snapshot.js';
 import { addWeightShare } from './cards.js';
+import { applyLayout } from './layout.js';
+import { openYearFromHash } from './yearreview.js';
 
 const REFRESH_MS = 10 * 60 * 1000;
 const RANGES = ['7', '30', '90', '365', 'all', 'custom'];
@@ -140,6 +142,8 @@ async function load() {
       openFood(hashParam('food'));
     } else if (first && hashParam('activity')) {
       openActivity(hashParam('activity'));
+    } else if (first && hashParam('year')) {
+      openYearFromHash(hashParam('year'));
     }
   } catch (err) {
     if (!state.data) {
@@ -364,6 +368,7 @@ function render() {
   renderMacros(s);
   renderMovement(s);
   renderZoneMinutes(s);
+  renderMovementTabs();
   heatmap(s);
   renderFoods(s);
   renderTopActivities(s);
@@ -372,8 +377,8 @@ function render() {
   renderRecovery(s);
   renderTraining(s);
   hideOutOfScope();
-  layoutCards();
   renderTable(s);
+  applyLayout();
   syncSections();
   enableSearch();
   state.animateNext = false;
@@ -415,14 +420,4 @@ const SCOPED = [
 ];
 function hideOutOfScope() {
   for (const [scope, cards] of SCOPED) if (!can(scope)) for (const id of cards) $(id).hidden = true;
-}
-
-// The half-width cards come in pairs of similar height; a card whose
-// partner is hidden takes the full row.
-const PAIRS = [['#foods-card', '#top-activities-card']];
-function layoutCards() {
-  for (const [a, b] of PAIRS.map((p) => p.map((id) => $(id)))) {
-    a.classList.toggle('span-2', b.hidden);
-    b.classList.toggle('span-2', a.hidden);
-  }
 }

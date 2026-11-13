@@ -268,3 +268,39 @@ func TestImageSlotBeforeBody(t *testing.T) {
 		t.Errorf("avatar with the slot taken = %d %s", res.StatusCode, out)
 	}
 }
+
+func TestLayout(t *testing.T) {
+	e := newTestEnv(t, true)
+	anna := e.signIn(t, "anna", viewerPassword, false)
+	coach := e.signIn(t, "coach", coachPassword, false)
+
+	if _, body := e.do(t, anna, "GET", "/api/me", ""); !strings.Contains(body, `"layout":{"order":[],"hidden":[]}`) {
+		t.Fatalf("no layout yet: %s", body)
+	}
+	res, body := e.do(t, anna, "PUT", "/api/profile/layout", `{"order":["weight-card","energy-card","weight-card"],"hidden":["data-card"]}`, sameSite)
+	if res.StatusCode != 200 || strings.TrimSpace(body) != `{"order":["weight-card","energy-card"],"hidden":["data-card"]}` {
+		t.Fatalf("saved = %d %s", res.StatusCode, body)
+	}
+	if _, body := e.do(t, anna, "GET", "/api/me", ""); !strings.Contains(body, `"layout":{"order":["weight-card","energy-card"],"hidden":["data-card"]}`) {
+		t.Errorf("me after saving = %s", body)
+	}
+	// Each user has their own, and the profile's other fields stay.
+	if _, body := e.do(t, coach, "GET", "/api/me", ""); !strings.Contains(body, `"layout":{"order":[],"hidden":[]}`) {
+		t.Errorf("the coach got anna's layout: %s", body)
+	}
+	for _, in := range []string{
+		`{"order":["<script>"]}`,
+		`{"hidden":["Weight"]}`,
+		`{"order":["` + strings.Repeat("a", 41) + `"]}`,
+		`{"order":[` + strings.Repeat(`"a",`, 32) + `"b"]}`,
+		`{"order":[],"extra":1}`,
+	} {
+		if res, body := e.do(t, anna, "PUT", "/api/profile/layout", in, sameSite); res.StatusCode != 400 {
+			t.Errorf("%s = %d %s", in, res.StatusCode, body)
+		}
+	}
+	// Another site can't change it (as every other change).
+	if res, _ := e.do(t, anna, "PUT", "/api/profile/layout", `{"order":[],"hidden":[]}`); res.StatusCode != 403 {
+		t.Errorf("cross-site save = %d", res.StatusCode)
+	}
+}

@@ -12,6 +12,7 @@ import { renderTodayScores } from './scores.js';
 import { liftBoard, wodBoard } from './health.js';
 import { fmtKg, onBestsChange, openLift } from './lifts.js';
 import { fmtResult, openWod } from './wods.js';
+import { offeredYear, openYear } from './yearreview.js';
 
 export function renderToday() {
   const { data } = state;
@@ -96,6 +97,14 @@ export function renderHighlights() {
   const { data, byDate } = state;
   const items = highlights(data.days, byDate, data.goals || {}, state.today);
   const bests = bestChips();
+  // December and January: the year in review.
+  const year = offeredYear(state.today);
+  if (year && data.days.some((d) => d.date.startsWith(year))) {
+    const b = h('button', { class: 'highlight yr-chip', type: 'button', role: 'listitem' });
+    b.append(emoji('🎉'), h('span', { class: 'hl-text' }, t('Your {year} in review', { year })), h('b', {}, '›'));
+    b.onclick = () => openYear(year, b);
+    bests.unshift(b);
+  }
   const host = $('#today-highlights');
   host.hidden = !items.length && !bests.length;
   host.replaceChildren(...bests, ...items.map((x) => {

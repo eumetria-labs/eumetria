@@ -130,7 +130,9 @@ func TestAdminMakesEnrolLinks(t *testing.T) {
 	}
 	res, body = e.do(t, admin, "POST", "/api/admin/users/"+newbie+"/enrol-link", "{}", sameSite)
 	var second struct{ Token string }
-	json.Unmarshal([]byte(body), &second)
+	if json.Unmarshal([]byte(body), &second); res.StatusCode != 201 || second.Token == "" {
+		t.Fatalf("second enrol link = %d %s", res.StatusCode, body)
+	}
 	u, _ := e.store.UserByName(context.Background(), "newbie")
 	if ok, _ := e.store.EnrolmentValid(context.Background(), u, link.Token); ok {
 		t.Error("an older link still works after a new one was made")

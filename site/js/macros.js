@@ -4,6 +4,7 @@
 import { MACROS, avgOf, dfLong, fmt, logged, parse } from './format.js';
 import { $, h, svg } from './dom.js';
 import { state } from './state.js';
+import { legendToggles } from './legend.js';
 import { smoothPath, timeChart } from './charts.js';
 import { macroGoal, proteinPerKg, trailingMean } from './insights.js';
 import { t, tn } from './i18n.js';
@@ -22,16 +23,17 @@ export function renderMacros(s) {
 
   $('#macro-sub').textContent = pct ? t("7-day average, as % of each day's goal") : t('7-day average in grams');
   $('#macro-legend').replaceChildren(...MACROS.map((m, i) => {
-    const li = h('li');
+    const li = h('li', { 'data-s': m.key });
     li.append(h('span', { class: 'key line ' + m.cls }), document.createTextNode(m.label + ' '));
     li.append(h('b', {}, `${fmt(avgs[i])} g`));
     li.append(document.createTextNode(total ? ' · ' + t('{pct}% of kcal', { pct: fmt((kcal[i] / total) * 100) }) : ''));
     return li;
   }));
 
+  const on = legendToggles($('#macro-legend'), 'macros', () => renderMacros(s));
   // Trailing 7-day mean over complete logged days, reaching back before the range start.
   const lines = MACROS.map((m) => rows.map((r) => trailingMean(byDate, r.date, (day) => (pct ? (day[m.key] / macroGoal(day, m.key, g)) * 100 : day[m.key]), state.today)));
-  const all = lines.flat().filter((v) => v != null);
+  const all = lines.filter((_, k) => on(MACROS[k].key)).flat().filter((v) => v != null);
   const hi = Math.max(pct ? 110 : 0, ...all);
 
   timeChart($('#chart-macros'), {
@@ -44,14 +46,14 @@ export function renderMacros(s) {
     yFmt: pct ? (t) => fmt(t) + '%' : null,
     goal: pct ? { value: 100, label: t('Goal') } : null,
     draw(gr, { x, y }) {
-      MACROS.forEach((m, k) => gr.append(svg('path', { d: smoothPath(lines[k], x, y), class: 'mark-line ' + m.cls, pathLength: 1 })));
+      MACROS.forEach((m, k) => on(m.key) && gr.append(svg('path', { d: smoothPath(lines[k], x, y), class: 'mark-line ' + m.cls, pathLength: 1 })));
     },
     tip(i) {
-      if (lines.every((l) => l[i] == null)) return null;
+      if (lines.every((l, k) => !on(MACROS[k].key) || l[i] == null)) return null;
       const r = rows[i];
       return {
         title: dfLong.format(parse(r.date)),
-        rows: MACROS.map((m, k) => lines[k][i] != null && {
+        rows: MACROS.map((m, k) => on(m.key) && lines[k][i] != null && {
           cls: m.cls,
           value: pct ? `${fmt(lines[k][i])}%` : `${fmt(lines[k][i])} g`,
           label: m.label + (logged(r) ? ' · ' + t('{g} g of {goal} g that day', { g: fmt(r[m.key]), goal: fmt(macroGoal(r, m.key, g)) }) : ''),

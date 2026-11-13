@@ -3,9 +3,10 @@
 // and the breakdown in the day window's Sleep tab. They are Eumetria's
 // formulas, not Fitbit's, and the page says so.
 
-import { fmt, fmtRatio, signed } from './format.js';
+import { addDays, fmt, fmtRatio, iso, parse, signed } from './format.js';
 import { $, h, svg } from './dom.js';
 import { state } from './state.js';
+import { legendToggles } from './legend.js';
 import { timeChart, bucketTitle, smoothPath, valuePill } from './charts.js';
 import { fmtSleep } from './health.js';
 import { openDay } from './sheet.js';
@@ -68,21 +69,27 @@ function miniRing(v, cls) {
 /* ---------- Sleep & recovery card ---------- */
 
 // The three scores per day (or weekly averages) as lines from 0 to 100.
+// Day by day the lines are 7-day averages (reaching back before the range),
+// which show the trend instead of every night's swing; a week or less, and
+// weekly buckets, show the values themselves.
 export function scoresChart(s) {
   const { buckets, weekly } = s;
   const part = $('#scores-part');
   part.hidden = !state.data.days.some(hasScores);
   if (part.hidden) return;
-  const series = SCORES.map((sc) => ({
-    ...sc,
-    vals: buckets.map((b) => {
+  const smooth = !weekly && buckets.length > 7;
+  const on = legendToggles($('#scores-part .legend'), 'scores', () => scoresChart(s));
+  $('#scores-avg').hidden = !smooth;
+  const series = SCORES.map((sc) => {
+    const own = buckets.map((b) => {
       const vs = b.rows.map((r) => r.scores?.[sc.key]?.value).filter((v) => v != null);
       return vs.length ? vs.reduce((a, v) => a + v, 0) / vs.length : null;
-    }),
-  }));
+    });
+    return { ...sc, own, vals: smooth ? buckets.map((b) => scoreAvg(sc.key, b.rows[0].date)) : own };
+  }).filter((sc) => on(sc.key));
   const present = series.flatMap((x) => x.vals).filter((v) => v != null);
   timeChart($('#chart-scores'), {
-    aria: t('Eumetria scores per day: readiness, sleep and recovery'),
+    aria: smooth ? t('Eumetria scores, 7-day averages: readiness, sleep and recovery') : t('Eumetria scores per day: readiness, sleep and recovery'),
     kind: 'line',
     empty: !present.length,
     n: buckets.length,
@@ -94,18 +101,34 @@ export function scoresChart(s) {
         if (!sr.vals.some((v) => v != null)) continue;
         g.append(svg('path', { d: smoothPath(sr.vals, x, y), class: 'mark-line ' + sr.cls, pathLength: 1 }));
       }
-      const ready = series[0].vals;
-      const li = ready.findLastIndex((v) => v != null);
-      if (li >= 0) valuePill(g, x(li), y(ready[li]), fmt(ready[li]), ctx, 's3');
+      // The value of the first series shown (Readiness, unless it's off).
+      const lead = series[0];
+      const li = lead.vals.findLastIndex((v) => v != null);
+      if (li >= 0) valuePill(g, x(li), y(lead.vals[li]), fmt(lead.vals[li]), ctx, lead.cls);
     },
     tip(i) {
-      const rows = series.filter((sr) => sr.vals[i] != null).map((sr) => ({ cls: sr.cls, value: fmt(sr.vals[i]), label: (weekly ? t('avg') + ' ' : '') + sr.label }));
+      const rows = series.filter((sr) => sr.vals[i] != null).map((sr) => ({
+        cls: sr.cls,
+        value: fmt(sr.vals[i]),
+        label: weekly ? t('avg') + ' ' + sr.label
+          : smooth ? sr.label + ' · ' + (sr.own[i] != null ? t('7-day avg, that day {v}', { v: fmt(sr.own[i]) }) : t('7-day avg')) : sr.label,
+      }));
       if (!rows.length) return { title: bucketTitle(buckets[i], weekly), rows: [{ value: t('No scores'), label: '' }] };
       return { title: bucketTitle(buckets[i], weekly), rows, y: series.find((sr) => sr.vals[i] != null).vals[i] };
     },
     onPick: weekly ? null : (i) => buckets[i].rows[0],
     pickTab: 'sleep',
   });
+}
+
+// The mean of a score over the 7 days ending at date: at least 3 of them.
+function scoreAvg(key, date) {
+  const vs = [];
+  for (let k = 0; k < 7; k++) {
+    const v = state.byDate.get(iso(addDays(parse(date), -k)))?.scores?.[key]?.value;
+    if (v != null) vs.push(v);
+  }
+  return vs.length >= 3 ? vs.reduce((a, v) => a + v, 0) / vs.length : null;
 }
 
 /* ---------- day window: Sleep tab ---------- */

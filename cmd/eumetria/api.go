@@ -81,6 +81,7 @@ import (
 //	PUT    /api/profile       {first_name, surname, email, instagram}              session
 //	POST   /api/profile/avatar  {image}: a new picture                             session
 //	DELETE /api/profile/avatar  removes it                                         session
+//	PUT    /api/profile/layout  {order, hidden}: the dashboard's cards              session
 //	GET    /api/tokens        this user's API tokens                               session
 //	POST   /api/tokens        {name, scopes, days}: makes one, shown once          session, recent sign-in
 //	DELETE /api/tokens/{id}   revokes one                                          session
@@ -296,6 +297,7 @@ func (a *app) routes() []route {
 		{"PUT", "/api/profile", ownSession, a.profileSave},
 		{"POST", "/api/profile/avatar", ownSession, a.avatarPost},
 		{"DELETE", "/api/profile/avatar", ownSession, a.avatarDelete},
+		{"PUT", "/api/profile/layout", ownSession, a.layoutSave},
 		{"GET", "/api/tokens", ownSession, a.tokens},
 		{"POST", "/api/tokens", ownSession, a.tokenCreate},
 		{"DELETE", "/api/tokens/{id}", ownSession, a.tokenDelete},
@@ -636,6 +638,8 @@ type me struct {
 	NeedsEnrolLink bool `json:"needs_enrol_link,omitempty"`
 	// Changes to how the account signs in the user hasn't dismissed yet.
 	Notices []auth.Notice `json:"notices"`
+	// How the user arranged the dashboard's cards (profile.go).
+	Layout auth.Layout `json:"layout"`
 	// The session is "Keep me signed in": only then may this device keep
 	// the data for offline use (pentest F11).
 	Remember bool `json:"remember"`
@@ -656,6 +660,11 @@ func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User, 
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
+	layout, err := a.store.Layout(ctx, u)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server")
+		return
+	}
 	notices, err := a.store.Notices(ctx, u, session)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
@@ -669,7 +678,7 @@ func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User, 
 	}
 	writeJSON(w, http.StatusOK, me{Name: u.Name, Role: string(u.Role), Avatar: avatar, Scopes: scopes,
 		Sync: u.Can(auth.ScopeSync) && f.Any(), SecondFactor: f.Any(), NeedsSecondFactor: a.needsFactor(u) && !f.Any(), Demo: a.demo,
-		NeedsEnrolLink: !a.demo && a.needsFactor(u) && !f.Any(), Notices: notices, Remember: remember})
+		NeedsEnrolLink: !a.demo && a.needsFactor(u) && !f.Any(), Notices: notices, Remember: remember, Layout: layout})
 }
 
 func (a *app) me(w http.ResponseWriter, req *http.Request, p *principal) {
