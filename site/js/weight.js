@@ -41,6 +41,7 @@ export function renderWeight(s) {
   const marks = goalMarks(rows.map((r) => ({ start: parse(r.date), rows: [r] })), ['energy', 'weight']);
 
   timeChart($('#chart-weight'), {
+    phases: true,
     aria: t('Weight over time'),
     kind: 'line',
     empty: !vals.length,

@@ -74,6 +74,7 @@ const ACTIONS = {
   note_added: () => t('added a note'), note_changed: () => t('changed a note'), note_deleted: () => t('deleted a note'),
   note_image_added: () => t('added an image to a note'),
   lift_added: () => t('added a lift result'), lift_changed: () => t('changed a lift result'), lift_deleted: () => t('deleted a lift result'),
+  phase_added: () => t('added a phase or event'), phase_changed: () => t('changed a phase or event'), phase_deleted: () => t('deleted a phase or event'),
   wod_added: () => t('added a benchmark workout'), wod_changed: () => t('changed a benchmark workout'), wod_deleted: () => t('deleted a benchmark workout'),
   wod_result_added: () => t('added a workout result'), wod_result_changed: () => t('changed a workout result'), wod_result_deleted: () => t('deleted a workout result'),
   profile_changed: () => t('changed their profile'), picture_changed: () => t('changed their picture'),

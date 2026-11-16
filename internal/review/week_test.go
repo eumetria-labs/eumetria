@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"eumetria/internal/lifts"
+	"eumetria/internal/phases"
 	"eumetria/internal/stats"
 	"eumetria/internal/wods"
 )
@@ -121,6 +122,36 @@ func TestAddLifts(t *testing.T) {
 		if w.Lifts[i] != want[i] {
 			t.Errorf("lift %d = %+v, want %+v", i, w.Lifts[i], want[i])
 		}
+	}
+}
+
+func TestAddPhases(t *testing.T) {
+	// The week is still running: its last day is Wednesday.
+	w := Week{From: "2026-10-19", To: "2026-10-25", Days: []Day{{Date: "2026-10-19"}, {Date: "2026-10-20"}, {Date: "2026-10-21"}}}
+	w.AddPhases([]phases.Phase{
+		{Kind: phases.Cut, Label: "Summer cut", Start: "2026-06-01", End: "2026-08-31"},  // long over
+		{Kind: phases.Maintain, Start: "2026-09-01", End: "2026-10-19"},                  // ends on Monday
+		{Kind: phases.Bulk, Start: "2026-10-20", Note: "slow"},                           // runs
+		{Kind: phases.Event, Label: "Throwdown", Start: "2026-10-12", End: "2026-10-12"}, // the week before
+		{Kind: phases.Event, Label: "Club comp", Start: "2026-10-19", End: "2026-10-19"}, // this week
+		{Kind: phases.Event, Label: "Open 27.1", Start: "2027-01-10", End: "2027-01-10"}, // 81 days ahead
+		{Kind: phases.Event, Label: "Too far", Start: "2027-03-01", End: "2027-03-01"},
+	})
+	wantP := []Phase{
+		{Kind: "maintain", Start: "2026-09-01", End: "2026-10-19", Week: 7},
+		{Kind: "bulk", Start: "2026-10-20", Week: 1, Note: "slow"},
+	}
+	if len(w.Phases) != len(wantP) {
+		t.Fatalf("phases = %+v", w.Phases)
+	}
+	for i := range wantP {
+		if w.Phases[i] != wantP[i] {
+			t.Errorf("phase %d = %+v, want %+v", i, w.Phases[i], wantP[i])
+		}
+	}
+	wantE := []Event{{Name: "Club comp", Date: "2026-10-19", DaysAway: -2}, {Name: "Open 27.1", Date: "2027-01-10", DaysAway: 81}}
+	if len(w.Events) != len(wantE) || w.Events[0] != wantE[0] || w.Events[1] != wantE[1] {
+		t.Errorf("events = %+v, want %+v", w.Events, wantE)
 	}
 }
 

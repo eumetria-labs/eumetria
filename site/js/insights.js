@@ -159,9 +159,10 @@ export function weekdayAverages(rows) {
 }
 
 // Protein per kg of body weight on logged days, overall and split into
-// workout and rest days. The weight is the 7-day average, or the last one
+// workout and rest days (trained: phase.js's trainedOn, by default a
+// workout or activity). The weight is the 7-day average, or the last one
 // known within 60 days before.
-export function proteinPerKg(rows, byDate) {
+export function proteinPerKg(rows, byDate, trained = (r) => r.workouts?.length || r.activities?.length) {
   const weightAt = (date) => {
     for (let k = 0; k < 60; k += 7) {
       const w = weightTrendAt(byDate, iso(addDays(parse(date), -k)));
@@ -176,7 +177,7 @@ export function proteinPerKg(rows, byDate) {
     if (!kg) continue;
     const v = r.protein / kg;
     groups.all.push(v);
-    groups[r.workouts?.length || r.activities?.length ? 'workout' : 'rest'].push(v);
+    groups[trained(r) ? 'workout' : 'rest'].push(v);
   }
   return Object.fromEntries(Object.entries(groups).map(([k, xs]) => [k, { avg: mean(xs), n: xs.length }]));
 }

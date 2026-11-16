@@ -3,7 +3,7 @@
 
 import { MACROS, MEALS, MEAL_ICONS, MEAL_TABS, addDays, avgOf, compact, dfDay, dfShort, fmt, fmtDistance, fmtDuration, iso, logged, mealThumb, mean, parse, signed } from './format.js';
 import { $, h, emoji, meter, countUp, thumbImg } from './dom.js';
-import { can, state } from './state.js';
+import { can, reduceMotion, state } from './state.js';
 import { ring, sparkline } from './charts.js';
 import { openDay } from './sheet.js';
 import { highlights, macroGoal } from './insights.js';
@@ -13,6 +13,7 @@ import { liftBoard, wodBoard } from './health.js';
 import { fmtKg, onBestsChange, openLift } from './lifts.js';
 import { fmtResult, openWod } from './wods.js';
 import { offeredYear, openYear } from './yearreview.js';
+import { renderPhaseStatus } from './phases.js';
 
 export function renderToday() {
   const { data } = state;
@@ -66,6 +67,7 @@ export function renderToday() {
     return chip;
   }));
   renderTodayScores(day);
+  renderPhaseStatus();
   $('#today-open').onclick = () => openDay(day.date);
   renderHighlights();
 }
@@ -74,40 +76,69 @@ export function renderToday() {
 const when = (d) => dfShort.format(parse(d)) + (d.slice(0, 4) !== state.today?.slice(0, 4) ? ` ${d.slice(0, 4)}` : '');
 
 // Lifts and benchmark workouts whose best got better in the last 7 days:
-// chips that open them.
+// one chip that opens it, or for several one chip that names them and
+// opens the Personal bests tab, so a good week doesn't fill the card.
 function bestChips() {
   if (!state.today) return [];
-  const chip = (icon, what, value, open) => {
+  const lifts = liftBoard(state.lifts, state.today, 7).filter((r) => r.recent && r.prev).map((r) => ({
+    date: r.best.date, icon: '🏋️', what: r.reps > 1 ? `${r.lift} · ${r.reps} RM` : r.lift, short: r.lift,
+    value: fmtKg(r.best.kg), open: (b) => openLift(r.key, b),
+  }));
+  const wods = wodBoard(state.wods.workouts, state.wods.results, state.today, 7).filter((r) => r.recent && r.prev).map((r) => ({
+    date: r.best.date, icon: '⏱️', what: r.scaled ? `${r.workout.name} · ${t('Scaled')}` : r.workout.name, short: r.workout.name,
+    value: fmtResult(r.workout.scoring, r.best), open: (b) => openWod(r.workout.id, b),
+  }));
+  const all = [...lifts, ...wods].sort((a, b) => b.date.localeCompare(a.date));
+  if (!all.length) return [];
+  if (all.length === 1) {
+    const [x] = all;
     const b = h('button', { class: 'highlight', type: 'button', role: 'listitem', title: t('Show the history') });
-    b.append(emoji(icon), h('span', { class: 'hl-text' }, t('New PB: {what}', { what })), h('b', {}, value));
-    b.onclick = () => open(b);
-    return b;
-  };
-  const lifts = liftBoard(state.lifts, state.today, 7).filter((r) => r.recent && r.prev)
-    .map((r) => [r.best.date, chip('🏋️', r.reps > 1 ? `${r.lift} · ${r.reps} RM` : r.lift, fmtKg(r.best.kg), (b) => openLift(r.key, b))]);
-  const wods = wodBoard(state.wods.workouts, state.wods.results, state.today, 7).filter((r) => r.recent && r.prev)
-    .map((r) => [r.best.date, chip('⏱️', r.scaled ? `${r.workout.name} · ${t('Scaled')}` : r.workout.name, fmtResult(r.workout.scoring, r.best), (b) => openWod(r.workout.id, b))]);
-  return [...lifts, ...wods].sort((a, b) => b[0].localeCompare(a[0])).map(([, c]) => c);
+    b.append(emoji(x.icon), h('span', { class: 'hl-text' }, t('New PB: {what}', { what: x.what })), h('b', {}, x.value));
+    b.onclick = () => x.open(b);
+    return [b];
+  }
+  const names = [...new Set(all.map((x) => x.short))].join(', ');
+  const b = h('button', { class: 'highlight', type: 'button', role: 'listitem', title: t('Show the personal bests') });
+  b.append(emoji('🏆'), h('b', {}, tn(all.length, '{n} new PB', '{n} new PBs')), h('span', { class: 'hl-text' }, names), h('b', {}, '›'));
+  b.onclick = () => showBests(() => all[0].open(b));
+  return [b];
 }
-onBestsChange(() => state.data && renderHighlights());
+onBestsChange(() => {
+  if (!state.data) return;
+  renderTodayScores(state.data.days.at(-1)); // "Go for a PB" needs a noted result
+  renderHighlights();
+});
 
-// Records of the last 7 days, as chips that open their day; new personal
-// bests first.
+// The Training card's Personal bests tab, scrolled to; when the card is
+// hidden or turned off, fallback instead.
+function showBests(fallback) {
+  const card = $('#training-card');
+  const tab = $('#training-tabs [data-tab="bests"]');
+  if (!tab || card.hidden || card.hasAttribute('data-off')) return fallback();
+  if (tab.getAttribute('aria-selected') !== 'true') tab.click();
+  card.scrollIntoView({ behavior: reduceMotion.matches ? 'auto' : 'smooth', block: 'start' });
+  tab.focus({ preventScroll: true });
+}
+
+// At most this many chips; the rest behind a "+n" chip.
+const SHOWN = 3;
+let expanded = false;
+
+// The Today card's chips: the year in review (December and January), new
+// personal bests, then the records of the last 7 days, which open their
+// day.
 export function renderHighlights() {
   const { data, byDate } = state;
   const items = highlights(data.days, byDate, data.goals || {}, state.today);
-  const bests = bestChips();
-  // December and January: the year in review.
+  const chips = bestChips();
   const year = offeredYear(state.today);
   if (year && data.days.some((d) => d.date.startsWith(year))) {
     const b = h('button', { class: 'highlight yr-chip', type: 'button', role: 'listitem' });
     b.append(emoji('🎉'), h('span', { class: 'hl-text' }, t('Your {year} in review', { year })), h('b', {}, '›'));
     b.onclick = () => openYear(year, b);
-    bests.unshift(b);
+    chips.unshift(b);
   }
-  const host = $('#today-highlights');
-  host.hidden = !items.length && !bests.length;
-  host.replaceChildren(...bests, ...items.map((x) => {
+  chips.push(...items.map((x) => {
     const [icon, text, value] = x.kind === 'best'
       ? ['🏅', t('New record: {what}', { what: x.label }),
         x.key === 'dur' ? fmtDuration(x.value / 60) : x.key === 'energy' ? `${fmt(x.value)} kcal` : x.key === 'azm' ? `${fmt(x.value)} min` : x.key === 'elev' ? `${fmt(x.value)} m` : fmtDistance(x.value)]
@@ -121,6 +152,17 @@ export function renderHighlights() {
     chip.onclick = () => openDay(x.date);
     return chip;
   }));
+  const host = $('#today-highlights');
+  host.hidden = !chips.length;
+  // One more chip than the limit isn't worth a "+1".
+  if (expanded || chips.length <= SHOWN + 1) return host.replaceChildren(...chips);
+  const more = h('button', { class: 'highlight hl-more', type: 'button', role: 'listitem', 'aria-label': tn(chips.length - SHOWN, 'Show {n} more highlight', 'Show {n} more highlights') }, `+${chips.length - SHOWN}`);
+  more.onclick = () => {
+    expanded = true;
+    more.replaceWith(...chips.slice(SHOWN));
+    chips[SHOWN].focus();
+  };
+  host.replaceChildren(...chips.slice(0, SHOWN), more);
 }
 
 export function renderTiles(s) {

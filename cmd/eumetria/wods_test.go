@@ -12,6 +12,7 @@ import (
 	"eumetria/internal/auth"
 	"eumetria/internal/db"
 	"eumetria/internal/lifts"
+	"eumetria/internal/phases"
 	"eumetria/internal/review"
 	"eumetria/internal/wods"
 )
@@ -95,7 +96,7 @@ func TestWodsFollowTheScopes(t *testing.T) {
 	}
 }
 
-// The weekly review reads lifts and benchmark workouts from app.db; without
+// The weekly review reads lifts, benchmark workouts and phases from app.db; without
 // one (plain files) there are none.
 func TestLoadNoted(t *testing.T) {
 	ctx := context.Background()
@@ -112,16 +113,22 @@ func TestLoadNoted(t *testing.T) {
 	ws := &wods.Store{DB: d, Now: time.Now}
 	fran, _ := ws.AddWorkout(ctx, wods.WorkoutInput{Name: "Fran", Scoring: wods.Time}, u.ID)
 	ws.AddResult(ctx, fran.ID, wods.ResultInput{Value: 300, Date: "2026-11-03"}, u.ID)
+	ps := &phases.Store{DB: d, Now: time.Now}
+	ps.Add(ctx, phases.Input{Kind: phases.Cut, Label: "Winter cut", Start: "2026-10-01"}, u.ID)
+	ps.Add(ctx, phases.Input{Kind: phases.Event, Label: "Open", Start: "2026-11-20", End: "2026-11-20"}, u.ID)
 	d.Close()
 
 	n := loadNoted(ctx, path)
-	if len(n.lifts) != 1 || len(n.workouts) != 1 || len(n.results) != 1 {
+	if len(n.lifts) != 1 || len(n.workouts) != 1 || len(n.results) != 1 || len(n.phases) != 2 {
 		t.Fatalf("noted = %+v", n)
 	}
 	w := review.Week{From: "2026-11-02", To: "2026-11-08", Days: []review.Day{{Date: "2026-11-08"}}}
 	n.addTo(&w)
 	if len(w.Lifts) != 1 || len(w.Benchmarks) != 1 || w.Benchmarks[0].Result != "5:00" {
 		t.Errorf("week = %+v %+v", w.Lifts, w.Benchmarks)
+	}
+	if len(w.Phases) != 1 || w.Phases[0].Name != "Winter cut" || w.Phases[0].Week != 6 || len(w.Events) != 1 || w.Events[0].DaysAway != 12 {
+		t.Errorf("phases = %+v, events = %+v", w.Phases, w.Events)
 	}
 }
 

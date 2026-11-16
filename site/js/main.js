@@ -25,6 +25,7 @@ import { openSettings } from './settings.js';
 import { loadNotes } from './notes.js';
 import { loadLifts } from './lifts.js';
 import { loadWods } from './wods.js';
+import { loadPhases } from './phases.js';
 import { renderTable } from './table.js';
 import { renderFoodQuality } from './foodquality.js';
 import { renderReview } from './weekly.js';
@@ -37,6 +38,9 @@ import { applyLayout } from './layout.js';
 import { openYearFromHash } from './yearreview.js';
 
 const REFRESH_MS = 10 * 60 * 1000;
+
+// A phase or event changed here (phases.js): the charts draw them.
+document.addEventListener('phases-change', () => state.data?.days.length && render());
 const RANGES = ['7', '30', '90', '365', 'all', 'custom'];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -106,8 +110,11 @@ async function load() {
     // Notes, lifts and benchmark workouts change between syncs: notes show
     // when a window opens, the bests are drawn again here when nothing else
     // changed.
-    await Promise.all([loadNotes(recent), loadLifts(recent), loadWods(recent)]);
+    const phasesBefore = JSON.stringify(state.phases);
+    await Promise.all([loadNotes(recent), loadLifts(recent), loadWods(recent), loadPhases(recent)]);
     if (state.data && recent.generated_at === state.data.generated_at) {
+      // Phases changed elsewhere: every chart draws them.
+      if (state.data.days.length && JSON.stringify(state.phases) !== phasesBefore) return render();
       if (state.data.days.length) {
         refreshLifts(slice());
         renderHighlights();

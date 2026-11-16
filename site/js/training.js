@@ -115,6 +115,7 @@ function renderLoad(s) {
   const lo = Math.min(0.5, ...present), hi = Math.max(1.6, ...present);
   const on = legendToggles($('#load-part .legend'), 'load', () => renderLoad(s));
   timeChart($('#chart-load'), {
+    phases: true,
     aria: t('Training load: active zone minutes of the last 7 days compared with the last 28 days'),
     kind: 'line',
     empty: !present.length,

@@ -10,6 +10,7 @@ import { bestDays, trainingDays, trainingSummary, wodBestDays } from './health.j
 import { notedOn } from './wods.js';
 import { drawWeight, forecastFor } from './weight.js';
 import { goalChangesIn, rangeSummary, weightGoalAt, weightGoalLine, weightTrendAt } from './insights.js';
+import { KINDS, isEvent, phaseName, phaseSummary } from './phase.js';
 import { t, tn } from './i18n.js';
 
 const W = 688; // the A4 text width at 96 dpi, so chart text prints at its real size
@@ -48,9 +49,7 @@ export function buildReport(from, to) {
   el.append(header(rows[0].date, rows.at(-1).date, sum), kpis(sum));
   const charts = [energySection(buckets, weekly, sum), weightSection(rows, sum)];
   el.append(...charts.filter(Boolean));
-  const split = macroSection(sum);
-  if (split) el.append(split);
-  for (const sec of [sleepSection(buckets, weekly, sum), scoresSection(buckets, weekly), stepsSection(buckets, weekly, sum), trainingSection(rows), weeksSection(sum), listsSection(sum), goalsSection(from, to)]) {
+  for (const sec of [macroSection(sum), phasesSection(from, to), sleepSection(buckets, weekly, sum), scoresSection(buckets, weekly), stepsSection(buckets, weekly, sum), trainingSection(rows), weeksSection(sum), listsSection(sum), goalsSection(from, to)]) {
     if (sec) el.append(sec);
   }
   el.append(h('p', { class: 'rp-foot' }, t('Created with Eumetria from YAZIO and Fitbit data. Calorie and macro averages count the days with food logged; weights are 7-day averages.')));
@@ -396,6 +395,23 @@ function listsSection(sum) {
   const grid = h('div', { class: 'rp-lists' });
   grid.append(...parts);
   return section(t('Foods and activities'), t('Share: of all calories eaten in the range'), grid);
+}
+
+// The phases and events that touch the range; a phase's numbers cover the
+// whole phase (up to today), as in the Phases & events window.
+function phasesSection(from, to) {
+  const list = state.phases.filter((p) => p.start <= to && (!p.end || p.end >= from));
+  if (!list.length) return null;
+  const noted = new Set([...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date)]);
+  const rows = list.map((p) => ({ p, s: isEvent(p) ? null : phaseSummary(p, state.byDate, state.today, noted) }));
+  return section(t('Phases & events'), t('Numbers over the whole phase'), table([
+    [t('Phase'), (r) => `${KINDS[r.p.kind]?.icon || ''} ${phaseName(r.p)}`],
+    [t('Dates'), (r) => (isEvent(r.p) ? dfDate.format(parse(r.p.start)) : `${dfDate.format(parse(r.p.start))} – ${r.p.end ? dfDate.format(parse(r.p.end)) : t('ongoing')}`)],
+    [t('Weight'), (r) => (r.s?.weight ? `${signed(r.s.weight.change, 1)} kg` : null), true],
+    [t('Calories'), (r) => (r.s?.energy != null ? `${fmt(r.s.energy)} kcal` : null), true],
+    [t('Protein'), (r) => (r.s?.protein != null ? `${fmt(r.s.protein)} g` : null), true],
+    [t('Training days a week'), (r) => (r.s?.perWeek != null ? fmt(r.s.perWeek, 1) : null), true],
+  ], rows, 'rp-phases'));
 }
 
 function goalsSection(from, to) {

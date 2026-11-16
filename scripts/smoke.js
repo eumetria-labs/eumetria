@@ -8,9 +8,14 @@
 //
 // The page marks <html data-rendered="true"> after rendering and
 // <html data-error="…"> on any uncaught error.
+//
+// Then it loads some views as a phone (360 and 320 px wide, through the
+// DevTools protocol: a headless window can't be narrower than about 500 px)
+// and fails if the page or an open window is wider than the screen.
 
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { extname, join, normalize, resolve } from 'node:path';
 
@@ -89,8 +94,125 @@ for (const v of views) {
   console.log(`${problems.length ? 'FAIL' : 'ok  '} #${v.hash}${problems.length ? '\n     ' + problems.join('\n     ') : ''}`);
   failed += problems.length > 0;
 }
+failed += await phones([
+  'range=7', 'range=30&lang=de', 'range=all',
+  `range=30&lang=de&day=${day}`,
+  ...(workout ? [`range=30&day=${wday.date}&workout=${workout.id}`] : []),
+  ...(food ? [`range=30&food=${encodeURIComponent(food)}`] : []),
+]);
 server.close();
 process.exit(failed ? 1 : 0);
+
+// phones loads each view at phone widths and reports what sticks out past
+// the screen's right edge: the innermost such elements, which hold the
+// content that doesn't fit. It returns the number of failed views.
+async function phones(hashes) {
+  const profile = await mkdtemp(join(tmpdir(), 'smoke-'));
+  const p = spawn(chrome, ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+    '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' });
+  let failures = 0;
+  try {
+    const cdp = await connect(profile);
+    await cdp.send('Page.enable');
+    for (const width of [360, 320]) {
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 2, mobile: true });
+      for (const hash of hashes) {
+        // Through a blank page: a change of the hash alone doesn't reload.
+        await cdp.load('about:blank');
+        await cdp.load(base + 'index.html#' + hash);
+        const res = await cdp.eval(`new Promise((ok) => {
+          const t0 = Date.now();
+          const check = () => {
+            if (document.documentElement.dataset.rendered !== 'true' && Date.now() - t0 < 10000) return setTimeout(check, 100);
+            // Charts and windows draw a moment after the page.
+            setTimeout(() => {
+              const W = document.documentElement.clientWidth;
+              const wide = [document.documentElement, ...document.querySelectorAll('dialog[open], dialog[open] *')]
+                .filter((el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX === 'visible' || el === document.documentElement && el.scrollWidth > W + 1);
+              const out = [...document.querySelectorAll('body *')].filter((el) => {
+                const r = el.getBoundingClientRect();
+                if (!(r.width > 0 && r.right > W + 1) || getComputedStyle(el).position === 'fixed') return false;
+                // Inside something that scrolls or clips sideways (the section
+                // nav, a map) it is meant to be wider.
+                for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+                  if (getComputedStyle(p).overflowX !== 'visible') return false;
+                }
+                return true;
+              });
+              const inner = out.filter((el) => !out.some((o) => o !== el && el.contains(o)));
+              // Each named after the nearest element with an id: where to look.
+              const name = (el) => {
+                const host = el.parentElement?.closest('[id]');
+                const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(' ')[0] : '';
+                return (host ? '#' + host.id + ' ' : '') + el.tagName.toLowerCase() + (el.id ? '#' + el.id : cls);
+              };
+              ok({ rendered: document.documentElement.dataset.rendered === 'true', error: document.documentElement.dataset.error || '',
+                scroll: document.documentElement.scrollWidth, W, wide: wide.length, inner: [...new Set(inner.map(name))].slice(0, 6) });
+            }, 800);
+          };
+          check();
+        })`);
+        const problems = [];
+        if (!res.rendered) problems.push('page did not finish rendering');
+        if (res.error) problems.push('JavaScript error: ' + res.error);
+        if (res.scroll > res.W + 1 || res.wide) problems.push(`wider than the screen (${res.scroll} px on ${res.W} px): ${res.inner.join(', ') || 'see the open window'}`);
+        console.log(`${problems.length ? 'FAIL' : 'ok  '} ${width} px #${hash}${problems.length ? '\n     ' + problems.join('\n     ') : ''}`);
+        failures += problems.length > 0;
+      }
+    }
+    cdp.close();
+  } finally {
+    p.kill();
+    await new Promise((ok) => p.once('exit', ok));
+    await rm(profile, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+// connect opens the DevTools protocol on the page of the Chrome whose
+// profile is profile: send(method, params) answers its result, eval(js)
+// the value of an expression (a promise is awaited).
+async function connect(profile) {
+  let port;
+  for (let i = 0; i < 100 && !port; i++) {
+    port = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8').catch(() => '')).split('\n')[0];
+    if (!port) await new Promise((ok) => setTimeout(ok, 100));
+  }
+  if (!port) throw new Error('Chrome did not open its DevTools port');
+  const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
+  const ws = new WebSocket(targets.find((t) => t.type === 'page').webSocketDebuggerUrl);
+  await new Promise((ok, fail) => { ws.onopen = ok; ws.onerror = fail; });
+  let id = 0;
+  const pending = new Map();
+  let loaded = null;
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.method === 'Page.loadEventFired') loaded?.();
+    if (!pending.has(m.id)) return;
+    const [ok, fail] = pending.get(m.id);
+    pending.delete(m.id);
+    m.error ? fail(new Error(m.error.message)) : ok(m.result);
+  };
+  const send = (method, params = {}) => new Promise((ok, fail) => {
+    pending.set(++id, [ok, fail]);
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+  return {
+    send,
+    // load navigates to url and waits for its load event.
+    load: async (url) => {
+      const done = new Promise((ok) => { loaded = ok; });
+      await send('Page.navigate', { url });
+      await done;
+    },
+    eval: async (expression) => {
+      const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+      if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
+      return r.result.value;
+    },
+    close: () => ws.close(),
+  };
+}
 
 async function dump(url) {
   // Chrome runs asynchronously so this process can keep serving its requests.

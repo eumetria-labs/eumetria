@@ -1,18 +1,21 @@
 // The Macronutrients card: protein, carbs and fat as 7-day averages, and
 // protein per kg body weight.
 
-import { MACROS, avgOf, dfLong, fmt, logged, parse } from './format.js';
+import { MACROS, avgOf, dfLong, fmt, logged, parse, signed } from './format.js';
 import { $, h, svg } from './dom.js';
 import { state } from './state.js';
 import { legendToggles } from './legend.js';
 import { smoothPath, timeChart } from './charts.js';
 import { macroGoal, proteinPerKg, trailingMean } from './insights.js';
 import { t, tn } from './i18n.js';
+import { trainedOn, trainingVsRest } from './phase.js';
 
 export function renderMacros(s) {
   const { rows, complete } = s;
   const { byDate } = state;
-  renderProteinPerKg(complete, byDate);
+  const noted = new Set([...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date)]);
+  renderProteinPerKg(complete, byDate, noted);
+  renderTrainingVsRest(complete, noted);
   const g = state.data.goals || {};
   // With goals, every macro is shown as % of that day's goal so all three share one axis.
   const pct = MACROS.every((m) => macroGoal(null, m.key, g));
@@ -37,6 +40,7 @@ export function renderMacros(s) {
   const hi = Math.max(pct ? 110 : 0, ...all);
 
   timeChart($('#chart-macros'), {
+    phases: true,
     aria: t('Protein, carbs and fat, 7-day averages'),
     kind: 'line',
     empty: !all.length,
@@ -65,8 +69,8 @@ export function renderMacros(s) {
 }
 
 // Protein per kg body weight, the unit sports nutrition advice uses.
-function renderProteinPerKg(rows, byDate) {
-  const p = proteinPerKg(rows, byDate);
+function renderProteinPerKg(rows, byDate, noted) {
+  const p = proteinPerKg(rows, byDate, (r) => trainedOn(r, noted));
   const host = $('#protein-kg');
   host.hidden = !p.all.n;
   if (host.hidden) return;
@@ -84,4 +88,32 @@ function renderProteinPerKg(rows, byDate) {
     stat(t('Workout days'), p.workout, days),
     stat(t('Rest days'), p.rest, days),
   );
+}
+
+// Calories and macros on training days next to rest days: whether eating
+// follows training. Days with a workout, an activity or a noted lift or
+// benchmark workout count as training.
+function renderTrainingVsRest(rows, noted) {
+  const { training, rest } = trainingVsRest(rows, noted);
+  const host = $('#train-rest');
+  host.hidden = !training.n || !rest.n;
+  if (host.hidden) return;
+  const table = h('table', { class: 'tr-table' });
+  const head = h('tr');
+  head.append(h('th', {}, ''), h('th', { scope: 'col' }, t('Training days')), h('th', { scope: 'col' }, t('Rest days')), h('th', { scope: 'col' }, t('Difference')));
+  const row = (label, a, b, unit, extra) => {
+    const tr = h('tr');
+    tr.append(h('th', { scope: 'row' }, label));
+    for (const v of [a, b]) tr.append(h('td', {}, v != null ? `${fmt(v)} ${unit}` : '–'));
+    tr.append(h('td', {}, a != null && b != null ? `${signed(a - b)} ${unit}` : '–'));
+    if (extra) tr.title = extra;
+    return tr;
+  };
+  const vsGoal = (s) => (s.vsGoal != null ? t('{kcal} kcal vs goal', { kcal: signed(s.vsGoal) }) : '');
+  table.append(head,
+    row(t('Calories'), training.energy, rest.energy, 'kcal', [vsGoal(training), vsGoal(rest)].every(Boolean) ? `${t('Training days')}: ${vsGoal(training)} · ${t('Rest days')}: ${vsGoal(rest)}` : ''),
+    ...MACROS.map((m) => row(m.label, training[m.key], rest[m.key], 'g')));
+  host.replaceChildren(
+    h('p', { class: 'muted panel-sub' }, t('Training vs rest days') + ' · ' + tn(training.n, '{n} training day', '{n} training days') + ', ' + tn(rest.n, '{n} rest day', '{n} rest days')),
+    table);
 }

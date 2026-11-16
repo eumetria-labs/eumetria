@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"eumetria/internal/lifts"
+	"eumetria/internal/phases"
 	"eumetria/internal/stats"
 	"eumetria/internal/wods"
 )
@@ -38,7 +39,35 @@ type Week struct {
 	// bests), not measured by a device.
 	Lifts      []Lift      `json:"lifts_noted,omitempty"`
 	Benchmarks []Benchmark `json:"benchmark_workouts_noted,omitempty"`
+	// What the person said they are doing: the phases that overlap the
+	// week (a cut, a bulk, …) and the events in it or ahead.
+	Phases []Phase `json:"phases,omitempty"`
+	Events []Event `json:"events,omitempty"`
 }
+
+// Phase is a stretch of days with a purpose the person noted.
+type Phase struct {
+	Kind  string `json:"kind"` // cut, bulk, maintain or other
+	Name  string `json:"name,omitempty"`
+	Start string `json:"start"`
+	End   string `json:"end,omitempty"` // empty while it runs
+	// The week of the phase that the review's last day falls in, from 1.
+	Week int    `json:"week_of_phase"`
+	Note string `json:"note,omitempty"`
+}
+
+// Event is a one-day event the person noted (a competition, a race).
+type Event struct {
+	Name string `json:"name"`
+	Date string `json:"date"`
+	// Days from the review's last day: positive ahead, 0 that day,
+	// negative during the week.
+	DaysAway int    `json:"days_from_last_day"`
+	Note     string `json:"note,omitempty"`
+}
+
+// eventsAhead is how far ahead an event still counts.
+const eventsAhead = 90
 
 // Benchmark is one noted result of a benchmark workout, written as people
 // say it ("4:12", "12 rounds + 5 reps").
@@ -435,6 +464,41 @@ func dur(min float64) string {
 }
 func round(v float64) float64  { return math.Round(v) }
 func round1(v float64) float64 { return math.Round(v*10) / 10 }
+
+// AddPhases adds the phases that overlap the week and the events in it or
+// within 90 days after it.
+func (w *Week) AddPhases(all []phases.Phase) {
+	last := w.To
+	if len(w.Days) > 0 {
+		last = w.Days[len(w.Days)-1].Date
+	}
+	lastDay, err := time.Parse(time.DateOnly, last)
+	if err != nil {
+		return
+	}
+	for _, p := range all {
+		start, err := time.Parse(time.DateOnly, p.Start)
+		if err != nil {
+			continue
+		}
+		if p.Kind == phases.Event {
+			days := int(math.Round(start.Sub(lastDay).Hours() / 24))
+			if p.Start >= w.From && days <= eventsAhead {
+				w.Events = append(w.Events, Event{Name: clip(p.Label, nameMax), Date: p.Start, DaysAway: days, Note: clip(p.Note, noteMax)})
+			}
+			continue
+		}
+		if p.Start > last || (p.End != "" && p.End < w.From) {
+			continue
+		}
+		at := lastDay
+		if p.End != "" && p.End < last {
+			at, _ = time.Parse(time.DateOnly, p.End)
+		}
+		week := int(at.Sub(start).Hours()/24)/7 + 1
+		w.Phases = append(w.Phases, Phase{Kind: p.Kind, Name: clip(p.Label, nameMax), Start: p.Start, End: p.End, Week: week, Note: clip(p.Note, noteMax)})
+	}
+}
 
 // AddLifts adds the week's results from all noted ones, each compared with
 // the best before it (same lift, case aside, and rep count).

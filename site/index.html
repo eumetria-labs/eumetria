@@ -66,6 +66,7 @@
             <button role="menuitem" type="button" data-action="security"><b>Security</b><span>Passkeys, authenticator app, recovery codes.</span></button>
             <button role="menuitem" type="button" data-action="admin" id="account-admin" hidden><b>Users &amp; Roles</b><span>Accounts, who may see what, sessions, audit log.</span></button>
             <button role="menuitem" type="button" data-action="settings" id="account-settings" hidden><b>Settings</b><span>Sync, Yazio, Google, weekly review, backups.</span></button>
+            <button role="menuitem" type="button" data-action="phases" id="account-phases" hidden><b>Phases &amp; events</b><span>Cuts, bulks and competitions on the charts.</span></button>
             <button role="menuitem" type="button" data-action="layout"><b>Customize dashboard</b><span>Order of the cards, and which ones you see.</span></button>
             <button role="menuitem" type="button" data-action="theme" class="menu-sep"><b id="theme-label">Dark mode</b></button>
             <button role="menuitem" type="button" data-action="lang"><b id="lang-label">Deutsch</b></button>
@@ -140,6 +141,7 @@
             <div>
               <h2 id="today-title">Today</h2>
               <p class="muted" id="today-sub"></p>
+              <button class="today-status" id="today-status" type="button" hidden></button>
             </div>
             <button class="pill-btn" id="today-open" type="button">Day details <span aria-hidden="true">›</span></button>
           </header>
@@ -219,6 +221,7 @@
               <div class="chart" id="chart-macros"></div>
             </div>
             <div class="stat-row" id="protein-kg" aria-label="Protein per kg of body weight" hidden></div>
+            <div class="train-rest" id="train-rest" hidden></div>
           </div>
         </article>
 

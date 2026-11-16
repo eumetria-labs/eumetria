@@ -21,6 +21,7 @@ import { openSecurity, useEnrolLink } from './security.js';
 import { openManage } from './manage.js';
 import { openProfile } from './profile.js';
 import { openLayout } from './layout.js';
+import { openPhases } from './phases.js';
 import { openSettings } from './settings.js';
 import { confirmIdentity } from './stepup.js';
 import { store } from './state.js';
@@ -560,6 +561,7 @@ export function initAccount(toggleTheme) {
   popupMenu($('#account-btn'), $('#account-menu'), async (item) => {
     if (item.dataset.action === 'profile') return openProfile($('#account-btn'));
     if (item.dataset.action === 'layout') return openLayout($('#account-btn'));
+    if (item.dataset.action === 'phases') return openPhases($('#account-btn'));
     if (item.dataset.action === 'settings') return openSettings($('#account-btn'));
     if (item.dataset.action === 'theme') return toggleTheme();
     if (item.dataset.action === 'lang') return setLang(LANG === 'de' ? 'en' : 'de');

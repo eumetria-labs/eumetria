@@ -28,6 +28,7 @@ import (
 	"eumetria/internal/lifts"
 	"eumetria/internal/mail"
 	"eumetria/internal/notes"
+	"eumetria/internal/phases"
 	"eumetria/internal/wods"
 )
 
@@ -57,6 +58,10 @@ import (
 //	POST   /api/lifts         {lift, kg, reps, date, note}: a new entry            edit.lifts
 //	PUT    /api/lifts/{id}    the same: changes one                                edit.lifts
 //	DELETE /api/lifts/{id}    deletes one                                          edit.lifts
+//	GET    /api/phases        phases (cut, bulk, …) and events, phases.go        signed in, view.nutrition or view.health
+//	POST   /api/phases        {kind, label, start, end, note}: a new one          edit.lifts
+//	PUT    /api/phases/{id}   the same: changes one                                edit.lifts
+//	DELETE /api/phases/{id}   deletes one                                          edit.lifts
 //	GET    /api/wods          benchmark workouts and results, wods.go             signed in, view.health
 //	POST   /api/wods          {name, scoring, description}: a new workout         edit.lifts
 //	PUT    /api/wods/{id}     the same: changes one                                edit.lifts
@@ -180,6 +185,7 @@ type app struct {
 	notes    *notes.Store
 	lifts    *lifts.Store
 	wods     *wods.Store
+	phases   *phases.Store
 	data     *published
 	photoDir string
 	// Images in notes (internal/notes, images.go).
@@ -220,6 +226,7 @@ func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, a
 		notes:         &notes.Store{DB: store.DB, Now: store.Now},
 		lifts:         &lifts.Store{DB: store.DB, Now: store.Now},
 		wods:          &wods.Store{DB: store.DB, Now: store.Now},
+		phases:        &phases.Store{DB: store.DB, Now: store.Now},
 		data:          data,
 		photoDir:      photoDir,
 		noteImages:    noteImages,
@@ -265,6 +272,10 @@ func (a *app) routes() []route {
 		{"POST", "/api/lifts", liftWriter, a.liftPost},
 		{"PUT", "/api/lifts/{id}", liftWriter, a.liftPut},
 		{"DELETE", "/api/lifts/{id}", liftWriter, a.liftDelete},
+		{"GET", "/api/phases", signedIn, a.phasesList},
+		{"POST", "/api/phases", liftWriter, a.phasePost},
+		{"PUT", "/api/phases/{id}", liftWriter, a.phasePut},
+		{"DELETE", "/api/phases/{id}", liftWriter, a.phaseDelete},
 		{"GET", "/api/wods", signedIn, scoped(auth.ViewHealth, a.wodsList)},
 		{"POST", "/api/wods", liftWriter, a.wodPost},
 		{"PUT", "/api/wods/{id}", liftWriter, a.wodPut},

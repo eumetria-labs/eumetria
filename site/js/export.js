@@ -1,7 +1,8 @@
 // The export of a date range: one table per kind of data (days, foods,
 // recipes, activities, workouts, sleep, goal changes, weekly reviews, and
-// what people wrote: workout notes, lifts and benchmark workouts), written as CSV or JSON files with
-// the same columns and rows and bundled as a ZIP. GPS routes and photos are
+// what people wrote: workout notes, lifts, benchmark workouts and phases),
+// written as CSV or JSON files with the same columns and rows and bundled
+// as a ZIP. GPS routes and photos are
 // left out. No DOM access, so Node can test this file.
 
 import { MEALS, addDays, iso, parse } from './format.js';
@@ -121,8 +122,8 @@ const EMPTY = { d: {}, f: {}, r: {}, it: {}, a: {}, w: {}, s: {} };
 // inclusive) as [name, columns, rows], each row an object. The days table
 // has a row for every date in the range, logged or not.
 // extras are what the page loads besides data, each table only with it:
-// { lifts, wods } (the lifts and benchmark tables) and notes (a Map of the
-// workout notes, as state.notes).
+// { lifts, wods } (the lifts and benchmark tables), phases (the phases
+// table) and notes (a Map of the workout notes, as state.notes).
 export function exportTables(data, from, to, extras = null) {
   const byDate = new Map(data.days.map((d) => [d.date, d]));
   const days = [];
@@ -134,7 +135,18 @@ export function exportTables(data, from, to, extras = null) {
     items(days, withDates).map((it) => Object.fromEntries(row(it, withDates).map(([k, v]) => [k, value(v)]))),
   ]);
   tables.push(...textTables(data, from, to, byDate, extras?.notes));
-  return extras?.lifts || extras?.wods ? [...tables, ...bestTables(extras, from, to)] : tables;
+  if (extras?.lifts || extras?.wods) tables.push(...bestTables(extras, from, to));
+  if (extras?.phases) tables.push(phaseTable(extras.phases, from, to));
+  return tables;
+}
+
+// The phases and events that touch the range. A running phase has no end;
+// an event's start and end are its day.
+function phaseTable(phases, from, to) {
+  const columns = ['kind', 'name', 'start', 'end', 'note'];
+  const rows = phases.filter((p) => p.start <= to && (!p.end || p.end >= from))
+    .map((p) => ({ kind: p.kind, name: p.label || null, start: p.start, end: p.end || null, note: p.note || null }));
+  return ['phases', columns, rows.map((r) => Object.fromEntries(columns.map((k) => [k, value(r[k])])))];
 }
 
 // The goal changes of the range, the weekly reviews of the weeks that touch

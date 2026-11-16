@@ -22,8 +22,9 @@ export const SCORES = [
 // The words for a score; the cut-offs follow the formulas (a usual morning
 // has a Recovery of about 80 and a Readiness of about 85; its bands are
 // scores.ReadyHard and scores.ReadyEasy).
+export const READY_HARD = 90;
 export function scoreWord(key, v) {
-  if (key === 'readiness') return v >= 90 ? t('Ready for a hard session') : v >= 75 ? t('Normal training') : t('Take it easy');
+  if (key === 'readiness') return v >= READY_HARD ? t('Ready for a hard session') : v >= 75 ? t('Normal training') : t('Take it easy');
   if (key === 'sleep') return v >= 85 ? t('Great night') : v >= 70 ? t('Good night') : v >= 50 ? t('Fair night') : t('Short or restless night');
   return v >= 90 ? t('Better than usual') : v >= 70 ? t('Your usual') : v >= 60 ? t('Below usual') : t('Clearly below usual');
 }
@@ -38,6 +39,10 @@ export const hasScores = (d) => !!(d?.scores && (d.scores.sleep || d.scores.reco
 /* ---------- Today card ---------- */
 
 // A small ring per score of the latest day; each opens the day's breakdown.
+// A Readiness in the "hard session" band, for someone who notes lifts or
+// benchmark workouts, reads as a nudge to go for a best.
+const goForPB = (key, v) => key === 'readiness' && v >= READY_HARD && (state.lifts.length > 0 || state.wods.results.length > 0);
+
 export function renderTodayScores(day) {
   const host = $('#today-scores');
   const shown = hasScores(day) ? SCORES.filter((s) => day.scores[s.key]) : [];
@@ -45,10 +50,12 @@ export function renderTodayScores(day) {
   if (!shown.length) return;
   host.replaceChildren(...shown.map((s) => {
     const v = day.scores[s.key].value;
-    const b = h('button', { class: 'score-chip', type: 'button', 'aria-label': t('{score} {value} of 100, {word}. Show the breakdown', { score: s.label, value: v, word: scoreWord(s.key, v) }) });
+    // Only on the day itself: yesterday's morning says nothing about today.
+    const word = goForPB(s.key, v) && day.date === state.today ? '⚡ ' + t('Go for a PB') : scoreWord(s.key, v);
+    const b = h('button', { class: 'score-chip', type: 'button', 'aria-label': t('{score} {value} of 100, {word}. Show the breakdown', { score: s.label, value: v, word }) });
     b.append(miniRing(v, s.cls));
     const txt = h('span', { class: 'sc-text' });
-    txt.append(h('span', { class: 'sc-label' }, s.label), h('span', { class: 'sc-word' }, scoreWord(s.key, v)));
+    txt.append(h('span', { class: 'sc-label' }, s.label), h('span', { class: 'sc-word' }, word));
     if (day.scores[s.key].flags?.length) txt.append(h('span', { class: 'sc-flag' }, '⚠ ' + t('see details')));
     b.append(txt);
     b.onclick = () => openDay(day.date, 'sleep');
@@ -89,6 +96,7 @@ export function scoresChart(s) {
   }).filter((sc) => on(sc.key));
   const present = series.flatMap((x) => x.vals).filter((v) => v != null);
   timeChart($('#chart-scores'), {
+    phases: true,
     aria: smooth ? t('Eumetria scores, 7-day averages: readiness, sleep and recovery') : t('Eumetria scores per day: readiness, sleep and recovery'),
     kind: 'line',
     empty: !present.length,

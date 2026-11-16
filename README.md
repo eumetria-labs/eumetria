@@ -10,12 +10,13 @@ Eumetria puts the data of the apps you already use onto one page on your own ser
 
 - 📊 Charts for calories, macros, weight (with a forecast to your goal), movement, sleep and recovery
 - 💪 Macro sources per food, and protein per meal against 0.4 g per kg of bodyweight (30 g without a weigh-in)
+- 📍 Phases and events: shade a cut or bulk and mark a competition on the charts, with each phase's numbers
 - 🎉 A year in review: the year's numbers, new bests and favourite foods, as a picture to share too
 - 🔍 Search across your whole history, food and activity histories, a sortable data table
 - 🏋️ Workout details: heart rate by zone, splits, route map, elevation
 - 🤖 An optional weekly review written by Claude
 - 🥫 Nutri-Score and NOVA badges from Open Food Facts
-- 📤 Export as CSV/JSON (with workout notes, lifts, benchmark workouts, weekly reviews and goal changes), a printable report with scores and training, share cards for Instagram & co.
+- 📤 Export as CSV/JSON (with workout notes, lifts, benchmark workouts, phases, weekly reviews and goal changes), a printable report with scores and training, share cards for Instagram & co.
 - 🌗 Light and dark mode, English and German, installable on your phone, works offline (when you sign in with "Keep me signed in")
 
 It runs as one small Docker container that serves the page and syncs on a timer.
@@ -123,6 +124,10 @@ Two roles are built in: **admin** (everything) and **viewer** (every `view.*` sc
 
 **Customize dashboard** (account menu) sets the order of the cards and hides the ones you don't need. It's stored with your account, so it's the same on every device; **Reset** brings back the page's own order. On a wide screen two half-width cards next to each other (Weight, Movement, Most logged foods, Top activities) share a row; one alone takes the full width.
 
+**Phases & events** (account menu) note a stretch of days with a purpose (**Cut**, **Bulk**, **Maintain** or your own, with an optional name; leave the end empty while it runs) and one-day events such as a competition, also ahead. The weight, calorie, macro, score and training load charts shade the phases and mark the events with 🏁, and a chart's tooltip names them. The window sums up each phase: its days, the weight change (7-day average in the first week against the last), average calories and protein on logged days, and training days per week. A line under the Today card's title shows the running phase ("Maintain · day 71") and the next event within 90 days, and opens the window. The weekly review knows them too (the coach judges calories and weight against a cut or bulk and mentions an event ahead), the printable report lists them with their numbers, and the export adds a `phases` table. Whoever sees nutrition or health data sees them, `edit.lifts` writes them; they live in `app.db`.
+
+**Training vs rest days.** The Macros tab compares calories, protein, carbs and fat on training days (a Fitbit workout, a Yazio activity or a noted lift or benchmark result) with rest days over the selected range, next to protein per kg split the same way.
+
 Admins manage all of this in the page: account menu → **Users & Roles**. There you add people (with e-mail set up, give their address instead of a password: they get a welcome mail, choose their password through its link, once within three days, and set up a second factor right away if their role needs one; their address then counts as confirmed), give them a role, set a new password for someone who forgot theirs (that also ends their sessions and API tokens), require a second factor (until they set one up they see no data, only their own account settings), disable an account and then delete it for good (what they wrote stays, without an author), edit roles as checkboxes, end anyone's session and read the audit log. Changes need a recent proof of who you are: within 5 minutes of signing in, or the page asks you to confirm it with a passkey, key or code from your app (the password, for an account without a second factor). You can't disable or demote your own account, and the site always keeps one admin. A changed role applies to the user's next request; they stay signed in.
 
 - **Passwords:** at least 12 characters, no common ones, stored as argon2id hashes. Change yours under account menu → **Security**; that signs out your other devices and, unless you untick it, ends your API tokens. If you have passkeys that sign in on their own, you can remove them in the same step: do so if someone else may have had your account.
@@ -169,9 +174,11 @@ Every chart's legend switches its lines, bars or zones on and off with a tap (on
 
 **Benchmark workouts.** Next to the lifts, **New workout** creates a workout you do again and again: a famous one like Fran, Cindy or Murph (typing its name fills in the rest) or one your box repeats. It has a name, how it is scored (for time, rounds and reps, reps or weight) and the workout as written; each result then gets a date, an optional note and **Scaled** when you did it lighter or easier, which keeps its own best. A workout for time can have a time cap: a result that didn't finish in it is noted as the reps done and ranks below every finished time. A result can belong to the Fitbit workout it was done in: open the workout (day window → **Activities**), pick the benchmark workout under **Benchmark workout** (or create it there) and add the result. It takes the workout's date, the day's activity row shows the WOD's name, and in the WOD's history the result links back to its workout. How a workout is scored can't change once it has results. Its window charts the results (faster is up for times). Same scopes as lifts.
 
-**Bests elsewhere.** A lift or workout whose best got better in the last 7 days shows as a chip on the Today card. Each result shows that morning's Readiness, and the tab compares the mornings of all your new bests with every morning in that time. The weekly review gets the week's results, with new bests marked, so the coach can mention them. The day window lists what was noted that day under **Bests**, search finds lifts and workouts by name, and the export adds `lifts`, `benchmark_results` and `benchmark_workouts` tables.
+**Bests elsewhere.** A lift or workout whose best got better in the last 7 days shows as a chip on the Today card; several share one chip ("🏆 3 new PBs") that opens the Personal bests tab. The card shows at most three chips, the rest behind a "+n" chip. Each result shows that morning's Readiness, and the tab compares the mornings of all your new bests with every morning in that time. The weekly review gets the week's results, with new bests marked, so the coach can mention them. The day window lists what was noted that day under **Bests**, search finds lifts and workouts by name, and the export adds `lifts`, `benchmark_results` and `benchmark_workouts` tables.
 
 **Strength over time.** A lift's window shows its estimated 1 RM over time with every rep count in it (a 5-rep max counts by Epley's formula), and the same as a multiple of your bodyweight that week. The list of bests shows that multiple too.
+
+**Ready for a PB.** On a morning whose Readiness is 90 or more (ready for a hard session), someone who notes lifts or benchmark workouts sees "⚡ Go for a PB" under the Today card's Readiness ring instead of the usual word.
 
 **Calendar.** The Training card's **Calendar** tab shows the last year (as much as the screen fits) with every day trained, darker the longer the workouts were, walks aside; a day with a noted result counts too, and a dot marks a new best. Below it: days trained, per week, the longest run of weeks with training and the days with a new best. A day opens its window. Under it, **2026 in review** (one button per year) opens the year in review: days trained (per month too), hours, distance, the new bests with where each lift started the year, steps, sleep, weight and the foods eaten most often, each only with the data your role sees. In December and January the Today card offers it as well, and `#year=2026` opens it from a link.
 
@@ -258,6 +265,8 @@ set -a; . path/to/eumetria.env; set +a
 go run ./cmd/eumetria -serve :8080 -site site
 
 # tests: Go, the page's logic (Node 22+), and a headless-Chrome smoke test
+# (also loads views as a 360 and 320 px phone and fails when the page is
+# wider than the screen)
 go vet ./... && go test ./...
 node --test tests/*.test.js
 go run ./cmd/eumetria -demo -out site/stats.json && node scripts/smoke.js site

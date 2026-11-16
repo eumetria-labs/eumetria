@@ -174,6 +174,22 @@ test('lifts and benchmark workouts of the range, with their bests', () => {
   assert.ok(exportFiles(data, '2026-10-11', '2026-10-14', 'csv', new Date(), bests).some(([p]) => p.endsWith('/benchmark_results.csv')));
 });
 
+test('the phases and events that touch the range, only when given', () => {
+  const phases = [
+    { id: 1, kind: 'cut', label: 'Summer cut', start: '2026-06-01', end: '2026-08-31' }, // before
+    { id: 2, kind: 'maintain', label: '', start: '2026-09-01', end: '' }, // runs
+    { id: 3, kind: 'event', label: 'Club comp', start: '2026-10-12', end: '2026-10-12', note: 'Rx' },
+    { id: 4, kind: 'event', label: 'Open', start: '2026-10-20', end: '2026-10-20' }, // after
+  ];
+  const [, columns, rows] = exportTables(data, '2026-10-11', '2026-10-14', { phases }).find(([n]) => n === 'phases');
+  assert.deepEqual(columns, ['kind', 'name', 'start', 'end', 'note']);
+  assert.deepEqual(rows, [
+    { kind: 'maintain', name: null, start: '2026-09-01', end: null, note: null },
+    { kind: 'event', name: 'Club comp', start: '2026-10-12', end: '2026-10-12', note: 'Rx' },
+  ]);
+  assert.ok(!exportTables(data, '2026-10-11', '2026-10-14').some(([n]) => n === 'phases'));
+});
+
 test('goal changes, weekly reviews, workout notes and the weight trend', () => {
   const more = {
     ...data,

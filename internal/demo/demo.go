@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"eumetria/internal/lifts"
+	"eumetria/internal/phases"
 	"eumetria/internal/store"
 	"eumetria/internal/wods"
 )
@@ -386,6 +387,23 @@ func Lifts(today time.Time) []lifts.Entry {
 		CreatedBy: "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day,
 	})
 	return out
+}
+
+// Phases are a sample cut that ended, the maintenance since, and a
+// competition ahead, as someone would note them (account menu → Phases &
+// events).
+func Phases(today time.Time) []phases.Phase {
+	day := func(n int) string { return today.AddDate(0, 0, n).Format(time.DateOnly) }
+	p := func(id int64, kind, label, start, end string) phases.Phase {
+		return phases.Phase{ID: id, Kind: kind, Label: label, Start: start, End: end,
+			CreatedBy: "demo", UpdatedBy: "demo", CreatedAt: today, UpdatedAt: today}
+	}
+	return []phases.Phase{
+		p(1, phases.Cut, "Summer cut", day(-150), day(-71)),
+		p(2, phases.Maintain, "", day(-70), ""),
+		p(3, phases.Event, "Local throwdown", day(-40), day(-40)),
+		p(4, phases.Event, "Open 26.1", day(24), day(24)),
+	}
 }
 
 // Wods are sample benchmark workouts with results over the last year: the

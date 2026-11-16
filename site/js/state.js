@@ -9,6 +9,8 @@ export const state = {
   liftsLoaded: false,
   wods: { workouts: [], results: [] }, // benchmark workouts and their results (wods.js)
   wodsLoaded: false,
+  phases: [], // phases and events, the earliest first (phases.js)
+  phasesLoaded: false,
   range: '30', // '7', '30', '90', '365', 'all' or 'custom'
   from: null, // first and last day of a custom range, ISO dates
   to: null,

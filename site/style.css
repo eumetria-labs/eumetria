@@ -269,7 +269,7 @@ main.dim { opacity: .6; }
 .ring-center .cap { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
 .ring-center .cap.over { color: var(--over); font-weight: 600; }
 .ring-center .of { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.today-body { display: grid; gap: 18px; min-width: 0; }
+.today-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; min-width: 0; }
 .today-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .today-head h2 { font-size: 20px; }
 .pill-btn {
@@ -1667,3 +1667,46 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .yr-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .yr-links:empty { display: none; }
 @media (max-width: 640px) { .yr-months { grid-template-columns: repeat(6, minmax(0, 1fr)); row-gap: 12px; } .yr-row .muted { display: none; } }
+
+/* ---------- phases and events (js/phases.js, js/charts.js) ---------- */
+
+.phase-band { fill: var(--ph, var(--muted)); fill-opacity: .08; }
+.ph-cut { --ph: var(--s1); }
+.ph-bulk { --ph: var(--s2); }
+.ph-maintain { --ph: var(--s3); }
+.ph-other { --ph: var(--muted); }
+.ph-event { --ph: var(--z4); }
+.phase-label { fill: var(--ink-2); font-size: 10px; font-weight: 550; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+.event-line { stroke: var(--z4); stroke-width: 1.25; stroke-dasharray: 3 3; opacity: .7; }
+.event-flag { font-size: 11px; }
+.enter .phase-layer { animation: fade-in .5s ease-out both; }
+
+.phases-panel { width: min(560px, 100%); }
+.phases-body { display: grid; gap: 10px; }
+.phase-head { margin: 10px 0 0; font-size: 13px; font-weight: 650; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
+.phase-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.phase-item { padding: 10px 12px; border-radius: 14px; background: color-mix(in oklab, var(--ph) 8%, var(--surface)); border-left: 3px solid var(--ph); }
+.phase-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.phase-top b { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.phase-line { margin: 4px 0 0; font-size: 13px; }
+.phase-note { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); }
+.pill-btn.small { padding: 4px 10px; font-size: 12px; }
+
+.train-rest { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--grid); }
+.tr-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.tr-table th, .tr-table td { padding: 5px 6px; text-align: right; white-space: nowrap; }
+.tr-table th:first-child { text-align: left; }
+.tr-table thead th, .tr-table tr:first-child th { color: var(--muted); font-weight: 550; }
+.tr-table th[scope="row"] { color: var(--ink-2); font-weight: 550; }
+.tr-table tr + tr { border-top: 1px solid var(--grid); }
+
+/* ---------- the Today card's status line and chip limit (js/phases.js, js/today.js) ---------- */
+
+.today-status {
+  display: block; max-width: 100%; margin-top: 4px; padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 550; color: var(--ink-2); text-align: left; overflow-wrap: anywhere;
+}
+.today-status:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.today-status[hidden] { display: none; }
+.today-status .st-part { display: inline-block; }
+.highlight.hl-more { padding: 6px 12px; font-weight: 650; color: var(--ink); background: var(--surface-2); }

@@ -11,6 +11,7 @@ import (
 
 	"eumetria/internal/db"
 	"eumetria/internal/lifts"
+	"eumetria/internal/phases"
 	"eumetria/internal/review"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
@@ -133,17 +134,19 @@ func rewriteReviews(ctx context.Context, cfg config, write writeFunc, progress f
 	return hist, nil
 }
 
-// noted are the results people entered themselves: lifts and benchmark
-// workouts, for the weekly review.
+// noted is what people entered themselves: lifts, benchmark workouts and
+// phases, for the weekly review.
 type noted struct {
 	lifts    []lifts.Entry
 	workouts []wods.Workout
 	results  []wods.Result
+	phases   []phases.Phase
 }
 
 func (n noted) addTo(w *review.Week) {
 	w.AddLifts(n.lifts)
 	w.AddBenchmarks(n.workouts, n.results)
+	w.AddPhases(n.phases)
 }
 
 // loadNoted reads them from the database at path. Without a database
@@ -171,6 +174,9 @@ func loadNoted(ctx context.Context, path string) (n noted) {
 	}
 	if err != nil {
 		log.Printf("weekly review: no benchmark workouts: %v", err)
+	}
+	if n.phases, err = (&phases.Store{DB: d, Now: time.Now}).List(ctx); err != nil {
+		log.Printf("weekly review: no phases: %v", err)
 	}
 	return n
 }

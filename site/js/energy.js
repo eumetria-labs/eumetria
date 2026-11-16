@@ -54,6 +54,7 @@ export function renderEnergy(s) {
   const marks = goalMarks(buckets, ['energy']);
 
   timeChart($('#chart-energy'), {
+    phases: true,
     aria: t('Calories eaten per day compared with the goal'),
     kind: bars ? 'band' : 'line',
     empty: !max,

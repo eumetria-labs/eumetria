@@ -7,6 +7,7 @@ import { t } from './i18n.js';
 import { state, reduceMotion } from './state.js';
 import { openDay } from './sheet.js';
 import { goalChangesIn } from './insights.js';
+import { KINDS, phaseName, phaseSlots } from './phase.js';
 
 export const resizer = new ResizeObserver((entries) => entries.forEach((e) => e.target._draw?.()));
 
@@ -55,6 +56,36 @@ function drawTimeChart(host, cfg, animate) {
   }
   root.append(axis);
 
+  // Phases (cfg.phases) as soft bands behind the marks, named at the
+  // bottom (the top is where charts put their goal flags) when there's
+  // room and no event flag in the way; events as a dashed line with a flag.
+  const slots = cfg.phases && state.phases.length ? phaseSlots(cfg.dates, state.phases, state.today) : null;
+  if (slots) {
+    const layer = svg('g', { class: 'phase-layer', 'aria-hidden': 'true' });
+    for (const b of slots.bands) {
+      const x0 = x(b.from) - step / 2, w = (b.to - b.from + 1) * step;
+      layer.append(svg('rect', { x: x0, y: m.t, width: w, height: ph, class: 'phase-band ph-' + b.phase.kind }));
+      const name = `${KINDS[b.phase.kind]?.icon || ''} ${phaseName(b.phase)}`;
+      const tw = textWidth(name, 10) + 8;
+      const blocked = slots.events.some((e) => x(e.i) > x0 - 8 && x(e.i) < x0 + tw + 8);
+      if (tw < w && !blocked) layer.append(svg('text', { x: x0 + 4, y: m.t + ph - 5, class: 'phase-label' }, name));
+    }
+    for (const e of slots.events) {
+      layer.append(svg('line', { x1: x(e.i), x2: x(e.i), y1: m.t, y2: m.t + ph, class: 'event-line' }));
+      layer.append(svg('text', { x: x(e.i), y: m.t + ph - 4, 'text-anchor': x(e.i) > W - 40 ? 'end' : 'middle', class: 'event-flag' }, '🏁'));
+    }
+    root.append(layer);
+  }
+  // What a slot's tooltip adds: the phase it lies in and its events.
+  const phaseNote = (i) => {
+    if (!slots) return '';
+    const names = [
+      ...slots.bands.filter((b) => b.from <= i && i <= b.to).map((b) => phaseName(b.phase)),
+      ...slots.events.filter((e) => e.i === i).map((e) => '🏁 ' + phaseName(e.phase)),
+    ];
+    return names.length ? ' · ' + names.join(' · ') : '';
+  };
+
   const hl = svg('rect', { y: m.t, height: ph, width: step, class: 'band-hl', visibility: 'hidden' });
   const cross = svg('line', { y1: m.t, y2: m.t + ph, class: 'crosshair', visibility: 'hidden' });
   root.append(cfg.kind === 'band' ? hl : cross);
@@ -98,7 +129,7 @@ function drawTimeChart(host, cfg, animate) {
     const rect = root.getBoundingClientRect();
     const pickable = cfg.onPick && hasDetail(cfg.onPick(i));
     showTip(rect.left + x(i) * (rect.width / W), clientY ?? rect.top + (tip.y != null ? y(tip.y) : m.t + ph / 2) * (rect.height / H),
-      tip.title, tip.rows.filter(Boolean), pickable ? (cfg.pickTab === 'sleep' ? t('Click for sleep details') : t('Click for day details')) : '');
+      tip.title + phaseNote(i), tip.rows.filter(Boolean), pickable ? (cfg.pickTab === 'sleep' ? t('Click for sleep details') : t('Click for day details')) : '');
   };
   const indexAt = (clientX) => {
     const rect = root.getBoundingClientRect();

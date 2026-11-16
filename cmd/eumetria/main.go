@@ -63,6 +63,7 @@ import (
 	"eumetria/internal/google"
 	"eumetria/internal/imgmeta"
 	"eumetria/internal/lifts"
+	"eumetria/internal/phases"
 	"eumetria/internal/settings"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
@@ -343,6 +344,14 @@ func syncOnce(ctx context.Context, cfg config) error {
 			benchmarks.Workouts, benchmarks.Results = demo.Wods(cfg.now())
 		}
 		if err := store.WriteJSON(filepath.Join(filepath.Dir(cfg.outPath), "wods.json"), benchmarks, false); err != nil {
+			return err
+		}
+		// Phases and events likewise, in phases.json.
+		noted := []phases.Phase{}
+		if cfg.demo {
+			noted = demo.Phases(cfg.now())
+		}
+		if err := store.WriteJSON(filepath.Join(filepath.Dir(cfg.outPath), "phases.json"), noted, false); err != nil {
 			return err
 		}
 	}
