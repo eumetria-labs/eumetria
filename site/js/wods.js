@@ -7,7 +7,7 @@
 // window lists it and adds new ones (wodSection).
 
 import { actLabel, dfLong, dfShort, dfMonthYear, fmt, parse } from './format.js';
-import { WOD_PRESETS, betterResult, fmtClock, liftBoard, liftKey, liftMarks, parseClock, wodBestResults, wodBoard, workoutIcon, workoutName } from './health.js';
+import { WOD_PRESETS, betterResult, fmtClock, liftBoard, liftKey, liftMarks, linkableWorkouts, parseClock, wodBestResults, wodBoard, workoutIcon, workoutName } from './health.js';
 import { openWorkout } from './workout.js';
 import { $, emoji, h, nameCell } from './dom.js';
 import { drawProgress, progressChart } from './charts.js';
@@ -402,6 +402,7 @@ function resultsSection(w, redraw) {
 const ERRORS = {
   bad_wod: () => t('Check the workout: a name of up to 48 characters and how it is scored.'),
   bad_result: () => t('Check the result and the date: it must have passed.'),
+  bad_workout: () => t('That workout is no longer there. Untick it and save again.'),
   name_taken: () => t('There is already a workout of that name.'),
   has_results: () => t('The workout has results: how it is scored can no longer change.'),
   not_found: () => t('This workout or result is no longer there.'),
@@ -531,10 +532,12 @@ export function openWorkoutForm({ workout, returnFocus, after, onCreated }) {
 
 // A new result of workout, or a change to one (result).
 // link: { id, date, label } of a Fitbit workout a new result is done in; a
-// result linked already keeps its link unless it is unticked.
+// result linked already keeps its link unless it is unticked. Otherwise the
+// form offers a Fitbit workout of the date picked, as the lift form does.
 export function openResultForm({ workout, result, link, returnFocus, after }) {
   const v = result || { value: '', reps: 0, scaled: false, date: link?.date || state.today || '', note: '' };
-  const linkTo = link || (result && fitbitWorkout(result) && { id: result.fitbit_workout, date: result.date, label: fitbitWorkout(result).label }) || null;
+  const fixed = link || (result && fitbitWorkout(result) && { id: result.fitbit_workout, date: result.date, label: fitbitWorkout(result).label }) || null;
+  let linkTo = fixed;
   let linked = null;
   let read, scaled, date, note;
   formDialog({
@@ -581,25 +584,41 @@ export function openResultForm({ workout, result, link, returnFocus, after }) {
       scaled.checked = !!v.scaled;
       wrap.append(scaled, h('span', {}, t('Scaled')), h('span', { class: 'muted hint' }, t('lighter or easier than written; it has its own best')));
       form.append(wrap);
-      if (linkTo) {
-        const wrap = h('label', { class: 'lift-check' });
-        linked = h('input', { type: 'checkbox' });
-        linked.checked = true;
-        wrap.append(linked, h('span', {}, t('Done in the {name} of {date}', { name: linkTo.label, date: dfLong.format(parse(linkTo.date)) })),
-          h('span', { class: 'muted hint' }, t('the date is the workout’s')));
-        form.append(wrap);
-      }
+      // The link: ticked for the fixed one (the date is then the
+      // workout's), else for the workout of the date picked, ticked when
+      // that day has just one (walks aside), unticked for the longest of
+      // several.
+      const linkWrap = h('label', { class: 'lift-check' });
+      linked = h('input', { type: 'checkbox' });
+      const linkText = h('span', {});
+      linkWrap.append(linked, linkText, h('span', { class: 'muted hint' }, fixed ? t('the date is the workout’s') : t('a Fitbit workout of that day')));
+      form.append(linkWrap);
       date = field(t('Date'), h('input', { class: 'field', type: 'date', required: '', value: v.date, max: state.today || '' }));
-      if (linked) {
-        const sync = () => { date.disabled = linked.checked; if (linked.checked) date.value = linkTo.date; };
-        linked.onchange = sync;
-        sync();
+      const showLink = () => {
+        linkWrap.hidden = !linkTo;
+        if (linkTo) linkText.textContent = t('Done in the {name} of {date}', { name: linkTo.label, date: dfLong.format(parse(linkTo.date)) });
+      };
+      if (fixed) {
+        linked.checked = true;
+        linked.onchange = () => { date.disabled = linked.checked; if (linked.checked) date.value = fixed.date; };
+        linked.onchange();
+      } else {
+        const offer = () => {
+          const all = date.value ? linkableWorkouts(state.byDate?.get(date.value)) : [];
+          const w = all.reduce((a, x) => (!a || (x.dur || 0) > (a.dur || 0) ? x : a), null);
+          linkTo = w && { id: w.id, date: date.value, label: actLabel(workoutName(w.type)) };
+          linked.checked = all.length === 1;
+          showLink();
+        };
+        date.addEventListener('change', offer);
+        offer();
       }
+      showLink();
       note = field(t('Note'), h('input', { class: 'field', type: 'text', maxlength: '200', value: v.note || '', placeholder: t('optional') }));
       return first;
     },
     save: () => {
-      const body = { ...read(), scaled: scaled.checked, date: date.value, note: note.value, fitbit_workout: linked?.checked ? linkTo.id : '' };
+      const body = { ...read(), scaled: scaled.checked, date: date.value, note: note.value, fitbit_workout: linked?.checked && linkTo ? linkTo.id : '' };
       return result ? api('wod-results/' + result.id, 'PUT', body) : api(`wods/${workout.id}/results`, 'POST', body);
     },
     remove: result && (() => api('wod-results/' + result.id, 'DELETE')),
