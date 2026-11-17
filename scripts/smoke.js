@@ -127,8 +127,21 @@ async function phones(hashes) {
             // Charts and windows draw a moment after the page.
             setTimeout(() => {
               const W = document.documentElement.clientWidth;
+              // Inside something in the window that clips (a map: Leaflet's
+              // panes are always wider) content may be wider. The search stops
+              // at the window's scrolling body, whose overflow-y: auto makes
+              // overflow-x auto too, and so doesn't count what the dialog
+              // around it clips.
+              const clipped = (el) => {
+                for (let p = el.parentElement; p && p.tagName !== 'DIALOG'; p = p.parentElement) {
+                  const cs = getComputedStyle(p);
+                  if (['auto', 'scroll'].includes(cs.overflowY)) return false;
+                  if (['hidden', 'clip'].includes(cs.overflowX)) return true;
+                }
+                return false;
+              };
               const wide = [document.documentElement, ...document.querySelectorAll('dialog[open], dialog[open] *')]
-                .filter((el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX === 'visible' || el === document.documentElement && el.scrollWidth > W + 1);
+                .filter((el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX === 'visible' && !clipped(el) || el === document.documentElement && el.scrollWidth > W + 1);
               const out = [...document.querySelectorAll('body *')].filter((el) => {
                 const r = el.getBoundingClientRect();
                 if (!(r.width > 0 && r.right > W + 1) || getComputedStyle(el).position === 'fixed') return false;
