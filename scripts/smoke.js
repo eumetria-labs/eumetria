@@ -19,6 +19,15 @@ import { tmpdir } from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { extname, join, normalize, resolve } from 'node:path';
 
+// Whatever goes wrong outside a view's checks (Chrome not starting, the
+// DevTools port, a page that never answers) still says why it failed.
+for (const ev of ['uncaughtException', 'unhandledRejection']) {
+  process.on(ev, (err) => {
+    console.error(`FAIL smoke test aborted (${ev}): ${err?.stack || err}`);
+    process.exit(1);
+  });
+}
+
 const root = resolve(process.argv[2] || 'site');
 const TYPES = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
@@ -124,8 +133,9 @@ async function phones(hashes) {
           const t0 = Date.now();
           const check = () => {
             if (document.documentElement.dataset.rendered !== 'true' && Date.now() - t0 < 10000) return setTimeout(check, 100);
-            // Charts and windows draw a moment after the page.
-            setTimeout(() => {
+            // Charts and windows draw a moment after the page. A layout still
+            // settling is measured again a little later before it counts.
+            const measure = () => {
               const W = document.documentElement.clientWidth;
               // Inside something in the window that clips (a map: Leaflet's
               // panes are always wider) content may be wider. The search stops
@@ -159,8 +169,17 @@ async function phones(hashes) {
                 const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(' ')[0] : '';
                 return (host ? '#' + host.id + ' ' : '') + el.tagName.toLowerCase() + (el.id ? '#' + el.id : cls);
               };
-              ok({ rendered: document.documentElement.dataset.rendered === 'true', error: document.documentElement.dataset.error || '',
-                scroll: document.documentElement.scrollWidth, W, wide: wide.length, inner: [...new Set(inner.map(name))].slice(0, 6) });
+              // The innermost too-wide elements in a window, with their widths:
+              // what holds the content that doesn't fit.
+              const wideInner = wide.filter((el) => !wide.some((o) => o !== el && el.contains(o)))
+                .map((el) => name(el) + ' (' + el.scrollWidth + ' px in ' + el.clientWidth + ')');
+              return { rendered: document.documentElement.dataset.rendered === 'true', error: document.documentElement.dataset.error || '',
+                scroll: document.documentElement.scrollWidth, W, wide: wide.length, inner: [...new Set(inner.map(name))].slice(0, 6), wideInner: [...new Set(wideInner)].slice(0, 6) };
+            };
+            setTimeout(() => {
+              const first = measure();
+              if (!(first.scroll > first.W + 1 || first.wide)) return ok(first);
+              setTimeout(() => ok(measure()), 1500);
             }, 800);
           };
           check();
@@ -168,7 +187,7 @@ async function phones(hashes) {
         const problems = [];
         if (!res.rendered) problems.push('page did not finish rendering');
         if (res.error) problems.push('JavaScript error: ' + res.error);
-        if (res.scroll > res.W + 1 || res.wide) problems.push(`wider than the screen (${res.scroll} px on ${res.W} px): ${res.inner.join(', ') || 'see the open window'}`);
+        if (res.scroll > res.W + 1 || res.wide) problems.push(`wider than the screen (${res.scroll} px on ${res.W} px): ${[...res.inner, ...res.wideInner].join(', ') || 'see the open window'}`);
         console.log(`${problems.length ? 'FAIL' : 'ok  '} ${width} px #${hash}${problems.length ? '\n     ' + problems.join('\n     ') : ''}`);
         failures += problems.length > 0;
       }
