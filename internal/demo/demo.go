@@ -374,7 +374,8 @@ func Lifts(today time.Time) []lifts.Entry {
 		}
 	}
 	out[len(out)-1].Note = "Belt, felt smooth"
-	// A best two days ago, for the Today card's highlights.
+	// A best two days ago, for the Today card's highlights, lifted in that
+	// day's sample workout (as the benchmark result of that day, Wods).
 	best := 0.0
 	for _, e := range out {
 		if e.Lift == "Power Clean" && e.Kg > best {
@@ -384,7 +385,8 @@ func Lifts(today time.Time) []lifts.Entry {
 	day := today.AddDate(0, 0, -2)
 	out = append(out, lifts.Entry{
 		ID: id + 1, Lift: "Power Clean", Kg: best + 2.5, Reps: 1, Date: day.Format(time.DateOnly), Note: "Finally!",
-		CreatedBy: "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day,
+		FitbitWorkout: "demo-" + day.Format("20060102"),
+		CreatedBy:     "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day,
 	})
 	return out
 }

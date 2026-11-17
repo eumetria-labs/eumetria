@@ -9,6 +9,7 @@ import { openDialog } from './dialog.js';
 import { workoutShareTools } from './cards.js';
 import { noteSection } from './notes.js';
 import { wodSection } from './wods.js';
+import { liftSection } from './lifts.js';
 import { t } from './i18n.js';
 
 let win = null;
@@ -33,7 +34,10 @@ export function openWorkout(day, id, returnFocus) {
 
   const body = h('div', { class: 'wo-body' });
   body.append(stats(w));
-  // What was done: the benchmark results of this session, then the note.
+  // What was done: the lifts and benchmark results of this session, then
+  // the note.
+  const lifted = liftSection(day, w);
+  if (lifted) body.append(lifted);
   const wods = wodSection(day, w);
   if (wods) body.append(wods);
   const note = noteSection(w);

@@ -7,7 +7,7 @@ import { $, emoji, h, setHashParam } from './dom.js';
 import { openDialog } from './dialog.js';
 import { state } from './state.js';
 import { fmtSleep, workoutName } from './health.js';
-import { fmtKg } from './lifts.js';
+import { fmtSet } from './lifts.js';
 import { fmtResult } from './wods.js';
 import { list, shareTools, tiles } from './share.js';
 import { yearSummary, yearsOf } from './year.js';
@@ -41,8 +41,8 @@ function keyNumbers(y) {
 // One row per lift or workout: where it ended, from where, how often better.
 const bestRows = (y) => [
   ...y.bests.lifts.map((b) => ({
-    date: b.date, icon: '🏋️', name: b.reps > 1 ? `${b.name} · ${b.reps} RM` : b.name, value: fmtKg(b.kg),
-    note: [b.from != null ? t('from {kg}', { kg: fmtKg(b.from) }) : '', tn(b.n, '{n} new best', '{n} new bests')].filter(Boolean).join(' · '),
+    date: b.date, icon: '🏋️', name: b.name, value: fmtSet(b),
+    note: [b.from != null ? t('from {kg}', { kg: fmtSet({ kg: b.from, reps: b.fromReps }) }) : '', tn(b.n, '{n} new best', '{n} new bests')].filter(Boolean).join(' · '),
   })),
   ...y.bests.wods.map((b) => ({
     date: b.date, icon: '⏱️', name: b.result.scaled ? `${b.name} · ${t('Scaled')}` : b.name, value: b.workout ? fmtResult(b.workout.scoring, b.result) : '',

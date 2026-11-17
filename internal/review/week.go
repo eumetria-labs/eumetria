@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -91,12 +90,14 @@ type Lift struct {
 	Lift string  `json:"lift"`
 	Kg   float64 `json:"kg"`
 	Reps int     `json:"reps"`
-	// Heavier than every earlier result of this lift and rep count; the
-	// first result of one is neither a best nor compared.
-	Best   bool    `json:"new_personal_best,omitempty"`
-	PrevKg float64 `json:"previous_best_kg,omitempty"`
-	First  bool    `json:"first_result_noted,omitempty"`
-	Note   string  `json:"note,omitempty"`
+	// Better than every earlier result of this lift, whatever their reps:
+	// heavier, or as heavy for more reps. The first result of a lift is
+	// neither a best nor compared.
+	Best     bool    `json:"new_personal_best,omitempty"`
+	PrevKg   float64 `json:"previous_best_kg,omitempty"`
+	PrevReps int     `json:"previous_best_reps,omitempty"`
+	First    bool    `json:"first_result_noted,omitempty"`
+	Note     string  `json:"note,omitempty"`
 }
 
 type Goals struct {
@@ -501,7 +502,7 @@ func (w *Week) AddPhases(all []phases.Phase) {
 }
 
 // AddLifts adds the week's results from all noted ones, each compared with
-// the best before it (same lift, case aside, and rep count).
+// the best before it (same lift, case aside, any rep count).
 func (w *Week) AddLifts(all []lifts.Entry) {
 	last := w.To
 	if len(w.Days) > 0 {
@@ -514,19 +515,20 @@ func (w *Week) AddLifts(all []lifts.Entry) {
 		}
 		return sorted[i].ID < sorted[j].ID
 	})
-	best := map[string]float64{}
+	best := map[string]lifts.Entry{}
 	for _, e := range sorted {
-		key := strings.ToLower(e.Lift) + "|" + strconv.Itoa(e.Reps)
+		key := strings.ToLower(e.Lift)
 		prev, seen := best[key]
+		better := !seen || lifts.Better(e, prev)
 		if e.Date >= w.From && e.Date <= last {
 			l := Lift{Date: e.Date, Lift: clip(e.Lift, nameMax), Kg: e.Kg, Reps: e.Reps, Note: clip(e.Note, noteMax), First: !seen}
-			if seen && e.Kg > prev {
-				l.Best, l.PrevKg = true, prev
+			if seen && better {
+				l.Best, l.PrevKg, l.PrevReps = true, prev.Kg, prev.Reps
 			}
 			w.Lifts = append(w.Lifts, l)
 		}
-		if e.Kg > prev {
-			best[key] = e.Kg
+		if better {
+			best[key] = e
 		}
 	}
 }

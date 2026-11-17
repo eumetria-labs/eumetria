@@ -10,8 +10,9 @@ import (
 )
 
 // Personal bests in lifts (Power Clean, Strict Press, …), written in the
-// Training card. Unlike notes they belong to no workout: they are part of
-// the training data, so view.health reads them and edit.lifts writes them.
+// Training card or in a Fitbit workout's window. Unlike notes they are part
+// of the training data, also when linked to a workout, so view.health reads
+// them and edit.lifts writes them.
 
 // liftsList answers GET /api/lifts: every entry, by lift, the oldest first.
 func (a *app) liftsList(w http.ResponseWriter, req *http.Request, p *principal) {
@@ -23,8 +24,10 @@ func (a *app) liftsList(w http.ResponseWriter, req *http.Request, p *principal) 
 	writeJSON(w, http.StatusOK, list)
 }
 
-// liftInput reads and checks an entry from the request body.
-func (a *app) liftInput(w http.ResponseWriter, req *http.Request) (lifts.Input, bool) {
+// liftInput reads and checks an entry from the request body. One linked to
+// a Fitbit workout takes that workout's date; a workout the principal can't
+// see is refused.
+func (a *app) liftInput(w http.ResponseWriter, req *http.Request, p *principal) (lifts.Input, bool) {
 	var in lifts.Input
 	if !readJSON(w, req, &in) {
 		return in, false
@@ -33,6 +36,18 @@ func (a *app) liftInput(w http.ResponseWriter, req *http.Request) (lifts.Input, 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "bad_lift")
 		return in, false
+	}
+	if in.FitbitWorkout != "" {
+		b, ok := a.build(w, req, p)
+		if !ok {
+			return in, false
+		}
+		date, found := b.workouts[in.FitbitWorkout]
+		if !found {
+			writeError(w, http.StatusBadRequest, "bad_workout")
+			return in, false
+		}
+		in.Date = date
 	}
 	return in, true
 }
@@ -48,12 +63,16 @@ func liftID(w http.ResponseWriter, req *http.Request) (int64, bool) {
 
 // liftDetail is what the audit log says about an entry.
 func liftDetail(e lifts.Entry) string {
-	return fmt.Sprintf("%s %s %g kg × %d", e.Date, e.Lift, e.Kg, e.Reps)
+	s := fmt.Sprintf("%s %s %g kg × %d", e.Date, e.Lift, e.Kg, e.Reps)
+	if e.FitbitWorkout != "" {
+		s += " in Fitbit workout " + e.FitbitWorkout
+	}
+	return s
 }
 
 // liftPost adds an entry.
 func (a *app) liftPost(w http.ResponseWriter, req *http.Request, p *principal) {
-	in, ok := a.liftInput(w, req)
+	in, ok := a.liftInput(w, req, p)
 	if !ok {
 		return
 	}
@@ -72,7 +91,7 @@ func (a *app) liftPut(w http.ResponseWriter, req *http.Request, p *principal) {
 	if !ok {
 		return
 	}
-	in, ok := a.liftInput(w, req)
+	in, ok := a.liftInput(w, req, p)
 	if !ok {
 		return
 	}

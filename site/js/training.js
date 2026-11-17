@@ -9,7 +9,8 @@ import { LOAD_ZONE, bestDays, loadLabel, personalBests, speedLabel, trainingDays
 import { $, h, svg, nameCell, panelTabs, showTip, hideTip } from './dom.js';
 import { timeChart, bucketTitle, fadeArea, smoothPath, valuePill, resizer } from './charts.js';
 import { state, store } from './state.js';
-import { hasLifts, renderLifts } from './lifts.js';
+import { hasLifts, onBestsChange, renderLifts } from './lifts.js';
+import { renderLinkNotice } from './links.js';
 import { hasWods, renderWods } from './wods.js';
 import { openDay } from './sheet.js';
 import { loadLeaflet, loadRoute, mapControls, openWorkout } from './workout.js';
@@ -39,11 +40,15 @@ export function renderTraining(s) {
   }
   renderLifts();
   renderWods();
+  renderLinkNotice();
   $('#workout-bests-part').hidden = !workouts;
   renderBests(days);
   renderCalendar();
   if (routes) renderRoutes(s.rows);
 }
+
+// A result linked, added or changed may change what can be linked.
+onBestsChange(renderLinkNotice);
 
 // After lifts or benchmark workouts changed without new data: only the list is drawn again
 // (the map keeps its zoom), unless the card appears or goes.

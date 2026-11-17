@@ -855,8 +855,10 @@ main.loading .tiles .tile { box-shadow: none; }
 .wod-hint { margin: 8px 0 0; font-size: 13px; }
 .wod-link { margin-left: 6px; padding: 0 4px; border: 0; border-radius: 6px; background: var(--surface-2); cursor: pointer; font: inherit; line-height: 20px; }
 .wod-link:hover { background: var(--wash); }
-.wo-wods .link-btn { padding: 0; border: 0; background: none; font: inherit; color: var(--ink); cursor: pointer; text-decoration: underline; text-decoration-color: var(--grid); text-underline-offset: 3px; }
+.wo-wods .link-btn, .wo-lifts .link-btn { padding: 0; border: 0; background: none; font: inherit; color: var(--ink); cursor: pointer; text-decoration: underline; text-decoration-color: var(--grid); text-underline-offset: 3px; }
 .wod-tag { white-space: nowrap; }
+.day-item .name.has-tags { flex-wrap: wrap; row-gap: 2px; }
+.name.has-tags .txt { flex: none; max-width: 100%; }
 .lift-form textarea.field { height: auto; min-height: 7.5em; padding-top: 8px; padding-bottom: 8px; resize: vertical; font: inherit; line-height: 1.45; border-radius: 14px; }
 .lift-row .name { align-items: center; }
 .lift-rm { flex: none; margin-left: 6px; color: var(--ink-2); font-size: 12px; font-weight: 550; font-variant-numeric: tabular-nums; }
@@ -881,6 +883,7 @@ main.loading .tiles .tile { box-shadow: none; }
 .prog-legend { display: flex; gap: 14px; margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--ink-2); }
 .prog-legend .key { display: inline-block; width: 14px; margin-right: 6px; vertical-align: middle; border-top: 2px solid var(--s3); }
 .prog-legend .key.scaled { border-top: 2px dashed var(--muted); }
+.lift-session { flex: none; margin-left: 6px; width: 26px; height: 26px; font-size: 14px; }
 .prog-legend .key.pb { width: 8px; height: 8px; border: 0; border-radius: 50%; background: var(--s3); }
 /* The plate calculator: one side of the bar, in the competition colours. */
 .plate-controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
@@ -902,6 +905,15 @@ main.loading .tiles .tile { box-shadow: none; }
 .plate-words .muted { font-weight: 400; font-size: 13px; }
 .lifts-ready { display: flex; gap: 8px; align-items: baseline; margin: 10px 0 0; font-size: 13px; }
 .lifts-ready[hidden] { display: none; }
+/* Results that could be linked to their Fitbit workouts, and the window that links them. */
+.link-notice { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 13px; }
+.link-notice[hidden] { display: none; }
+.link-notice > span:not(.emoji) { flex: 1 1 200px; }
+.link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; }
+.link-main { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.link-row .amt { grid-column: 1; }
+.link-row .link-to { grid-column: 1 / -1; font-size: 13px; color: var(--ink-2); }
+.link-row select.link-to { width: 100%; }
 .lift-pct { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
 .lift-pct-cell { display: flex; flex-direction: column; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
 button.lift-pct-cell { font: inherit; color: inherit; text-align: left; border: 0; cursor: pointer; }

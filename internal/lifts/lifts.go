@@ -1,7 +1,8 @@
 // Package lifts keeps personal bests in barbell and gymnastics lifts (Power
 // Clean, Strict Press, Split Jerk, …) in the app's database. Each entry is
-// one result on one day; the page shows a lift's heaviest one as its best
-// and the rest as its history. Who may read or write them is the server's
+// one result on one day; the page shows a lift's best (the heaviest weight,
+// more reps at the same weight) and the rest as its history, all rep counts
+// together. An entry may belong to the Fitbit workout it was lifted in. Who may read or write them is the server's
 // business (cmd/eumetria, lifts.go).
 package lifts
 
@@ -30,20 +31,24 @@ const (
 	MaxNote = 200 // characters of a note
 	MaxKg   = 500
 	MaxReps = 20
+	// characters of a Fitbit workout's id
+	MaxWorkoutID = 128
 )
 
 // Entry is one result. Kg is the weight lifted, for Reps repetitions.
 type Entry struct {
-	ID        int64     `json:"id"`
-	Lift      string    `json:"lift"`
-	Kg        float64   `json:"kg"`
-	Reps      int       `json:"reps"`
-	Date      string    `json:"date"`
-	Note      string    `json:"note,omitempty"`
-	CreatedBy string    `json:"created_by"`
-	UpdatedBy string    `json:"updated_by"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID   int64   `json:"id"`
+	Lift string  `json:"lift"`
+	Kg   float64 `json:"kg"`
+	Reps int     `json:"reps"`
+	Date string  `json:"date"`
+	Note string  `json:"note,omitempty"`
+	// The Fitbit workout it was lifted in, if it is linked to one.
+	FitbitWorkout string    `json:"fitbit_workout,omitempty"`
+	CreatedBy     string    `json:"created_by"`
+	UpdatedBy     string    `json:"updated_by"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Input is what people send for an entry.
@@ -53,6 +58,8 @@ type Input struct {
 	Reps int     `json:"reps"`
 	Date string  `json:"date"`
 	Note string  `json:"note"`
+	// A Fitbit workout's id; the server checks it and takes its date.
+	FitbitWorkout string `json:"fitbit_workout"`
 }
 
 // Clean checks in and returns it tidied: names and notes trimmed with their
@@ -77,11 +84,21 @@ func (in Input) Clean(now time.Time) (Input, error) {
 	if in.Reps < 1 || in.Reps > MaxReps {
 		return in, fmt.Errorf("%w: reps: 1 to %d", ErrInvalid, MaxReps)
 	}
+	in.FitbitWorkout = strings.TrimSpace(in.FitbitWorkout)
+	if len(in.FitbitWorkout) > MaxWorkoutID || strings.IndexFunc(in.FitbitWorkout, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return in, fmt.Errorf("%w: Fitbit workout: an id of up to %d characters", ErrInvalid, MaxWorkoutID)
+	}
 	day, err := time.Parse(time.DateOnly, in.Date)
 	if err != nil || day.Year() < 1950 || day.After(now.UTC().AddDate(0, 0, 1)) {
 		return in, fmt.Errorf("%w: date: YYYY-MM-DD, not in the future", ErrInvalid)
 	}
 	return in, nil
+}
+
+// Better reports whether a beats b as a best of the same lift: heavier, or
+// as heavy for more reps. Rep counts don't make records of their own.
+func Better(a, b Entry) bool {
+	return a.Kg > b.Kg || a.Kg == b.Kg && a.Reps > b.Reps
 }
 
 func hasControl(s string) bool { return strings.IndexFunc(s, unicode.IsControl) >= 0 }
@@ -93,7 +110,7 @@ type Store struct {
 }
 
 // An author whose account was deleted is "".
-const selectEntry = `SELECT l.id, l.lift, l.kg, l.reps, l.date, l.note, coalesce(c.name, ''), coalesce(u.name, ''), l.created_at, l.updated_at
+const selectEntry = `SELECT l.id, l.lift, l.kg, l.reps, l.date, l.note, l.fitbit_workout, coalesce(c.name, ''), coalesce(u.name, ''), l.created_at, l.updated_at
 	FROM lifts l LEFT JOIN users c ON c.id = l.created_by LEFT JOIN users u ON u.id = l.updated_by`
 
 type scanner interface{ Scan(...any) error }
@@ -101,7 +118,7 @@ type scanner interface{ Scan(...any) error }
 func scan(row scanner) (Entry, error) {
 	var e Entry
 	var created, updated int64
-	err := row.Scan(&e.ID, &e.Lift, &e.Kg, &e.Reps, &e.Date, &e.Note, &e.CreatedBy, &e.UpdatedBy, &created, &updated)
+	err := row.Scan(&e.ID, &e.Lift, &e.Kg, &e.Reps, &e.Date, &e.Note, &e.FitbitWorkout, &e.CreatedBy, &e.UpdatedBy, &created, &updated)
 	e.CreatedAt, e.UpdatedAt = time.Unix(created, 0).UTC(), time.Unix(updated, 0).UTC()
 	return e, err
 }
@@ -135,8 +152,8 @@ func (s *Store) get(ctx context.Context, id int64) (Entry, error) {
 // Add stores a new entry for the user userID. in must be Clean.
 func (s *Store) Add(ctx context.Context, in Input, userID int64) (Entry, error) {
 	now := s.Now().Unix()
-	res, err := s.DB.ExecContext(ctx, `INSERT INTO lifts (lift, kg, reps, date, note, created_by, updated_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, in.Lift, in.Kg, in.Reps, in.Date, in.Note, userID, userID, now, now)
+	res, err := s.DB.ExecContext(ctx, `INSERT INTO lifts (lift, kg, reps, date, note, fitbit_workout, created_by, updated_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, in.Lift, in.Kg, in.Reps, in.Date, in.Note, in.FitbitWorkout, userID, userID, now, now)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -149,8 +166,8 @@ func (s *Store) Add(ctx context.Context, in Input, userID int64) (Entry, error) 
 
 // Update changes an entry. in must be Clean.
 func (s *Store) Update(ctx context.Context, id int64, in Input, userID int64) (Entry, error) {
-	res, err := s.DB.ExecContext(ctx, `UPDATE lifts SET lift = ?, kg = ?, reps = ?, date = ?, note = ?, updated_by = ?, updated_at = ?
-		WHERE id = ?`, in.Lift, in.Kg, in.Reps, in.Date, in.Note, userID, s.Now().Unix(), id)
+	res, err := s.DB.ExecContext(ctx, `UPDATE lifts SET lift = ?, kg = ?, reps = ?, date = ?, note = ?, fitbit_workout = ?, updated_by = ?, updated_at = ?
+		WHERE id = ?`, in.Lift, in.Kg, in.Reps, in.Date, in.Note, in.FitbitWorkout, userID, s.Now().Unix(), id)
 	if err != nil {
 		return Entry{}, err
 	}

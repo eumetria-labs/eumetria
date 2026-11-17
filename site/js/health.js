@@ -237,45 +237,71 @@ export function strengthTrend(entries, lift, bwAt) {
   });
 }
 
-// The personal bests: one row per lift and number of reps (a 5-rep max is a
-// record of its own), the heaviest result first reached. prev is the best
-// before it, for the gain; recent marks a best from the last `days` days.
-// Rows come in the order of the most recent best first.
+// Whether lift result a beats b: heavier, or as heavy for more reps. A
+// lift has one best whatever the reps (lifts.Better on the server).
+export const liftBetter = (a, b) => a.kg > b.kg || (a.kg === b.kg && a.reps > b.reps);
+
+// The key of a lift: its name, case aside.
+export const liftKey = (e) => e.lift.toLowerCase();
+
+// "50 kg", or "50 kg × 2" for more reps than one (fmtKg writes the weight).
+export const liftSet = (e, fmtKg) => (e.reps > 1 ? `${fmtKg(e.kg)} × ${e.reps}` : fmtKg(e.kg));
+
+// A lift's results, the oldest first, each with whether it was a new best
+// (pb) and the best before it (before; null for the first result).
+export function liftMarks(list) {
+  let top = null;
+  return [...list].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id).map((e) => {
+    const before = top;
+    const pb = !!before && liftBetter(e, before);
+    if (!top || liftBetter(e, top)) top = e;
+    return { e, pb, before };
+  });
+}
+
+// The personal bests: one row per lift, every rep count in it. Its best is
+// the heaviest result (as heavy for more reps beats it), the first one
+// reached; prev is the best before it, for the gain (kg, or reps at the same
+// weight: gainReps); reps is the best's. repMaxes is the heaviest result per
+// rep count, the fewest reps first. recent marks a best from the last `days`
+// days. Rows come in the order of the most recent best first.
 export function liftBoard(entries, today, days = 30) {
   const groups = new Map();
   for (const e of entries) {
-    const key = e.lift.toLowerCase() + '|' + e.reps;
+    const key = liftKey(e);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(e);
   }
   const since = today ? iso(addDays(parse(today), -days)) : '';
   const rows = [...groups.entries()].map(([key, list]) => {
     list = [...list].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
-    let best = list[0];
-    for (const e of list) if (e.kg > best.kg) best = e;
-    let prev = null;
-    for (const e of list) if (e.date < best.date && (!prev || e.kg > prev.kg)) prev = e;
+    const marks = liftMarks(list);
+    let best = list[0], prev = null;
+    for (const m of marks) if (liftBetter(m.e, best)) [best, prev] = [m.e, m.before];
+    const reps = new Map();
+    for (const e of list) if (!reps.has(e.reps) || e.kg > reps.get(e.reps).kg) reps.set(e.reps, e);
+    const repMaxes = [...reps.values()].sort((a, b) => a.reps - b.reps);
     return {
-      key, lift: list.at(-1).lift, reps: best.reps, best, prev, entries: list,
-      gain: prev ? best.kg - prev.kg : null,
+      key, lift: list.at(-1).lift, reps: best.reps, best, prev, entries: list, repMaxes,
+      gain: prev && best.kg > prev.kg ? best.kg - prev.kg : null,
+      gainReps: prev && best.kg === prev.kg ? best.reps - prev.reps : null,
       recent: !!since && best.date > since,
     };
   });
   return rows.sort((a, b) => b.best.date.localeCompare(a.best.date) || a.lift.localeCompare(b.lift));
 }
 
-// The results that raised a lift's best: heavier than every earlier result
-// of the same lift and rep count. A lift's first result is no comparison.
+// The results that raised a lift's best: better than every earlier result
+// of the same lift, any reps. A lift's first result is no comparison.
 export function bestEntries(entries) {
-  const best = new Map(), out = [];
-  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
-  for (const e of sorted) {
-    const key = e.lift.toLowerCase() + '|' + e.reps;
-    const prev = best.get(key);
-    if (prev != null && e.kg > prev) out.push(e);
-    if (prev == null || e.kg > prev) best.set(key, e.kg);
+  const groups = new Map();
+  for (const e of entries) {
+    const key = liftKey(e);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
   }
-  return out;
+  return [...groups.values()].flatMap((list) => liftMarks(list).filter((m) => m.pb).map((m) => m.e))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
 }
 
 // The days of those results.
@@ -388,6 +414,26 @@ export function trainingDays(days, notedDates = [], bestDates = []) {
   for (const date of notedDates) at(date).noted = true;
   for (const date of bestDates) at(date).pb = true;
   return out;
+}
+
+// The Fitbit workouts of a day a lift or benchmark result may have been
+// done in: every one but walks.
+export const linkableWorkouts = (day) => (day?.workouts || []).filter((w) => !EVERYDAY.has(workoutName(w.type)));
+
+// Lift and benchmark results not linked to a Fitbit workout although their
+// day has some: { kind: 'lift'|'wod', item, candidates, pick }, the newest
+// first. pick is the workout's id when the day has just one, else null (the
+// person picks).
+export function linkSuggestions(lifts, results, byDate) {
+  const out = [];
+  const add = (kind, item) => {
+    if (item.fitbit_workout) return;
+    const candidates = linkableWorkouts(byDate.get(item.date));
+    if (candidates.length) out.push({ kind, item, candidates, pick: candidates.length === 1 ? candidates[0].id : null });
+  };
+  for (const e of lifts) add('lift', e);
+  for (const r of results) add('wod', r);
+  return out.sort((a, b) => b.item.date.localeCompare(a.item.date) || a.kind.localeCompare(b.kind) || a.item.id - b.item.id);
 }
 
 // The days trained from..to (inclusive), per week on average, and the

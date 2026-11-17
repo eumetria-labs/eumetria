@@ -34,7 +34,7 @@ test('a year in numbers counts only that year', () => {
   assert.equal(y.training.hours, 1.5);
   assert.equal(y.training.km, 9);
   assert.equal(y.training.longest.type, 'WALKING');
-  assert.deepEqual(y.bests.lifts, [{ date: '2026-01-02', name: 'Back Squat', reps: 1, kg: 110, n: 1, from: 100 }]);
+  assert.deepEqual(y.bests.lifts, [{ date: '2026-01-02', name: 'Back Squat', reps: 1, kg: 110, n: 1, from: 100, fromReps: 1 }]);
   assert.equal(y.bests.n, 1);
   assert.equal(y.sleep.asleep, 450);
   assert.equal(y.sleep.readiness, 80);

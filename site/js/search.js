@@ -6,7 +6,7 @@
 
 import { actIcon, actLabel, dfLong, fmt, logged, parse } from './format.js';
 import { liftBoard, wodBoard, workoutIcon, workoutName } from './health.js';
-import { fmtKg, openLift } from './lifts.js';
+import { fmtSet, openLift } from './lifts.js';
 import { fmtResult, openWod } from './wods.js';
 import { $, h, emoji } from './dom.js';
 import { state } from './state.js';
@@ -126,7 +126,7 @@ function openSearch() {
 function bestResults(q) {
   if (!q.trim()) return [];
   const lifts = liftBoard(state.lifts, state.today).map((r) => ({
-    name: r.lift, icon: '🏋️', label: r.reps > 1 ? `${r.lift} · ${r.reps} RM` : r.lift, note: fmtKg(r.best.kg), open: () => openLift(r.key, document.activeElement),
+    name: r.lift, icon: '🏋️', label: r.lift, note: fmtSet(r.best), open: () => openLift(r.key, document.activeElement),
   }));
   // One entry per workout: its Rx best, else its scaled one.
   const seen = new Set();

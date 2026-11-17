@@ -37,7 +37,7 @@ func setupAccounts(ctx context.Context, store *auth.Store, demo bool) error {
 		// Sample lifts, as -demo -out writes them for plain files.
 		l := &lifts.Store{DB: store.DB, Now: store.Now}
 		for _, e := range sample.Lifts(store.Now()) {
-			in := lifts.Input{Lift: e.Lift, Kg: e.Kg, Reps: e.Reps, Date: e.Date, Note: e.Note}
+			in := lifts.Input{Lift: e.Lift, Kg: e.Kg, Reps: e.Reps, Date: e.Date, Note: e.Note, FitbitWorkout: e.FitbitWorkout}
 			if _, err := l.Add(ctx, in, u.ID); err != nil {
 				return err
 			}

@@ -125,3 +125,26 @@ func TestDemoWritesLiftsWithoutSecondFactor(t *testing.T) {
 		t.Errorf("admin without a factor = %d %s", res.StatusCode, body)
 	}
 }
+
+// A lift linked to a Fitbit workout takes its date; an unknown workout is
+// refused, and the link can be dropped again.
+func TestLiftsLinkToWorkouts(t *testing.T) {
+	e := newTestEnv(t, true)
+	athlete := e.lifter(t)
+	res, body := e.do(t, athlete, "POST", "/api/lifts", `{"lift":"Strict Press","kg":50,"reps":2,"date":"2026-10-01","fitbit_workout":"w1"}`, sameSite)
+	var l lifts.Entry
+	if json.Unmarshal([]byte(body), &l); res.StatusCode != 201 || l.FitbitWorkout != "w1" || l.Date != "2026-10-20" {
+		t.Fatalf("linked = %d %s", res.StatusCode, body)
+	}
+	if res, body := e.do(t, athlete, "POST", "/api/lifts", `{"lift":"Strict Press","kg":50,"date":"2026-10-01","fitbit_workout":"nope"}`, sameSite); res.StatusCode != 400 || !strings.Contains(body, "bad_workout") {
+		t.Errorf("unknown workout = %d %s", res.StatusCode, body)
+	}
+	if res, body := e.do(t, athlete, "POST", "/api/lifts", `{"lift":"Strict Press","kg":50,"date":"2026-10-01","fitbit_workout":"a b"}`, sameSite); res.StatusCode != 400 || !strings.Contains(body, "bad_lift") {
+		t.Errorf("odd id = %d %s", res.StatusCode, body)
+	}
+	res, body = e.do(t, athlete, "PUT", fmt.Sprintf("/api/lifts/%d", l.ID), `{"lift":"Strict Press","kg":50,"reps":2,"date":"2026-10-21"}`, sameSite)
+	var after lifts.Entry
+	if json.Unmarshal([]byte(body), &after); res.StatusCode != 200 || after.FitbitWorkout != "" || after.Date != "2026-10-21" {
+		t.Errorf("unlinked = %d %s", res.StatusCode, body)
+	}
+}

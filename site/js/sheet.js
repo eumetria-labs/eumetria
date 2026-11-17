@@ -14,6 +14,7 @@ import { dayShareTools } from './cards.js';
 import { closeShare } from './share.js';
 import { t } from './i18n.js';
 import { linkedNames, notedRows } from './wods.js';
+import { liftedNames } from './lifts.js';
 
 let win = null;
 
@@ -159,8 +160,11 @@ export function openDay(date, tabKey, focusNav) {
         const row = h('button', { class: 'day-item workout-row', type: 'button', 'aria-label': t('{name}, {detail}: show heart rate and zones', { name, detail }) });
         const cell = nameCell(name, false, a ? actIcon(key) : workoutIcon(w.type));
         if (!a) cell.append(h('span', { class: 'src-badge', title: t('Recorded by Fitbit, not logged in Yazio') }, 'Fitbit'));
-        // The benchmark workouts done in it.
-        for (const name of linkedNames(w.id)) cell.append(h('span', { class: 'lift-rm wod-tag' }, '⏱️ ' + name));
+        // The lifts and benchmark workouts done in it, wrapping below the
+        // name rather than squeezing it away.
+        const tags = [...liftedNames(w.id).map((n) => '🏋️ ' + n), ...linkedNames(w.id).map((n) => '⏱️ ' + n)];
+        for (const tag of tags) cell.append(h('span', { class: 'lift-rm wod-tag' }, tag));
+        if (tags.length) cell.classList.add('has-tags');
         row.append(cell, h('span', { class: 'amt' }, detail), h('span', { class: 'val' }, kcal ? `${fmt(kcal)} kcal` : '–'), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
         row.addEventListener('click', () => openWorkout(day, w.id, row));
         panel.append(row);

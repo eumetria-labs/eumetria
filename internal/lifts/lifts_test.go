@@ -46,6 +46,24 @@ func TestClean(t *testing.T) {
 	}
 }
 
+func TestBetter(t *testing.T) {
+	e := func(kg float64, reps int) Entry { return Entry{Kg: kg, Reps: reps} }
+	for _, c := range []struct {
+		a, b Entry
+		want bool
+	}{
+		{e(52.5, 1), e(50, 1), true},
+		{e(50, 2), e(50, 1), true}, // as heavy, more reps
+		{e(50, 1), e(50, 2), false},
+		{e(48, 5), e(50, 1), false}, // lighter for more reps
+		{e(50, 1), e(50, 1), false},
+	} {
+		if got := Better(c.a, c.b); got != c.want {
+			t.Errorf("Better(%v, %v) = %v", c.a, c.b, got)
+		}
+	}
+}
+
 func TestStore(t *testing.T) {
 	ctx := context.Background()
 	d, err := db.Open(ctx, filepath.Join(t.TempDir(), "app.db"))
@@ -66,7 +84,10 @@ func TestStore(t *testing.T) {
 	if err != nil || first.ID == 0 || first.CreatedBy != "anna" || !first.CreatedAt.Equal(now) {
 		t.Fatalf("add = %+v, %v", first, err)
 	}
-	s.Add(ctx, Input{Lift: "back squat", Kg: 120, Reps: 1, Date: "2026-09-01"}, anna.ID)
+	linked, err := s.Add(ctx, Input{Lift: "back squat", Kg: 120, Reps: 1, Date: "2026-09-01", FitbitWorkout: "w1"}, anna.ID)
+	if err != nil || linked.FitbitWorkout != "w1" {
+		t.Fatalf("linked = %+v, %v", linked, err)
+	}
 	s.Add(ctx, Input{Lift: "Strict Press", Kg: 50, Reps: 1, Date: "2026-08-01"}, anna.ID)
 
 	clock = now.Add(time.Hour)

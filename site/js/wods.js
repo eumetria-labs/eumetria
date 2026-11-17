@@ -7,14 +7,14 @@
 // window lists it and adds new ones (wodSection).
 
 import { actLabel, dfLong, dfShort, dfMonthYear, fmt, parse } from './format.js';
-import { WOD_PRESETS, betterResult, fmtClock, parseClock, wodBestResults, wodBoard, workoutIcon, workoutName } from './health.js';
+import { WOD_PRESETS, betterResult, fmtClock, liftBoard, liftKey, liftMarks, parseClock, wodBestResults, wodBoard, workoutIcon, workoutName } from './health.js';
 import { openWorkout } from './workout.js';
 import { $, emoji, h, nameCell } from './dom.js';
 import { drawProgress, progressChart } from './charts.js';
 import { chart, list, shareTools, textLines, tiles } from './share.js';
 import { openDialog } from './dialog.js';
 import { api, reason } from './account.js';
-import { fmtKg, mayEditLifts, notifyBests, openLift } from './lifts.js';
+import { fmtKg, fmtSet, liftGain, liftSeries, mayEditLifts, notifyBests, openLift } from './lifts.js';
 import { state } from './state.js';
 import { t } from './i18n.js';
 
@@ -109,14 +109,14 @@ export function renderWods() {
 export function notedOn(date) {
   const out = [];
   const byKey = new Map();
-  for (const e of [...state.lifts].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id)) {
-    const key = e.lift.toLowerCase() + '|' + e.reps;
-    const before = byKey.get(key);
-    if (e.date === date) {
-      const pb = before != null && e.kg > before;
-      out.push({ kind: 'lift', id: e.id, key, icon: '🏋️', name: e.lift, tag: e.reps > 1 ? `${e.reps} RM` : '', value: fmtKg(e.kg), pb, gain: pb ? `+${fmtKg(e.kg - before)}` : '', note: e.note || '', progress: () => liftProgress(key) });
-    }
-    if (before == null || e.kg > before) byKey.set(key, e.kg);
+  for (const e of state.lifts) {
+    if (!byKey.has(liftKey(e))) byKey.set(liftKey(e), []);
+    byKey.get(liftKey(e)).push(e);
+  }
+  const lifted = [...byKey.entries()].flatMap(([key, list]) => liftMarks(list).filter((m) => m.e.date === date).map((m) => ({ key, ...m })))
+    .sort((a, b) => a.e.id - b.e.id);
+  for (const { key, e, pb, before } of lifted) {
+    out.push({ kind: 'lift', id: e.id, key, icon: '🏋️', name: e.lift, tag: '', value: fmtSet(e), pb, gain: pb ? liftGain(e, before) : '', note: e.note || '', progress: () => liftProgress(key) });
   }
   const byId = new Map(state.wods.workouts.map((w) => [w.id, w]));
   const best = new Map();
@@ -137,13 +137,8 @@ export function notedOn(date) {
 
 // A lift's results over time for drawProgress (charts.js): { series, opts }.
 function liftProgress(key) {
-  let best = 0;
-  const points = state.lifts.filter((e) => e.lift.toLowerCase() + '|' + e.reps === key).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id).map((e) => {
-    const pb = best > 0 && e.kg > best;
-    best = Math.max(best, e.kg);
-    return { date: e.date, value: e.kg, pb };
-  });
-  return { series: [{ points }], opts: { yFmt: (v) => fmtKg(v).replace(' kg', '') } };
+  const r = liftBoard(state.lifts.filter((e) => liftKey(e) === key), state.today)[0];
+  return { series: liftSeries(r.entries, r.reps), opts: { yFmt: (v) => fmtKg(v).replace(' kg', '') } };
 }
 
 // A workout's finished results of one kind (Rx or scaled) over time.

@@ -10,7 +10,7 @@ import { highlights, macroGoal } from './insights.js';
 import { t, tn } from './i18n.js';
 import { renderTodayScores } from './scores.js';
 import { liftBoard, wodBoard } from './health.js';
-import { fmtKg, onBestsChange, openLift } from './lifts.js';
+import { fmtSet, onBestsChange, openLift } from './lifts.js';
 import { fmtResult, openWod } from './wods.js';
 import { offeredYear, openYear } from './yearreview.js';
 import { renderPhaseStatus } from './phases.js';
@@ -81,8 +81,8 @@ const when = (d) => dfShort.format(parse(d)) + (d.slice(0, 4) !== state.today?.s
 function bestChips() {
   if (!state.today) return [];
   const lifts = liftBoard(state.lifts, state.today, 7).filter((r) => r.recent && r.prev).map((r) => ({
-    date: r.best.date, icon: '🏋️', what: r.reps > 1 ? `${r.lift} · ${r.reps} RM` : r.lift, short: r.lift,
-    value: fmtKg(r.best.kg), open: (b) => openLift(r.key, b),
+    date: r.best.date, icon: '🏋️', what: r.lift, short: r.lift,
+    value: fmtSet(r.best), open: (b) => openLift(r.key, b),
   }));
   const wods = wodBoard(state.wods.workouts, state.wods.results, state.today, 7).filter((r) => r.recent && r.prev).map((r) => ({
     date: r.best.date, icon: '⏱️', what: r.scaled ? `${r.workout.name} · ${t('Scaled')}` : r.workout.name, short: r.workout.name,

@@ -4,7 +4,7 @@
 // leaves it out.
 
 import { logged, mean } from './format.js';
-import { bestEntries, trainingDays, wodBestResults } from './health.js';
+import { bestEntries, liftBetter, liftKey, trainingDays, wodBestResults } from './health.js';
 
 // The years with data, newest first.
 export const yearsOf = (days) => [...new Set(days.map((d) => d.date.slice(0, 4)))].sort().reverse();
@@ -31,15 +31,16 @@ export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], 
   const trained = [...trainingDays(days, noted).entries()].filter(([date]) => inYear(date));
   const longest = workouts.reduce((a, w) => (!a || (w.dur || 0) > (a.dur || 0) ? w : a), null);
 
-  // The bests set this year, one row per lift (and rep count) or benchmark
+  // The bests set this year, one row per lift (any reps) or benchmark
   // workout (Rx or scaled): where it stood when the year began, where it
   // ended and how many times it got better.
-  const liftBests = groupBests(bestEntries(lifts).filter((e) => inYear(e.date)), (e) => e.lift.toLowerCase() + '|' + e.reps)
+  const liftBests = groupBests(bestEntries(lifts).filter((e) => inYear(e.date)), liftKey)
     .map((list) => {
-      const key = list[0].lift.toLowerCase() + '|' + list[0].reps;
+      const key = liftKey(list[0]);
       // A new best always has an earlier result to beat: the best before it.
-      const before = lifts.filter((e) => e.lift.toLowerCase() + '|' + e.reps === key && e.date < list[0].date).map((e) => e.kg);
-      return { date: list.at(-1).date, name: list.at(-1).lift, reps: list[0].reps, kg: list.at(-1).kg, n: list.length, from: before.length ? Math.max(...before) : null };
+      const before = lifts.filter((e) => liftKey(e) === key && e.date < list[0].date).reduce((a, e) => (!a || liftBetter(e, a) ? e : a), null);
+      const last = list.at(-1);
+      return { date: last.date, name: last.lift, reps: last.reps, kg: last.kg, n: list.length, from: before?.kg ?? null, fromReps: before?.reps ?? null };
     });
   const wodById = new Map(wods.workouts.map((w) => [w.id, w]));
   const wodBests = groupBests(wodBestResults(wods.workouts, wods.results).filter((r) => inYear(r.date)), (r) => r.workout + '|' + !!r.scaled)

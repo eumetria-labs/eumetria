@@ -170,7 +170,7 @@ The Training card has three tabs: **Overview** (this week, training load, VO2 ma
 
 Every chart's legend switches its lines, bars or zones on and off with a tap (one always stays), and the device remembers it per chart; on the routes map it does the same per workout type. The calorie chart starts with what you ate, the goal incl. activity and the base goal; the 7-day average and **Burned (Fitbit)** are a tap away. The Eumetria scores chart shows 7-day averages when a range has more than a week of days; the tooltip has the day's own score too.
 
-**Lifts.** Under **Personal bests** you note your results in lifts such as Power Clean, Strict Press or Split Jerk: weight, reps (1 for a one-rep max), date and an optional note, with **Add result**. Each lift and rep count keeps its heaviest result as the best, with the gain over the one before; selecting it shows every result and the training weights from 50 to 95 % of the one-rep max (estimated from a 3- or 5-rep max with Epley's formula); selecting a weight shows the plates for each side of a 20, 15 or 10 kg bar. The window also charts the results over time and shows each one as a multiple of your bodyweight that week (from the Yazio weigh-ins). Everyone with `view.health` sees them, `edit.lifts` writes them. They live in `app.db`, so they are backed up.
+**Lifts.** Under **Personal bests** you note your results in lifts such as Power Clean, Strict Press or Split Jerk: weight, reps (1 for a one-rep max), date and an optional note, with **Add result**. Each lift has one best whatever the reps: its heaviest result, and at the same weight the one with more reps (2 × 50 kg beats 1 × 50 kg; 5 × 48 kg doesn't), with the gain over the one before. Selecting it shows every result, the heaviest per rep count (**Rep maxes**), the progress with one line per rep count, and the training weights from 50 to 95 % of the one-rep max (estimated from a 3- or 5-rep max with Epley's formula); selecting a weight shows the plates for each side of a 20, 15 or 10 kg bar. The window also shows each result as a multiple of your bodyweight that week (from the Yazio weigh-ins). A result can belong to the Fitbit workout it was lifted in: open the workout (day window → **Activities**) and **Add lift** under **Lifts**. It takes the workout's date, the day's activity row shows the lift's name, and in the lift's history the result links back to its workout. Everyone with `view.health` sees them, `edit.lifts` writes them. They live in `app.db`, so they are backed up.
 
 **Benchmark workouts.** Next to the lifts, **New workout** creates a workout you do again and again: a famous one like Fran, Cindy or Murph (typing its name fills in the rest) or one your box repeats. It has a name, how it is scored (for time, rounds and reps, reps or weight) and the workout as written; each result then gets a date, an optional note and **Scaled** when you did it lighter or easier, which keeps its own best. A workout for time can have a time cap: a result that didn't finish in it is noted as the reps done and ranks below every finished time. A result can belong to the Fitbit workout it was done in: open the workout (day window → **Activities**), pick the benchmark workout under **Benchmark workout** (or create it there) and add the result. It takes the workout's date, the day's activity row shows the WOD's name, and in the WOD's history the result links back to its workout. How a workout is scored can't change once it has results. Its window charts the results (faster is up for times). Same scopes as lifts.
 
@@ -283,6 +283,12 @@ go run ./cmd/eumetria -debug-week 2026-10-15 -dry-run   # without -dry-run Claud
 ```
 
 Links can open a view: `#range=7|30|90|365|all`, `day=YYYY-MM-DD`, `tab=breakfast|lunch|dinner|snack|activities|sleep`, `workout=<id>`, `food=<name>`, `activity=<name>`, e.g. `#range=30&day=2026-10-13&tab=sleep`.
+
+# Community
+
+Join the Discord Community and start connecting.
+
+[![Join Discord](https://dcbadge.limes.pink/api/server/https://discord.gg/dqJ7JPdsQ4)](https://discord.gg/dqJ7JPdsQ4)
 
 ## ⚠️ Unofficial API
 

@@ -109,11 +109,18 @@ func TestAddLifts(t *testing.T) {
 		{ID: 4, Lift: "Back Squat", Kg: 100, Reps: 5, Date: "2026-10-19"},                    // the first
 		{ID: 5, Lift: "Back Squat", Kg: 120, Reps: 5, Date: "2026-10-22"},                    // after today
 		{ID: 6, Lift: "Snatch", Kg: 50, Reps: 1, Date: "2026-10-12"},                         // the week before
+		// Rep counts share one best: as heavy for more reps beats it, lighter
+		// for more reps doesn't.
+		{ID: 7, Lift: "Strict Press", Kg: 50, Reps: 1, Date: "2026-10-05"},
+		{ID: 8, Lift: "Strict Press", Kg: 50, Reps: 2, Date: "2026-10-19"},
+		{ID: 9, Lift: "Strict Press", Kg: 40, Reps: 3, Date: "2026-10-20"},
 	})
 	want := []Lift{
 		{Date: "2026-10-19", Lift: "Power Clean", Kg: 75, Reps: 1},
 		{Date: "2026-10-19", Lift: "Back Squat", Kg: 100, Reps: 5, First: true},
-		{Date: "2026-10-20", Lift: "power clean", Kg: 82.5, Reps: 1, Best: true, PrevKg: 80, Note: "finally"},
+		{Date: "2026-10-19", Lift: "Strict Press", Kg: 50, Reps: 2, Best: true, PrevKg: 50, PrevReps: 1},
+		{Date: "2026-10-20", Lift: "power clean", Kg: 82.5, Reps: 1, Best: true, PrevKg: 80, PrevReps: 1, Note: "finally"},
+		{Date: "2026-10-20", Lift: "Strict Press", Kg: 40, Reps: 3},
 	}
 	if len(w.Lifts) != len(want) {
 		t.Fatalf("lifts = %+v", w.Lifts)

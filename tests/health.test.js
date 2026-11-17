@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares, strengthTrend } from '../site/js/health.js';
+import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, liftBetter, linkSuggestions, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares, strengthTrend } from '../site/js/health.js';
 
 test('zoneOf uses the lower bounds of moderate, vigorous and peak', () => {
   const limits = [109, 133, 163];
@@ -95,25 +95,30 @@ test('loadLabel names the training load', () => {
   assert.equal(loadLabel(0.6), 'lighter than usual');
 });
 
-test('liftBoard keeps one best per lift and rep count, with its gain', () => {
+test('liftBoard keeps one best per lift, any reps, with its gain', () => {
   const e = (id, lift, kg, reps, date) => ({ id, lift, kg, reps, date });
   const rows = liftBoard([
     e(1, 'Power Clean', 70, 1, '2026-05-01'),
     e(2, 'power clean', 75, 1, '2026-08-01'),
     e(3, 'Power Clean', 72.5, 1, '2026-10-01'), // not a best: after it, and lighter
     e(4, 'Power Clean', 75, 1, '2026-11-01'), // equals the best: the first one counts
-    e(5, 'Back Squat', 100, 5, '2026-11-05'),
+    e(5, 'Back Squat', 100, 5, '2026-11-05'), // lighter than the single: no best
     e(6, 'Back Squat', 130, 1, '2026-02-01'),
+    e(7, 'Strict Press', 50, 1, '2026-10-01'),
+    e(8, 'Strict Press', 50, 2, '2026-11-09'), // as heavy for more reps: the best
   ], '2026-11-10');
-  assert.deepEqual(rows.map((r) => [r.lift, r.reps, r.best.kg, r.best.date, r.gain, r.recent]), [
-    ['Back Squat', 5, 100, '2026-11-05', null, true],
-    ['Power Clean', 1, 75, '2026-08-01', 5, false],
-    ['Back Squat', 1, 130, '2026-02-01', null, false],
+  assert.deepEqual(rows.map((r) => [r.lift, r.reps, r.best.kg, r.best.date, r.gain, r.gainReps, r.recent]), [
+    ['Strict Press', 2, 50, '2026-11-09', null, 1, true],
+    ['Power Clean', 1, 75, '2026-08-01', 5, null, false],
+    ['Back Squat', 1, 130, '2026-02-01', null, null, false],
   ]);
-  // The latest spelling names the lift.
+  // The latest spelling names the lift; every rep count is in its history.
   assert.equal(rows[1].lift, 'Power Clean');
   assert.equal(rows[1].entries.length, 4);
+  assert.equal(rows[2].entries.length, 2);
+  assert.deepEqual(rows[2].repMaxes.map((x) => [x.reps, x.kg]), [[1, 130], [5, 100]]);
   assert.deepEqual(liftBoard([], '2026-11-10'), []);
+  assert.ok(liftBetter({ kg: 50, reps: 2 }, { kg: 50, reps: 1 }) && !liftBetter({ kg: 48, reps: 5 }, { kg: 50, reps: 1 }));
 });
 
 test('one-rep max estimate and percentages', () => {
@@ -129,7 +134,7 @@ test('bests count only when they beat an earlier result, and meet that morningâ€
   const entries = [
     e(1, 'Snatch', 60, '2026-10-01'), e(2, 'snatch', 62, '2026-10-05'), e(3, 'Snatch', 61, '2026-10-06'),
     e(4, 'Snatch', 65, '2026-10-09'), e(5, 'Back Squat', 100, '2026-10-02', 5), e(6, 'Back Squat', 105, '2026-10-07', 5),
-    e(7, 'Back Squat', 120, '2026-10-03'), // a different rep count: a first result
+    e(7, 'Back Squat', 90, '2026-10-03'), // a single, but lighter than the 5 Ã— 100 before: no best
   ];
   assert.deepEqual(bestDays(entries), ['2026-10-05', '2026-10-07', '2026-10-09']);
   const byDate = new Map();
@@ -214,4 +219,25 @@ test('strength over time takes the best estimate of each day across rep counts',
   assert.deepEqual(p.map((x) => [x.date, Math.round(x.est * 100) / 100, x.pb]), [['2026-01-01', 105, false], ['2026-02-01', 110, true], ['2026-03-01', 100, false]]);
   assert.equal(p[0].ratio, 105 / 80);
   assert.equal(p[2].ratio, null);
+});
+
+test('link suggestions: unlinked results on days with workouts, walks aside', () => {
+  const byDate = new Map([
+    ['2026-11-16', { workouts: [{ id: 'cf', type: 'CROSSFIT' }, { id: 'walk', type: 'WALKING' }] }],
+    ['2026-11-14', { workouts: [{ id: 'a', type: 'WEIGHTS' }, { id: 'b', type: 'RUNNING' }] }],
+    ['2026-11-12', { workouts: [{ id: 'w2', type: 'WALKING' }] }],
+  ]);
+  const lifts = [
+    { id: 1, lift: 'Strict Press', kg: 50, reps: 2, date: '2026-11-16' }, // one workout besides the walk
+    { id: 2, lift: 'Snatch', kg: 60, reps: 1, date: '2026-11-14' }, // two: the person picks
+    { id: 3, lift: 'Snatch', kg: 55, reps: 1, date: '2026-11-12' }, // only a walk
+    { id: 4, lift: 'Snatch', kg: 50, reps: 1, date: '2026-11-10' }, // no workouts
+    { id: 5, lift: 'Snatch', kg: 62, reps: 1, date: '2026-11-16', fitbit_workout: 'cf' }, // linked already
+  ];
+  const results = [{ id: 9, workout: 1, value: 300, date: '2026-11-16' }];
+  assert.deepEqual(linkSuggestions(lifts, results, byDate).map((s) => [s.kind, s.item.id, s.candidates.map((w) => w.id), s.pick]), [
+    ['lift', 1, ['cf'], 'cf'],
+    ['wod', 9, ['cf'], 'cf'],
+    ['lift', 2, ['a', 'b'], null],
+  ]);
 });
