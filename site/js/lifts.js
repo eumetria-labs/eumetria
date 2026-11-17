@@ -5,7 +5,7 @@
 // day, perhaps in a Fitbit workout; a lift has one best whatever the reps
 // (the heaviest, more reps at the same weight), the rest is its history.
 
-import { NUM_LOCALE, actLabel, dfLong, dfShort, dfMonthYear, parse } from './format.js';
+import { NUM_LOCALE, actLabel, dfLong, dfShort, dfMonthYear, fmt, fmtDuration, parse } from './format.js';
 import { COMMON_LIFTS, bestDays, bestsReadiness, liftBoard, liftMarks, linkableWorkouts, liftSet, loadable, oneRepMax, percentages, platesFor, strengthTrend, wodBestDays, workoutIcon, workoutName } from './health.js';
 import { openWorkout } from './workout.js';
 import { $, emoji, h, nameCell } from './dom.js';
@@ -38,6 +38,14 @@ export function liftGain(e, before) {
   if (e.kg > before.kg) return gainKg(e.kg - before.kg);
   return e.reps > before.reps ? tn(e.reps - before.reps, '+{n} rep', '+{n} reps') : '';
 }
+
+// How hard a Fitbit workout was, for the result done in it: "95 min · avg
+// 138 bpm · 141 zone min", each part only when the workout has it.
+export const sessionSummary = (w) => [
+  w.dur ? fmtDuration(w.dur / 60) : '',
+  w.hr_avg ? t('avg {bpm} bpm', { bpm: fmt(w.hr_avg) }) : '',
+  w.azm ? t('{n} zone min', { n: fmt(w.azm) }) : '',
+].filter(Boolean).join(' · ');
 
 // The Fitbit workout an entry was lifted in, if the page has it.
 export function liftWorkout(e) {
@@ -415,7 +423,7 @@ function historySection(r, redraw) {
     }
     const ready = readinessOn(e.date);
     const bw = bodyweight(e);
-    const note = [pb ? liftGain(e, before) : '', bw ? t('{x}× BW', { x: nfX.format(bw) }) : '', ready != null ? t('Readiness {value}', { value: ready }) : '', e.note].filter(Boolean).join(' · ');
+    const note = [pb ? liftGain(e, before) : '', session ? sessionSummary(session.w) : '', bw ? t('{x}× BW', { x: nfX.format(bw) }) : '', ready != null ? t('Readiness {value}', { value: ready }) : '', e.note].filter(Boolean).join(' · ');
     row.append(name, h('span', { class: 'amt' }, note), h('span', { class: 'val' }, fmtSet(e)));
     if (mayEditLifts()) {
       const edit = h('button', { class: 'icon-btn lift-edit', type: 'button', 'aria-label': t('Change the result of {date}', { date: dfLong.format(parse(e.date)) }), title: t('Edit') }, '✎');

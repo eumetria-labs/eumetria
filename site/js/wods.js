@@ -14,7 +14,7 @@ import { drawProgress, progressChart } from './charts.js';
 import { chart, list, shareTools, textLines, tiles } from './share.js';
 import { openDialog } from './dialog.js';
 import { api, reason } from './account.js';
-import { fmtKg, fmtSet, liftGain, liftSeries, mayEditLifts, notifyBests, openLift } from './lifts.js';
+import { fmtKg, fmtSet, liftGain, liftSeries, mayEditLifts, notifyBests, openLift, sessionSummary } from './lifts.js';
 import { state } from './state.js';
 import { t } from './i18n.js';
 
@@ -104,7 +104,8 @@ export function renderWods() {
 
 // The results noted on a day, lifts first, each with whether it was a new
 // best and what it beat: { kind, id, key, icon, name, tag, value, pb, gain,
-// note } (gain: "+2,5 kg" or "was 5:40"). The day window lists them, and
+// note, session } (gain: "+2,5 kg" or "was 5:40"; session: the id of the
+// Fitbit workout it is linked to, or ''). The day window lists them, and
 // they are the day's share card (cards.js).
 export function notedOn(date) {
   const out = [];
@@ -116,7 +117,7 @@ export function notedOn(date) {
   const lifted = [...byKey.entries()].flatMap(([key, list]) => liftMarks(list).filter((m) => m.e.date === date).map((m) => ({ key, ...m })))
     .sort((a, b) => a.e.id - b.e.id);
   for (const { key, e, pb, before } of lifted) {
-    out.push({ kind: 'lift', id: e.id, key, icon: '🏋️', name: e.lift, tag: '', value: fmtSet(e), pb, gain: pb ? liftGain(e, before) : '', note: e.note || '', progress: () => liftProgress(key) });
+    out.push({ kind: 'lift', id: e.id, key, icon: '🏋️', name: e.lift, tag: '', value: fmtSet(e), pb, gain: pb ? liftGain(e, before) : '', note: e.note || '', session: e.fitbit_workout || '', progress: () => liftProgress(key) });
   }
   const byId = new Map(state.wods.workouts.map((w) => [w.id, w]));
   const best = new Map();
@@ -128,7 +129,7 @@ export function notedOn(date) {
     const better = !before || betterResult(w.scoring, r, before);
     if (r.date === date) {
       const pb = !!before && better;
-      out.push({ kind: 'wod', id: w.id, key, icon: '⏱️', name: w.name, tag: r.scaled ? t('Scaled') : '', value: fmtResult(w.scoring, r, true), pb, gain: pb ? t('was {result}', { result: fmtResult(w.scoring, before, true) }) : '', note: r.note || '', progress: () => wodProgress(w, !!r.scaled) });
+      out.push({ kind: 'wod', id: w.id, key, icon: '⏱️', name: w.name, tag: r.scaled ? t('Scaled') : '', value: fmtResult(w.scoring, r, true), pb, gain: pb ? t('was {result}', { result: fmtResult(w.scoring, before, true) }) : '', note: r.note || '', session: r.fitbit_workout || '', progress: () => wodProgress(w, !!r.scaled) });
     }
     if (better) best.set(key, r);
   }
@@ -385,7 +386,7 @@ function resultsSection(w, redraw) {
       name.append(go);
     }
     const ready = state.byDate?.get(r.date)?.scores?.readiness?.value;
-    const note = [was ? t('was {result}', { result: fmtResult(w.scoring, was, true) }) : '', ready != null ? t('Readiness {value}', { value: ready }) : '', r.note].filter(Boolean).join(' · ');
+    const note = [was ? t('was {result}', { result: fmtResult(w.scoring, was, true) }) : '', linked ? sessionSummary(linked.w) : '', ready != null ? t('Readiness {value}', { value: ready }) : '', r.note].filter(Boolean).join(' · ');
     row.append(name, h('span', { class: 'amt' }, note), h('span', { class: 'val', title: fmtResult(w.scoring, r) }, fmtResult(w.scoring, r, true)));
     if (mayEditLifts()) {
       const edit = h('button', { class: 'icon-btn lift-edit', type: 'button', 'aria-label': t('Change the result of {date}', { date: dfLong.format(parse(r.date)) }), title: t('Edit') }, '✎');

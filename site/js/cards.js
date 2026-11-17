@@ -116,10 +116,18 @@ export async function workoutCard(day, w, { route: withRoute, note: withNote } =
   if (w.name && actName(w.name) !== workoutName(w.type)) sub.unshift(w.name);
   const shares = w.zones?.some((z) => z > 0) ? zoneShares(w.zones) : null;
   const note = withNote ? noteOf(w.id) : null;
+  // The lifts and benchmark results noted in this session, new bests marked.
+  const done = notedOn(day.date).filter((x) => x.session === w.id);
   return {
     icon: workoutIcon(w.type), title: actLabel(workoutName(w.type)), sub: sub.join(' · '), accent: 'z3',
     blocks: [
       tiles(items),
+      done.length && list(done.map((x) => ({
+        icon: x.icon,
+        name: [x.name, x.tag].filter(Boolean).join(' · '),
+        note: x.pb ? [t('New PB'), x.gain].filter(Boolean).join(' · ') : x.note,
+        value: x.value,
+      })), t('Done in this session'), { rowH: 34, minRows: 1 }),
       note && textLines(noteLines(note.markdown), t('Note')),
       w.hr?.length > 1 && chart((g, box) => drawHeartRate(g, w, box.w, box.h), { h: 170, min: 100, max: 240, title: t('Heart rate') }),
       shares && splitBar(ZONES.map((z, i) => ({ cls: z.cls, label: z.label, value: `${shares[i].min} min`, share: shares[i].pct / 100 })).reverse(), t('Heart rate zones')),

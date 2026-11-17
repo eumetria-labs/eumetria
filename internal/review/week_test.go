@@ -197,3 +197,29 @@ func TestClip(t *testing.T) {
 		t.Errorf("long note: %d runes", len(got))
 	}
 }
+
+// A lift or benchmark result linked to a Fitbit workout of the week says
+// which activity it was done in, as that day's activity row names it.
+func TestResultsDoneIn(t *testing.T) {
+	monday, _ := time.Parse(time.DateOnly, "2026-11-16")
+	out := stats.Output{Days: []stats.Day{{Date: "2026-11-16", Workouts: []stats.Workout{
+		{ID: "cf", Type: "CrossFit", Start: "16:25"},
+		{ID: "walk", Type: "Walking", Start: "08:10"},
+	}}}}
+	w := BuildWeek(out, monday, "2026-11-22")
+	w.AddLifts([]lifts.Entry{
+		{ID: 1, Lift: "Strict Press", Kg: 50, Reps: 2, Date: "2026-11-16", FitbitWorkout: "cf"},
+		{ID: 2, Lift: "Snatch", Kg: 60, Reps: 1, Date: "2026-11-16"},
+		{ID: 3, Lift: "Clean", Kg: 80, Reps: 1, Date: "2026-11-16", FitbitWorkout: "gone"}, // not in the data
+	})
+	w.AddBenchmarks([]wods.Workout{{ID: 1, Name: "Fran", Scoring: wods.Time}}, []wods.Result{{ID: 1, Workout: 1, Value: 300, Date: "2026-11-16", FitbitWorkout: "cf"}})
+	if got := []string{w.Lifts[0].DoneIn, w.Lifts[1].DoneIn, w.Lifts[2].DoneIn}; strings.Join(got, "|") != "CrossFit at 16:25||" {
+		t.Errorf("lifts done in %q", got)
+	}
+	if len(w.Benchmarks) != 1 || w.Benchmarks[0].DoneIn != "CrossFit at 16:25" {
+		t.Errorf("benchmarks = %+v", w.Benchmarks)
+	}
+	if a := w.Days[0].Activities; len(a) != 2 || a[0].Name != "CrossFit" || a[0].Start != "16:25" {
+		t.Errorf("activities = %+v", a)
+	}
+}

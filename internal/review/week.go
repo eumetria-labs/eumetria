@@ -42,6 +42,10 @@ type Week struct {
 	// week (a cut, a bulk, …) and the events in it or ahead.
 	Phases []Phase `json:"phases,omitempty"`
 	Events []Event `json:"events,omitempty"`
+
+	// The week's Fitbit workouts by id, as their activity rows name them
+	// ("CrossFit at 16:25"): where a linked lift or benchmark was done.
+	sessions map[string]string
 }
 
 // Phase is a stretch of days with a purpose the person noted.
@@ -82,6 +86,8 @@ type Benchmark struct {
 	Prev  string `json:"previous_best,omitempty"`
 	First bool   `json:"first_result_noted,omitempty"`
 	Note  string `json:"note,omitempty"`
+	// The activity of that day it was done in, if linked to one.
+	DoneIn string `json:"done_in,omitempty"`
 }
 
 // Lift is one noted result: kg lifted reps times.
@@ -98,6 +104,8 @@ type Lift struct {
 	PrevReps int     `json:"previous_best_reps,omitempty"`
 	First    bool    `json:"first_result_noted,omitempty"`
 	Note     string  `json:"note,omitempty"`
+	// The activity of that day it was lifted in, if linked to one.
+	DoneIn string `json:"done_in,omitempty"`
 }
 
 type Goals struct {
@@ -225,6 +233,12 @@ func BuildWeek(out stats.Output, monday time.Time, today string) Week {
 		}
 		days = append(days, d)
 		w.Days = append(w.Days, day(d, monday.AddDate(0, 0, i), out))
+		for _, x := range d.Workouts {
+			if w.sessions == nil {
+				w.sessions = map[string]string{}
+			}
+			w.sessions[x.ID] = sessionName(x)
+		}
 	}
 	// Today is still being logged: it stays out of the averages.
 	var complete []stats.Day
@@ -292,12 +306,8 @@ func day(d stats.Day, date time.Time, out stats.Output) Day {
 	linked := map[string]bool{}
 	for _, w := range d.Workouts {
 		linked[w.ID] = true
-		name := w.Name
-		if name == "" {
-			name = w.Type
-		}
 		o.Activities = append(o.Activities, Activity{
-			Name: name, Start: w.Start, Duration: dur(w.Duration / 60), Kcal: w.Energy,
+			Name: activityName(w), Start: w.Start, Duration: dur(w.Duration / 60), Kcal: w.Energy,
 			Km: round1(w.Distance / 1000), AvgHR: w.AvgHR, MaxHR: w.MaxHR, ZoneMin: w.ZoneMin,
 		})
 	}
@@ -521,7 +531,7 @@ func (w *Week) AddLifts(all []lifts.Entry) {
 		prev, seen := best[key]
 		better := !seen || lifts.Better(e, prev)
 		if e.Date >= w.From && e.Date <= last {
-			l := Lift{Date: e.Date, Lift: clip(e.Lift, nameMax), Kg: e.Kg, Reps: e.Reps, Note: clip(e.Note, noteMax), First: !seen}
+			l := Lift{Date: e.Date, Lift: clip(e.Lift, nameMax), Kg: e.Kg, Reps: e.Reps, Note: clip(e.Note, noteMax), First: !seen, DoneIn: w.sessions[e.FitbitWorkout]}
 			if seen && better {
 				l.Best, l.PrevKg, l.PrevReps = true, prev.Kg, prev.Reps
 			}
@@ -565,7 +575,7 @@ func (w *Week) AddBenchmarks(workouts []wods.Workout, results []wods.Result) {
 		prev, seen := best[k]
 		better := !seen || wods.Better(wd.Scoring, r, prev)
 		if r.Date >= w.From && r.Date <= last {
-			b := Benchmark{Date: r.Date, Workout: clip(wd.Name, nameMax), Scoring: wd.Scoring, Result: wods.Format(wd.Scoring, r), Scaled: r.Scaled, Note: clip(r.Note, noteMax), First: !seen}
+			b := Benchmark{Date: r.Date, Workout: clip(wd.Name, nameMax), Scoring: wd.Scoring, Result: wods.Format(wd.Scoring, r), Scaled: r.Scaled, Note: clip(r.Note, noteMax), First: !seen, DoneIn: w.sessions[r.FitbitWorkout]}
 			if seen && better {
 				b.Best, b.Prev = true, wods.Format(wd.Scoring, prev)
 			}
@@ -575,6 +585,23 @@ func (w *Week) AddBenchmarks(workouts []wods.Workout, results []wods.Result) {
 			best[k] = r
 		}
 	}
+}
+
+// activityName is what a Fitbit workout's activity row is called.
+func activityName(w stats.Workout) string {
+	if w.Name != "" {
+		return clip(w.Name, nameMax)
+	}
+	return w.Type
+}
+
+// sessionName names a workout as its activity row does, with its start, so
+// a result can say which one of the day it was done in.
+func sessionName(w stats.Workout) string {
+	if w.Start == "" {
+		return activityName(w)
+	}
+	return activityName(w) + " at " + w.Start
 }
 
 // Free text goes to the model short and without control characters
