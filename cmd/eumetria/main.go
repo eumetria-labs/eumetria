@@ -84,7 +84,6 @@ type config struct {
 	dbPath  string // the app's own database (internal/db), serve mode only
 	// Whether a note embeds a note image, for the backup (set per run).
 	noteImageUsed func(name string) bool
-	historyPath   string
 	outPath       string // -out: a local copy of everything for the page; "" writes none
 	photoDir      string
 	since         string
@@ -144,14 +143,12 @@ func run() error {
 		googleAuthFlag = flag.Bool("google-auth", false, "authorize access to Google Health (Fitbit / Pixel Watch) in the browser, save the refresh token and exit")
 		debugWeek      = flag.String("debug-week", "", "write the AI review of the calendar week (Monday to Sunday) that contains this day (YYYY-MM-DD) from the local history and print it (needs ANTHROPIC_API_KEY; AI_MODEL, AI_EFFORT)")
 		decrypt        = flag.String("decrypt-backup", "", "decrypt this backup archive next to it, asking for the passphrase, and exit")
-		checkStoreFlag = flag.Bool("check-store", false, "compare history.json with the synced data in the database, record by record, and exit (fails when they differ)")
 		dryRun         = flag.Bool("dry-run", false, "with -debug-week: print the data that would be sent to Claude instead of sending it")
 		rewrite        = flag.Bool("rewrite-reviews", false, "write every stored weekly review again (English and German) into the history and exit; stop the server first (needs ANTHROPIC_API_KEY; AI_MODEL, AI_EFFORT)")
 		accounts       accountCommand
 		debugGoogleDay = flag.String("debug-google", "", "print the raw Google Health responses (workouts, GPS export, sleep, heart rate) for this day (YYYY-MM-DD) and exit")
 	)
 	flag.StringVar(&cfg.dataDir, "data", env("DATA_DIR", "data"), "folder for the history, photos, Google token and the app's database (app.db)")
-	flag.StringVar(&cfg.historyPath, "history", "", "private history file (default <data>/history.json)")
 	flag.StringVar(&cfg.outPath, "out", "", "without -serve: also write all of the data to this file (e.g. site/stats.json), with photos/, routes/ and days/ next to it, to work on the page from plain files")
 	flag.StringVar(&cfg.since, "since", env("YAZIO_SINCE", ""), "first day to backfill, YYYY-MM-DD")
 	flag.IntVar(&cfg.refreshDays, "refresh-days", envInt("YAZIO_REFRESH_DAYS", 3), "always re-fetch this many most recent days")
@@ -206,9 +203,6 @@ func run() error {
 	// Works on a file alone: no settings, no database.
 	if *decrypt != "" {
 		return decryptBackup(*decrypt)
-	}
-	if *checkStoreFlag {
-		return checkStore(ctx, cfg)
 	}
 
 	cfg.flags = map[string]bool{}
@@ -275,7 +269,6 @@ func (c *config) inData() {
 			*p = filepath.Join(c.dataDir, name)
 		}
 	}
-	def(&c.historyPath, "history.json")
 	def(&c.photoDir, "photos")
 	def(&c.googleToken, "google-token.json")
 	def(&c.backupDir, "backups")
@@ -408,9 +401,9 @@ func syncHistory(ctx context.Context, cfg config) (*store.History, error) {
 	if err := checkYazio(cfg.values); err != nil {
 		return nil, err
 	}
-	hist, err := store.Load(cfg.historyPath)
+	hist, err := loadHistory(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("loading history: %w", err)
+		return nil, fmt.Errorf("loading the synced data: %w", err)
 	}
 
 	w := window{start: start, today: today, now: now, refreshDays: cfg.refreshDays, refreshAll: cfg.refreshAll, workers: cfg.workers}

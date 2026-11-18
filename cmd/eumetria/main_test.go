@@ -10,7 +10,7 @@ func TestFilesDefaultToTheDataFolder(t *testing.T) {
 	c := config{dataDir: "/data"}
 	c.inData()
 	want := config{
-		dataDir: "/data", dbPath: "/data/app.db", historyPath: "/data/history.json",
+		dataDir: "/data", dbPath: "/data/app.db",
 		photoDir: "/data/photos", googleToken: "/data/google-token.json", backupDir: "/data/backups",
 	}
 	if !reflect.DeepEqual(c, want) {
@@ -21,7 +21,7 @@ func TestFilesDefaultToTheDataFolder(t *testing.T) {
 	// site/stats.json for the smoke test); the database follows the folder.
 	c = config{dataDir: "data", outPath: "site/stats.json"}
 	c.inData()
-	if c.outPath != "site/stats.json" || c.historyPath != filepath.Join("data", "history.json") || c.dbPath != filepath.Join("data", "app.db") {
+	if c.outPath != "site/stats.json" || c.dbPath != filepath.Join("data", "app.db") {
 		t.Errorf("got %+v", c)
 	}
 }

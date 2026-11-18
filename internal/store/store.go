@@ -1,4 +1,6 @@
-// Package store persists the fetched per-day history between sync runs.
+// Package store holds the synced history: in the app's database (sqlite.go;
+// query.go asks it questions). Load and Save read and write the history.json
+// it lived in until phase 4 of PLAN.md, for importing such a file.
 package store
 
 import (

@@ -108,6 +108,23 @@ var tables = map[string][2]string{
 	"off": {"off_products", "ean"}, "review": {"weekly_reviews", "week"}, "meta": {"synced_meta", "key"},
 }
 
+// savedAtKey is the synced_meta row with the time of the last save.
+const savedAtKey = "saved_at"
+
+// SavedAt is when the history was last saved; zero before the first save.
+func SavedAt(ctx context.Context, db *sql.DB) (time.Time, error) {
+	var data string
+	err := db.QueryRowContext(ctx, `SELECT data FROM synced_meta WHERE key = ?`, savedAtKey).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	var t time.Time
+	return t, json.Unmarshal([]byte(data), &t)
+}
+
 // HasSynced reports whether the database holds any synced data yet.
 func HasSynced(ctx context.Context, db *sql.DB) (bool, error) {
 	var n int
@@ -128,6 +145,9 @@ func (m *Mirror) load(ctx context.Context) error {
 			if err := rows.Scan(&key, &data); err != nil {
 				rows.Close()
 				return err
+			}
+			if kind == "meta" && key == savedAtKey {
+				continue // not a record of the history
 			}
 			seen[recordKey(kind, key)] = sha256.Sum256([]byte(data))
 		}
@@ -172,14 +192,16 @@ func (m *Mirror) Save(ctx context.Context, h *History) (Counts, error) {
 			gone = append(gone, k)
 		}
 	}
-	if len(changed) == 0 && len(gone) == 0 {
-		return c, nil
-	}
 	tx, err := m.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return c, err
 	}
 	defer tx.Rollback()
+	// When it was saved, also when nothing changed: the page's "updated".
+	if _, err := tx.ExecContext(ctx, `INSERT INTO synced_meta (key, data) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET data = excluded.data`,
+		savedAtKey, `"`+time.Now().UTC().Format(time.RFC3339Nano)+`"`); err != nil {
+		return c, err
+	}
 	for _, k := range gone {
 		kind, key, _ := strings.Cut(k, "\x00")
 		t := tables[kind]

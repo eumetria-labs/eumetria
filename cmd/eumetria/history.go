@@ -1,18 +1,19 @@
 package main
 
-// The synced data is moving from history.json into app.db (PLAN.md, phases
-// 3 and 4). For now history.json is what is read; every save of it is also
-// written to the database (internal/store, Mirror), and -check-store
-// compares the two.
+// The synced data (Yazio, Google Health, Open Food Facts, the weekly
+// reviews) lives in the app's database: internal/store, migration
+// 0024_synced.sql. Up to phase 4 of PLAN.md it lived in history.json; such a
+// file, left from then or restored with an older backup, is imported once
+// and renamed.
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"sort"
+	"path/filepath"
 	"sync"
+	"time"
 
 	"eumetria/internal/db"
 	"eumetria/internal/store"
@@ -25,8 +26,8 @@ var mirrors = struct {
 	byPath map[string]*store.Mirror
 }{byPath: map[string]*store.Mirror{}}
 
-// useDatabase lets the history's mirror use a connection that is open
-// anyway (serve mode) instead of opening its own.
+// useDatabase lets the history use a connection that is open anyway (serve
+// mode) instead of opening its own.
 func useDatabase(path string, d *db.DB) {
 	mirrors.Lock()
 	defer mirrors.Unlock()
@@ -35,19 +36,16 @@ func useDatabase(path string, d *db.DB) {
 	}
 }
 
-// mirrorFor is the mirror of cfg's database, or nil when the data folder
-// has none yet: a one-off sync doesn't make one.
+// mirrorFor is the mirror of cfg's database, which it makes when there is
+// none yet (a first one-off sync).
 func mirrorFor(ctx context.Context, cfg config) (*store.Mirror, error) {
 	mirrors.Lock()
 	defer mirrors.Unlock()
 	if m := mirrors.byPath[cfg.dbPath]; m != nil {
 		return m, nil
 	}
-	if cfg.dbPath == "" {
-		return nil, nil
-	}
-	if _, err := os.Stat(cfg.dbPath); err != nil {
-		return nil, nil
+	if err := os.MkdirAll(filepath.Dir(cfg.dbPath), 0o700); err != nil {
+		return nil, err
 	}
 	d, err := db.Open(ctx, cfg.dbPath)
 	if err != nil {
@@ -58,107 +56,72 @@ func mirrorFor(ctx context.Context, cfg config) (*store.Mirror, error) {
 	return m, nil
 }
 
-// saveHistory writes h to history.json, then the records that changed to
-// the database. history.json is what counts for now: a failure with the
-// database is logged, it doesn't fail the sync.
+// loadHistory reads the synced data from the database, after importing a
+// history.json the data folder still has.
+func loadHistory(ctx context.Context, cfg config) (*store.History, error) {
+	m, err := mirrorFor(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := importHistoryFile(ctx, cfg, m); err != nil {
+		return nil, err
+	}
+	return store.LoadDB(ctx, m.DB)
+}
+
+// saveHistory writes the records of h that changed to the database.
 func saveHistory(ctx context.Context, cfg config, h *store.History) error {
-	if err := h.Save(cfg.historyPath); err != nil {
+	m, err := mirrorFor(ctx, cfg)
+	if err != nil {
 		return err
 	}
-	mirrorHistory(ctx, cfg, h)
+	c, err := m.Save(ctx, h)
+	if err != nil {
+		return err
+	}
+	if c.Written+c.Deleted > 0 {
+		log.Printf("database: synced data %v", c)
+	}
 	return nil
 }
 
-func mirrorHistory(ctx context.Context, cfg config, h *store.History) {
-	m, err := mirrorFor(ctx, cfg)
-	if err == nil && m != nil {
-		var c store.Counts
-		if c, err = m.Save(ctx, h); err == nil && c.Written+c.Deleted > 0 {
-			log.Printf("database: synced data %v", c)
-		}
-	}
+// importHistoryFile copies <data>/history.json into the database and renames
+// it to history.json.imported-<date>. Only a file newer than the database's
+// last save is copied (the one phase 3 kept next to it, or one restored
+// with an older backup); an older one is only renamed, so a stray copy
+// can't turn back what was synced since.
+func importHistoryFile(ctx context.Context, cfg config, m *store.Mirror) error {
+	path := filepath.Join(filepath.Dir(cfg.dbPath), "history.json")
+	info, err := os.Stat(path)
 	if err != nil {
-		log.Printf("database: writing the synced data failed (history.json has it): %v", err)
+		return nil
 	}
-}
-
-// checkStore compares history.json with the synced data in the database,
-// record by record, and fails when they differ (-check-store).
-func checkStore(ctx context.Context, cfg config) error {
-	file, err := store.Load(cfg.historyPath)
-	if err != nil {
-		return fmt.Errorf("loading %s: %w", cfg.historyPath, err)
-	}
-	if _, err := os.Stat(cfg.dbPath); err != nil {
-		return fmt.Errorf("no database at %s", cfg.dbPath)
-	}
-	d, err := db.Open(ctx, cfg.dbPath)
+	saved, err := store.SavedAt(ctx, m.DB)
 	if err != nil {
 		return err
 	}
-	defer d.Close()
-	saved, err := store.LoadDB(ctx, d.DB)
-	if err != nil {
-		return fmt.Errorf("reading the database: %w", err)
-	}
-	diffs := compareHistories(file, saved)
-	sizes := fmt.Sprintf("%d days, %d foods, %d health days, %d Open Food Facts products, %d reviews",
-		len(file.Days), len(file.Foods), len(file.Health), len(file.OFF), len(file.Reviews))
-	if len(diffs) == 0 {
-		fmt.Printf("history.json and the database hold the same: %s\n", sizes)
-		return nil
-	}
-	for _, d := range diffs {
-		fmt.Println(d)
-	}
-	return fmt.Errorf("%d differences between history.json (%s) and the database", len(diffs), sizes)
-}
-
-// compareHistories lists what differs between a and b, by part and key:
-// "day 2026-11-17: differs", "food recipe:x: only in history.json".
-func compareHistories(a, b *store.History) []string {
-	var out []string
-	part := func(name string, x, y map[string]json.RawMessage) {
-		keys := map[string]bool{}
-		for k := range x {
-			keys[k] = true
+	if has, err := store.HasSynced(ctx, m.DB); err != nil {
+		return err
+	} else if !has || info.ModTime().After(saved) {
+		h, err := store.Load(path)
+		if err != nil {
+			return fmt.Errorf("importing %s: %w", path, err)
 		}
-		for k := range y {
-			keys[k] = true
+		c, err := m.Save(ctx, h)
+		if err != nil {
+			return fmt.Errorf("importing %s: %w", path, err)
 		}
-		list := make([]string, 0, len(keys))
-		for k := range keys {
-			list = append(list, k)
-		}
-		sort.Strings(list)
-		for _, k := range list {
-			p, inX := x[k]
-			q, inY := y[k]
-			switch {
-			case !inY:
-				out = append(out, fmt.Sprintf("%s %s: only in history.json", name, k))
-			case !inX:
-				out = append(out, fmt.Sprintf("%s %s: only in the database", name, k))
-			case string(p) != string(q):
-				out = append(out, fmt.Sprintf("%s %s: differs", name, k))
-			}
-		}
+		log.Printf("database: imported %s (%d days, %d health days; %v)", path, len(h.Days), len(h.Health), c)
+	} else {
+		log.Printf("database: %s is older than the synced data (saved %s), not imported", path, saved.Format(time.DateTime))
 	}
-	part("day", raw(a.Days), raw(b.Days))
-	part("food", raw(a.Foods), raw(b.Foods))
-	part("health", raw(a.Health), raw(b.Health))
-	part("off", raw(a.OFF), raw(b.OFF))
-	part("review", raw(a.Reviews), raw(b.Reviews))
-	part("meta", raw(map[string]any{"health_from": a.HealthFrom, "devices": a.Devices, "health_sync": a.HealthSync, "review_state": a.ReviewState}),
-		raw(map[string]any{"health_from": b.HealthFrom, "devices": b.Devices, "health_sync": b.HealthSync, "review_state": b.ReviewState}))
-	return out
-}
-
-func raw[V any](m map[string]V) map[string]json.RawMessage {
-	out := make(map[string]json.RawMessage, len(m))
-	for k, v := range m {
-		b, _ := json.Marshal(v)
-		out[k] = b
+	to := path + ".imported-" + time.Now().Format("2006-01-02")
+	if _, err := os.Stat(to); err == nil {
+		to = path + ".imported-" + time.Now().Format("2006-01-02-150405")
 	}
-	return out
+	if err := os.Rename(path, to); err != nil {
+		return err
+	}
+	log.Printf("database: renamed it to %s; delete it once all is well", filepath.Base(to))
+	return nil
 }

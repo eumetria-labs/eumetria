@@ -58,7 +58,12 @@ export function clockAt(t) {
 export async function launch(chrome, { now } = {}) {
   const profile = await mkdtemp(join(tmpdir(), 'eumetria-chrome-'));
   const p = spawn(chrome, ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-    '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' });
+    '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], {
+    stdio: 'ignore',
+    // Chrome's own temporary files (.com.google.Chrome.*) into the profile,
+    // which is removed afterwards: left in /tmp they pile up run after run.
+    env: { ...process.env, TMPDIR: profile },
+  });
   const exited = new Promise((ok) => p.once('exit', ok));
   try {
     const cdp = await connect(profile);

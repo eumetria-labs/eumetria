@@ -1,6 +1,6 @@
 // Package db is the app's own database: one SQLite file (app.db in the data
 // folder) for what people write through the app, such as users, sessions,
-// notes and settings. The synced data stays in history.json (internal/store).
+// notes and settings, and the synced data (internal/store, sqlite.go).
 //
 // The schema lives in migrations/NNNN_name.sql, compiled into the binary and
 // applied in order when the database is opened. SQLite's user_version holds

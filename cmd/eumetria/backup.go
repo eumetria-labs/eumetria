@@ -55,7 +55,7 @@ func writeBackup(ctx context.Context, cfg config, snapshot func(context.Context,
 		Dir: cfg.backupDir, Now: now, Passphrase: v.BackupPassphrase, Generation: v.BackupPassphraseAt, Snapshot: snapshot,
 		Skip: skipUnusedNoteImages(cfg.noteImageUsed),
 		Files: map[string]string{
-			"history.json": cfg.historyPath, "google-token.json": cfg.googleToken, "photos": cfg.photoDir,
+			"google-token.json": cfg.googleToken, "photos": cfg.photoDir,
 			"avatars": filepath.Join(cfg.dataDir, "avatars"), "note-images": filepath.Join(cfg.dataDir, "note-images"),
 		},
 	})

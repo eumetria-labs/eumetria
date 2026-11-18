@@ -2,68 +2,105 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"eumetria/internal/db"
 	"eumetria/internal/demo"
 	"eumetria/internal/store"
 )
 
-func TestHistoryGoesToTheDatabaseToo(t *testing.T) {
-	ctx := context.Background()
+func historyConfig(t *testing.T) (config, string) {
 	dir := t.TempDir()
-	cfg := config{historyPath: filepath.Join(dir, "history.json"), dbPath: filepath.Join(dir, "app.db")}
+	return config{dataDir: dir, dbPath: filepath.Join(dir, "app.db")}, dir
+}
 
-	// Without a database (a one-off sync) only history.json is written.
+func sameHistory(t *testing.T, got, want *store.History) {
+	t.Helper()
+	a, _ := json.Marshal(got)
+	b, _ := json.Marshal(want)
+	if string(a) != string(b) {
+		t.Fatalf("history differs (%d vs %d bytes)", len(a), len(b))
+	}
+}
+
+func imported(t *testing.T, dir string) string {
+	t.Helper()
+	m, _ := filepath.Glob(filepath.Join(dir, "history.json.imported-*"))
+	if len(m) != 1 {
+		t.Fatalf("renamed files = %v, want one", m)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "history.json")); err == nil {
+		t.Fatal("history.json is still there")
+	}
+	return m[0]
+}
+
+func TestHistoryLivesInTheDatabase(t *testing.T) {
+	ctx := context.Background()
+	cfg, dir := historyConfig(t)
+
+	// A first sync makes the database and reads back what it saved.
 	h := demo.History(time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC), 30)
 	if err := saveHistory(ctx, cfg, h); err != nil {
 		t.Fatal(err)
 	}
-	d, err := db.Open(ctx, cfg.dbPath)
+	if _, err := os.Stat(filepath.Join(dir, "history.json")); err == nil {
+		t.Error("a save wrote history.json")
+	}
+	got, err := loadHistory(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
-	if ok, _ := store.HasSynced(ctx, d.DB); ok {
-		t.Fatal("a database appeared without one being there")
-	}
-
-	// With one, each save writes it too, and -check-store agrees.
-	useDatabase(cfg.dbPath, d)
-	if err := saveHistory(ctx, cfg, h); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkStore(ctx, cfg); err != nil {
-		t.Fatalf("check after a save: %v", err)
-	}
-
-	// A change only in history.json is found, by record.
-	var day string
-	for k := range h.Days {
-		day = k
-		break
-	}
-	h.Days[day].Steps++
-	if err := h.Save(cfg.historyPath); err != nil {
-		t.Fatal(err)
-	}
-	err = checkStore(ctx, cfg)
-	if err == nil || !strings.Contains(err.Error(), "1 differences") {
-		t.Fatalf("check after a change only in history.json = %v", err)
-	}
-	if diffs := compareHistories(h, mustLoadDB(t, d)); len(diffs) != 1 || diffs[0] != "day "+day+": differs" {
-		t.Errorf("differences = %q", diffs)
-	}
+	sameHistory(t, got, h)
 }
 
-func mustLoadDB(t *testing.T, d *db.DB) *store.History {
-	t.Helper()
-	h, err := store.LoadDB(context.Background(), d.DB)
+func TestHistoryFileIsImportedOnce(t *testing.T) {
+	ctx := context.Background()
+	cfg, dir := historyConfig(t)
+	h := demo.History(time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC), 30)
+	if err := h.Save(filepath.Join(dir, "history.json")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadHistory(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return h
+	sameHistory(t, got, h)
+	imported(t, dir)
+	// The next start reads the database alone.
+	again, err := loadHistory(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameHistory(t, again, h)
+}
+
+func TestOlderHistoryFileIsNotImported(t *testing.T) {
+	ctx := context.Background()
+	cfg, dir := historyConfig(t)
+	newer := demo.History(time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC), 30)
+	if err := saveHistory(ctx, cfg, newer); err != nil {
+		t.Fatal(err)
+	}
+	// A stray old copy (saved before the database's last save) doesn't
+	// turn the synced data back; it is only renamed.
+	old := demo.History(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), 10)
+	path := filepath.Join(dir, "history.json")
+	if err := old.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-time.Hour)
+	os.Chtimes(path, past, past)
+	got, err := loadHistory(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameHistory(t, got, newer)
+	if !strings.Contains(imported(t, dir), "history.json.imported-") {
+		t.Error("not renamed")
+	}
 }

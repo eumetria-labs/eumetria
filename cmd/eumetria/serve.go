@@ -125,15 +125,12 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	data := newPublished(baseOptions(cfg))
 	if !cfg.demo {
 		// The last sync's data, until the first sync here is done.
-		hist, err := store.Load(cfg.historyPath)
+		hist, err := loadHistory(ctx, cfg)
 		if err != nil {
-			return fmt.Errorf("loading history: %w", err)
+			return fmt.Errorf("loading the synced data: %w", err)
 		}
-		if info, err := os.Stat(cfg.historyPath); err == nil {
-			data.set(hist, info.ModTime())
-			// The first start imports it into the database; later ones
-			// write what differs (the database follows history.json).
-			mirrorHistory(ctx, cfg, hist)
+		if at, err := store.SavedAt(ctx, database.DB); err == nil && !at.IsZero() {
+			data.set(hist, at)
 		}
 	}
 	r := newRunner(cfg, cfg.interval, data)

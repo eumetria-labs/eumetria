@@ -28,12 +28,12 @@ func debugReview(ctx context.Context, cfg config, date string, dryRun bool) erro
 	if err != nil {
 		return fmt.Errorf("invalid -debug-week %q: %w", date, err)
 	}
-	hist, err := store.Load(cfg.historyPath)
+	hist, err := loadHistory(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("loading history: %w", err)
+		return fmt.Errorf("loading the synced data: %w", err)
 	}
 	if len(hist.Days) == 0 {
-		return fmt.Errorf("%s holds no days; run a sync first", cfg.historyPath)
+		return fmt.Errorf("%s holds no days; run a sync first", cfg.dbPath)
 	}
 	now := cfg.now()
 	// Everything the history holds: the review is printed here, not published.
@@ -80,9 +80,9 @@ func debugReview(ctx context.Context, cfg config, date string, dryRun bool) erro
 // command, stop the server first and its next sync publishes them. It returns
 // the history as far as it got.
 func rewriteReviews(ctx context.Context, cfg config, write writeFunc, progress func(done, total int)) (*store.History, error) {
-	hist, err := store.Load(cfg.historyPath)
+	hist, err := loadHistory(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("loading history: %w", err)
+		return nil, fmt.Errorf("loading the synced data: %w", err)
 	}
 	if len(hist.Reviews) == 0 {
 		log.Printf("no weekly reviews stored yet; the next sync after a week ends writes the first")

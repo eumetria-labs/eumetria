@@ -209,7 +209,7 @@ The Anthropic API is prepaid: buy credit at [console.anthropic.com](https://cons
 
 ## 💾 Backups
 
-Every night at 03:30 the app writes an archive to `/var/backups/eumetria`, keeping 14 days: the synced history, photos, pictures, images in notes, the Google token and the database. The synced data is moving from `history.json` into the database (`app.db`): for now the app still reads `history.json` and writes every change to both; the first start of this version copies the history into the database. **Settings → Backups** changes the time and how long they are kept, shows the last runs and has **Back up now**. It doesn't run during a sync.
+Every night at 03:30 the app writes an archive to `/var/backups/eumetria`, keeping 14 days: the database (`app.db`, with the synced history, accounts, notes, lifts and settings), photos, pictures, images in notes and the Google token. Archives from before November 2026 keep the synced history in `history.json`: restored, the app imports it into the database at the next start and renames it to `history.json.imported-<date>` (a file older than the database's last sync is only renamed). **Settings → Backups** changes the time and how long they are kept, shows the last runs and has **Back up now**. It doesn't run during a sync.
 
 **With a passphrase** (set it in the same tab, and keep a copy in your password manager) archives are encrypted. Then they can also go to **Google Drive**: enable the **Google Drive API** in the Google Cloud project, turn it on here and save, use **Connect again** under Settings → Google to allow it, and **Test connection**. The app can only see and delete the files it made there. Without a passphrase nothing is uploaded, and local archives are readable by root on the server.
 
@@ -242,7 +242,6 @@ All commands run on the server in `/srv/eumetria`.
 | Update | `docker compose pull && docker compose up -d` (the cron does this nightly) |
 | Roll back | `image: …:<commit>` in `compose.yaml`, then `docker compose up -d` |
 | Authorize Fitbit again | **Settings → Google → Connect again** |
-| Check that the database holds the same synced data as `history.json` (while both are kept, see below) | `docker compose run --rm eumetria -check-store`: prints the differences by record, fails if there are any |
 | Raw Yazio / Fitbit answers for a day | `docker compose run --rm eumetria -debug-day 2026-10-13` / `… -debug-google 2026-10-13 -google-token /data/google-token.json` |
 
 **Write all weekly reviews again** (e.g. after a prompt change): **Settings → Weekly review**. It runs between syncs and shows how far it got.
