@@ -144,6 +144,7 @@ func run() error {
 		googleAuthFlag = flag.Bool("google-auth", false, "authorize access to Google Health (Fitbit / Pixel Watch) in the browser, save the refresh token and exit")
 		debugWeek      = flag.String("debug-week", "", "write the AI review of the calendar week (Monday to Sunday) that contains this day (YYYY-MM-DD) from the local history and print it (needs ANTHROPIC_API_KEY; AI_MODEL, AI_EFFORT)")
 		decrypt        = flag.String("decrypt-backup", "", "decrypt this backup archive next to it, asking for the passphrase, and exit")
+		checkStoreFlag = flag.Bool("check-store", false, "compare history.json with the synced data in the database, record by record, and exit (fails when they differ)")
 		dryRun         = flag.Bool("dry-run", false, "with -debug-week: print the data that would be sent to Claude instead of sending it")
 		rewrite        = flag.Bool("rewrite-reviews", false, "write every stored weekly review again (English and German) into the history and exit; stop the server first (needs ANTHROPIC_API_KEY; AI_MODEL, AI_EFFORT)")
 		accounts       accountCommand
@@ -205,6 +206,9 @@ func run() error {
 	// Works on a file alone: no settings, no database.
 	if *decrypt != "" {
 		return decryptBackup(*decrypt)
+	}
+	if *checkStoreFlag {
+		return checkStore(ctx, cfg)
 	}
 
 	cfg.flags = map[string]bool{}
@@ -410,7 +414,7 @@ func syncHistory(ctx context.Context, cfg config) (*store.History, error) {
 	}
 
 	w := window{start: start, today: today, now: now, refreshDays: cfg.refreshDays, refreshAll: cfg.refreshAll, workers: cfg.workers}
-	failed, err := runSources(ctx, sources(cfg, baseOptions(cfg)), hist, w, func() error { return hist.Save(cfg.historyPath) })
+	failed, err := runSources(ctx, sources(cfg, baseOptions(cfg)), hist, w, func() error { return saveHistory(ctx, cfg, hist) })
 	if err != nil {
 		return nil, fmt.Errorf("saving history: %w", err)
 	}

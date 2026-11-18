@@ -119,7 +119,7 @@ func rewriteReviews(ctx context.Context, cfg config, write writeFunc, progress f
 			Week: key, Text: r.Text, TextDE: r.TextDE, Model: r.Model, InputTokens: r.InputTokens, OutputTokens: r.OutputTokens,
 			CostUSD: spent + r.CostUSD, CreatedAt: now,
 		}
-		if err := hist.Save(cfg.historyPath); err != nil {
+		if err := saveHistory(ctx, cfg, hist); err != nil {
 			return hist, err
 		}
 		german := "with German"

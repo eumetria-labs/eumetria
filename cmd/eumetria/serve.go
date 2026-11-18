@@ -71,6 +71,7 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	if v, err := database.Version(ctx); err == nil {
 		log.Printf("database %s at schema version %d", cfg.dbPath, v)
 	}
+	useDatabase(cfg.dbPath, database)
 	accounts := auth.NewStore(database)
 	if err := setupAccounts(ctx, accounts, cfg.demo); err != nil {
 		return err
@@ -130,6 +131,9 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 		}
 		if info, err := os.Stat(cfg.historyPath); err == nil {
 			data.set(hist, info.ModTime())
+			// The first start imports it into the database; later ones
+			// write what differs (the database follows history.json).
+			mirrorHistory(ctx, cfg, hist)
 		}
 	}
 	r := newRunner(cfg, cfg.interval, data)
