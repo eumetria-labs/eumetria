@@ -1,4 +1,4 @@
-// The security settings (account menu → Security): the password, passkeys
+// The security settings (Settings → Sign-in): the password, passkeys
 // and security keys, the authenticator app and recovery codes. Changing a
 // second factor needs a recent proof of who one is: api() asks for it when
 // the server wants it (stepup.js). An account that must have a second
@@ -6,16 +6,14 @@
 // admin (#enrol=<token>, useEnrolLink).
 
 import { LOCALE } from './format.js';
-import { $, download, h } from './dom.js';
-import { openDialog } from './dialog.js';
+import { download, h } from './dom.js';
 import { account, api, reason, refreshUser } from './account.js';
 import { confirmNote } from './stepup.js';
 import { credentialJSON, creationOptions, supported } from './webauthn.js';
 import { t, tn } from './i18n.js';
+import { revealable } from './kit.js';
 
 const dfDate = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', year: 'numeric' });
-
-let win = null;
 
 // The enrolment link this page was opened with, until the first factor is
 // set up with it.
@@ -25,19 +23,10 @@ export function useEnrolLink(token) {
 }
 const ENROL_TEXT = () => t('Your first second factor needs an enrolment link from your admin. Ask them for one and open it.');
 
-export async function openSecurity(returnFocus) {
-  win?.close(true);
-  const close = h('button', { class: 'sheet-close', type: 'button', 'aria-label': t('Close') }, '×');
-  const head = h('div', { class: 'sheet-head wo-head' });
-  const titles = h('div', { class: 'wo-titles' });
-  titles.append(h('h2', { id: 'sec-title' }, t('Security')), h('p', { class: 'muted' }, account.user?.name || ''));
-  head.append(titles, close);
-  const body = h('div', { class: 'wo-body sec-body' });
-  const panel = h('div', { class: 'wo-panel sec-panel' });
-  panel.append(head, body);
-  win = openDialog({ cls: 'wo-overlay', labelledBy: 'sec-title', content: [panel], returnFocus });
-  close.onclick = () => win.close();
-  await render(body);
+// renderSignIn draws the security settings into host (the Profile /
+// Settings view, prefs.js).
+export function renderSignIn(host) {
+  return render(host);
 }
 
 async function render(body) {
@@ -135,7 +124,7 @@ function passwordSection(s, body) {
   };
   const [tokens, tokensItem] = check(t('Also end all API tokens'), true);
   const [passkeys, passkeysItem] = check(t('Also remove the passkeys that sign in on their own'), false);
-  form.append(user, current, next, again, tokensItem);
+  form.append(user, revealable(current), revealable(next), revealable(again), tokensItem);
   if (s?.keys?.some((k) => k.passwordless)) form.append(passkeysItem);
   form.append(msg, save);
   form.onsubmit = async (e) => {

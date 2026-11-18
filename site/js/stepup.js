@@ -13,6 +13,7 @@ import { h } from './dom.js';
 import { openDialog } from './dialog.js';
 import { credentialJSON, requestOptions, supported } from './webauthn.js';
 import { t } from './i18n.js';
+import { revealable } from './kit.js';
 
 function post(path, body) {
   return fetch('api/' + path, {
@@ -100,7 +101,7 @@ async function ask() {
         ? h('input', { class: 'field', type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '6', placeholder: '123456', 'aria-label': t('Code from the app'), required: '' })
         : h('input', { class: 'field', type: 'password', autocomplete: 'current-password', placeholder: t('Password'), 'aria-label': t('Password'), required: '' });
       const confirm = h('button', { class: 'pill-btn', type: 'submit' }, t('Confirm'));
-      form.append(input, confirm);
+      form.append(s.totp ? input : revealable(input), confirm);
       form.onsubmit = async (e) => {
         e.preventDefault();
         msg.hidden = true;

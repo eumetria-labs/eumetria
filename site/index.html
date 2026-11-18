@@ -25,13 +25,31 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Wide screens: the brand, the parts of the page (js/sections.js marks
+       the one in view) and, at the foot, the watch and the account, which
+       js/shell.js moves here from the header. -->
+  <aside class="side" id="side">
+    <a class="side-brand" href="#today"><img src="icons/mark.svg" alt="" width="28" height="28"><span id="title">Eumetria</span></a>
+    <p class="side-label">Dashboard</p>
+    <nav class="sections" id="sections" aria-label="Sections" hidden>
+        <a href="#today" data-cards="today review-card tiles"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg><span>Today</span></a>
+        <a href="#energy-card" data-cards="energy-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11h16a8 8 0 0 1-16 0zM9 4c0 2 2 2 2 4M14 4c0 2 2 2 2 4"/></svg><span>Nutrition</span></a>
+        <a href="#weight-card" data-cards="weight-card movement-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V9a6 6 0 0 1 12 0v11"/><path d="M9 20v-5h6v5"/><circle cx="12" cy="8" r="2"/></svg><span>Body</span></a>
+        <a href="#recovery-card" data-cards="recovery-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><span>Sleep</span></a>
+        <a href="#training-card" data-cards="training-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg><span>Training</span></a>
+        <a href="#foods-card" data-cards="foods-card top-activities-card sources-card quality-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v8a2 2 0 0 0 4 0V3M9 11v10M17 3c-2 0-3 2-3 5s1 4 3 4v9"/></svg><span>Foods</span></a>
+        <a href="#data-card" data-cards="data-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 15h16M10 4v16"/></svg><span>Data</span></a>
+    </nav>
+    <div class="side-foot" id="side-foot"></div>
+  </aside>
   <div id="top-sentinel" aria-hidden="true"></div>
   <header class="top" id="top">
     <div class="top-inner">
       <div class="brand">
-        <h1 id="title-row"><img class="brand-mark" src="icons/mark.svg" alt="" width="30" height="30"><span id="title">Eumetria</span></h1>
+        <h1 id="title-row"><img class="brand-mark" src="icons/mark.svg" alt="" width="30" height="30"><span id="greeting">Eumetria</span></h1>
         <p class="sub" id="updated">Loading…</p>
       </div>
+      <div class="top-me" id="top-me"></div>
       <div class="controls">
         <div class="seg" role="radiogroup" aria-label="Time range" id="range">
           <span class="seg-thumb" aria-hidden="true"></span>
@@ -55,23 +73,41 @@
             <button role="menuitem" type="button" data-all="1"><b>Full refresh</b><span>Re-fetches the whole history, e.g. after editing old entries. Takes a few minutes.</span></button>
           </div>
         </div>
+        <div class="quick" id="quick" hidden>
+          <button class="quick-btn" id="quick-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="quick-menu" aria-label="Log something" title="Log something"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg><span>Log</span></button>
+          <div class="menu quick-menu" id="quick-menu" role="menu" aria-label="Log something" hidden>
+            <button role="menuitem" type="button" class="acct-item" data-log="lift"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg><span>Lift</span></button>
+            <button role="menuitem" type="button" class="acct-item" data-log="wod"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L4 14h7l-1 7 9-11h-7z"/></svg><span>WOD result</span></button>
+            <button role="menuitem" type="button" class="acct-item" data-log="note"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg><span>Note on today’s workout</span></button>
+            <button role="menuitem" type="button" class="acct-item" data-log="phase"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg><span>Phase or event</span></button>
+          </div>
+        </div>
         <button class="icon-btn" id="search" type="button" aria-label="Search foods, activities and days" aria-keyshortcuts="Control+K Meta+K" title="Search (Ctrl+K)" hidden>
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>
         <div class="account" id="account" hidden>
-          <button class="icon-btn account-btn" id="account-btn" type="button" aria-label="Account" title="Account" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu"><span id="account-initial" aria-hidden="true"></span><img id="account-photo" alt="" hidden></button>
-          <div class="menu" id="account-menu" role="menu" aria-label="Account" hidden>
-            <p class="menu-head"><span class="muted">Signed in as</span> <b id="account-name"></b></p>
-            <button role="menuitem" type="button" data-action="profile"><b>Profile</b><span>Your details, picture, API tokens and devices.</span></button>
-            <button role="menuitem" type="button" data-action="security"><b>Security</b><span>Passkeys, authenticator app, recovery codes.</span></button>
-            <button role="menuitem" type="button" data-action="admin" id="account-admin" hidden><b>Users &amp; Roles</b><span>Accounts, who may see what, sessions, audit log.</span></button>
-            <button role="menuitem" type="button" data-action="settings" id="account-settings" hidden><b>Settings</b><span>Sync, Yazio, Google, weekly review, backups.</span></button>
-            <button role="menuitem" type="button" data-action="phases" id="account-phases" hidden><b>Phases &amp; events</b><span>Cuts, bulks and competitions on the charts.</span></button>
-            <button role="menuitem" type="button" data-action="layout"><b>Customize dashboard</b><span>Order of the cards, and which ones you see.</span></button>
-            <button role="menuitem" type="button" data-action="theme" class="menu-sep"><b id="theme-label">Dark mode</b></button>
-            <button role="menuitem" type="button" data-action="lang"><b id="lang-label">Deutsch</b></button>
-            <button role="menuitem" type="button" data-out="this" class="menu-sep"><b>Sign out</b><span>On this device.</span></button>
-            <button role="menuitem" type="button" data-out="all"><b>Sign out everywhere</b><span>Ends the sessions on all your devices.</span></button>
+          <button class="account-btn" id="account-btn" type="button" aria-label="Account" title="Account" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu"><span class="face"><span id="account-initial" aria-hidden="true"></span><img id="account-photo" alt="" hidden></span><span class="who" aria-hidden="true"><b id="side-name"></b><span id="side-role"></span></span></button>
+          <div class="menu acct-menu" id="account-menu" role="menu" aria-label="Account" hidden>
+            <div class="acct-head"><span class="avatar" id="account-menu-face" aria-hidden="true"></span><div><b id="account-name"></b><span id="account-role"></span></div></div>
+            <hr>
+            <button role="menuitem" type="button" class="acct-item" data-action="profile"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span>Profile</span></button>
+            <button role="menuitem" type="button" class="acct-item" data-action="settings"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Settings</span></button>
+            <hr>
+            <div class="acct-line" role="group" aria-labelledby="theme-label"><span><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span id="theme-label">Theme</span></span>
+              <span class="mini-seg" id="theme-switch">
+                <button role="menuitemradio" type="button" data-theme="light" aria-checked="false" aria-label="Light" title="Light"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+                <button role="menuitemradio" type="button" data-theme="dark" aria-checked="false" aria-label="Dark" title="Dark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></button>
+                <button role="menuitemradio" type="button" data-theme="system" aria-checked="false" title="Follows your device">Auto</button>
+              </span>
+            </div>
+            <div class="acct-line" role="group" aria-labelledby="lang-label"><span><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9z"/></svg><span id="lang-label">Language</span></span>
+              <span class="mini-seg" id="lang-switch">
+                <button role="menuitemradio" type="button" data-lang="en" lang="en" aria-checked="false" aria-label="English">EN</button>
+                <button role="menuitemradio" type="button" data-lang="de" lang="de" aria-checked="false" aria-label="Deutsch">DE</button>
+              </span>
+            </div>
+            <hr>
+            <button role="menuitem" type="button" class="acct-item out" data-action="signout"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 8l-4 4 4 4M6 12h10"/></svg><span>Sign out</span></button>
           </div>
         </div>
       </div>
@@ -82,16 +118,6 @@
         <input class="field" type="date" id="range-to" required>
         <span class="muted" id="range-days"></span>
       </div>
-      <!-- Jumps to the parts of the page; js/sections.js marks the one in view. -->
-      <nav class="sections" id="sections" aria-label="Sections" hidden>
-        <a href="#today" data-cards="today review-card tiles">Today</a>
-        <a href="#energy-card" data-cards="energy-card">Nutrition</a>
-        <a href="#weight-card" data-cards="weight-card movement-card">Body</a>
-        <a href="#recovery-card" data-cards="recovery-card">Sleep</a>
-        <a href="#training-card" data-cards="training-card">Training</a>
-        <a href="#foods-card" data-cards="foods-card top-activities-card sources-card quality-card">Foods</a>
-        <a href="#data-card" data-cards="data-card">Data</a>
-      </nav>
     </div>
   </header>
 
@@ -474,12 +500,20 @@
         <button type="button" data-lang="de" lang="de">Deutsch</button>
       </p>
       <p id="foot-sync">Data from YAZIO, synced automatically.</p>
-      <p id="foot-off" hidden>Food ratings from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener noreferrer">Open Food Facts</a>, available under the <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">Open Database License</a>.</p>
-      <p>Unofficial personal project. Not affiliated with, endorsed by or supported by YAZIO.</p>
+      <p id="foot-off" hidden>Food ratings: <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener noreferrer">Open Food Facts</a> (<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer" title="Open Database License">ODbL</a>)</p>
+      <p class="foot-note" title="Unofficial personal project. Not affiliated with, endorsed by or supported by YAZIO.">Unofficial, not affiliated with YAZIO</p>
       <!-- The GitHub mark (Simple Icons, CC0). -->
-      <p><a class="repo-link" href="https://github.com/eumetria-labs/eumetria" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>Source code on GitHub</a></p>
+      <p class="foot-repo"><a class="repo-link" href="https://github.com/eumetria-labs/eumetria" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>Source code on GitHub</a></p>
     </footer>
   </div>
+  <!-- Phones: one part of the page at a time (js/shell.js). -->
+  <nav class="tabbar" id="tabbar" aria-label="Parts of the page" hidden>
+    <a href="#view=today" data-view="today"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg><span>Today</span></a>
+    <a href="#view=nutrition" data-view="nutrition"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11h16a8 8 0 0 1-16 0zM9 4c0 2 2 2 2 4M14 4c0 2 2 2 2 4"/></svg><span>Nutrition</span></a>
+    <a href="#view=body" data-view="body"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V9a6 6 0 0 1 12 0v11"/><path d="M9 20v-5h6v5"/><circle cx="12" cy="8" r="2"/></svg><span>Body & Sleep</span></a>
+    <a href="#view=training" data-view="training"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg><span>Training</span></a>
+    <a href="#view=more" data-view="more"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>More</span></a>
+  </nav>
   <div class="tt" id="tt" role="tooltip" hidden></div>
   <script type="module" src="js/main.js"></script>
 </body>

@@ -41,6 +41,11 @@ jobs:
       - run: node scripts/smoke.js site
         env:
           CHROME_BIN: google-chrome
+      # The account menu and the Profile / Settings view, against a running
+      # demo server with an admin and a viewer (the smoke test has no accounts).
+      - run: go build -o "$RUNNER_TEMP/eumetria" ./cmd/eumetria && node scripts/prefs-check.js "$RUNNER_TEMP/eumetria"
+        env:
+          CHROME_BIN: google-chrome
 
   # Known vulnerabilities in the code's call paths, with the newest Go. Not
   # a step the image waits for: a new advisory without a fix yet shouldn't

@@ -1,16 +1,16 @@
-// Users & Roles (account menu, admins only): the accounts with their role,
+// Users & Roles (Settings, admins only): the accounts with their role,
 // second factor and state; the roles as sets of scopes; everyone's
 // sessions; notes whose workout is gone; the audit log. The server (manage.go) checks every request and
 // refuses what would lock the admin out; changes need a recent proof of who
 // one is, which api() asks for when needed (stepup.js).
 
 import { LOCALE, deviceName } from './format.js';
-import { h, tabKeys } from './dom.js';
-import { openDialog } from './dialog.js';
+import { h } from './dom.js';
 import { account, api, reason } from './account.js';
 import { confirmNote } from './stepup.js';
 import { noteFold, withText } from './notes.js';
 import { t, tn } from './i18n.js';
+import { revealable } from './kit.js';
 
 const dfTime = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -86,40 +86,10 @@ const ACTIONS = {
 // The role whose form stays open after it is drawn again (lower case).
 let openRole = '';
 
-const TABS = [['users', () => t('Users')], ['roles', () => t('Roles')], ['sessions', () => t('Sessions')], ['notes', () => t('Notes')], ['audit', () => t('Audit log')]];
-
-let win = null;
-
-export function openManage(returnFocus, tab = 'users') {
-  win?.close(true);
-  const close = h('button', { class: 'sheet-close', type: 'button', 'aria-label': t('Close') }, '×');
-  const head = h('div', { class: 'sheet-head wo-head' });
-  const titles = h('div', { class: 'wo-titles' });
-  titles.append(h('h2', { id: 'adm-title' }, t('Users & Roles')), h('p', { class: 'muted' }, t('Who may see what')));
-  head.append(titles, close);
-  const tabs = h('div', { class: 'tabs adm-tabs', role: 'tablist', 'aria-label': t('Users & Roles') });
-  const body = h('div', { class: 'wo-body adm-body', role: 'tabpanel' });
-  const buttons = TABS.map(([key, label]) => {
-    const b = h('button', { role: 'tab', type: 'button', 'data-tab': key }, label());
-    b.onclick = () => show(key);
-    return b;
-  });
-  tabs.append(...buttons);
-  tabs.addEventListener('keydown', (e) => tabKeys(e, tabs));
-  const panel = h('div', { class: 'wo-panel adm-panel' });
-  panel.append(head, tabs, body);
-  win = openDialog({ cls: 'wo-overlay', labelledBy: 'adm-title', content: [panel], returnFocus });
-  close.onclick = () => win.close();
-
-  function show(key) {
-    for (const b of buttons) {
-      const on = b.dataset.tab === key;
-      b.setAttribute('aria-selected', String(on));
-      b.tabIndex = on ? 0 : -1;
-    }
-    load(body, key);
-  }
-  show(TABS.some(([k]) => k === tab) ? tab : 'users');
+// renderManage draws one part of Users & Roles (users, roles, sessions,
+// notes, audit) into body: a section of the Profile / Settings view.
+export function renderManage(body, tab) {
+  return load(body, tab);
 }
 
 // load fetches what a tab shows and draws it.
@@ -340,7 +310,7 @@ function passwordForm(body, u) {
   const form = h('form', { class: 'sec-add adm-pw' });
   const input = h('input', { class: 'field', type: 'password', autocomplete: 'new-password', placeholder: t('New password for {name}', { name: u.name }), 'aria-label': t('New password for {name}', { name: u.name }), required: '' });
   const ok = h('button', { class: 'pill-btn', type: 'submit' }, t('Set'));
-  form.append(input, ok, h('p', { class: 'muted adm-hint' }, t('Their sessions end. Tell them the password in person or through a password manager.')));
+  form.append(revealable(input), ok, h('p', { class: 'muted adm-hint' }, t('Their sessions end. Tell them the password in person or through a password manager.')));
   form.onsubmit = (e) => {
     e.preventDefault();
     change(body, ok, () => api('admin/users/' + u.id + '/password', 'POST', { password: input.value }));
@@ -360,7 +330,7 @@ function addUserSection(body, roles) {
   // An address and no password: the button says what happens.
   const label = () => { add.textContent = email.value.trim() && !pw.value ? t('Invite') : t('Add'); };
   email.oninput = pw.oninput = label;
-  form.append(name, email, pw, role, add);
+  form.append(name, email, revealable(pw), role, add);
   form.onsubmit = (e) => {
     e.preventDefault();
     const to = email.value.trim();

@@ -110,6 +110,8 @@ try {
   }
   failed += await phones([
     'range=7', 'range=30&lang=de', 'range=all',
+    // Each part of the page a phone's tab bar shows.
+    'range=30&view=nutrition', 'range=30&view=body', 'range=30&lang=de&view=training', 'range=30&view=more',
     `range=30&lang=de&day=${day}`,
     ...(workout ? [`range=30&day=${wday.date}&workout=${workout.id}`] : []),
     ...(food ? [`range=30&food=${encodeURIComponent(food)}`] : []),

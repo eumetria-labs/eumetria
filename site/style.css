@@ -694,11 +694,19 @@ html[data-empty] main, html[data-empty] .top .sections { display: none; }
 /* Account menu: the initial in a round button */
 .account { position: relative; display: inline-flex; }
 .account[hidden] { display: none; }
-.account-btn { font: inherit; font-size: 14px; font-weight: 650; color: #fff; background: #1d2740; }
-.account-btn:hover { background: #2a3858; }
-.account-btn { overflow: hidden; padding: 0; }
+/* The account button: the picture (or initial) in a circle; in the sidebar
+   also the name and role, and then the whole row is the button */
+.account-btn { display: flex; align-items: center; gap: 10px; font: inherit; color: var(--ink); background: none; border: 0; padding: 0; border-radius: 999px; cursor: pointer; text-align: left; min-width: 0; }
+.account-btn .face {
+  flex: none; width: 36px; height: 36px; border-radius: 999px; overflow: hidden; display: grid; place-items: center;
+  font-size: 14px; font-weight: 650; color: #fff; background: linear-gradient(135deg, var(--s1), color-mix(in oklab, var(--s1) 55%, var(--s3)));
+  transition: filter .15s, transform .15s;
+}
+.account-btn:hover .face { filter: brightness(1.08); }
+.account-btn:active .face { transform: scale(.96); }
 .account-btn img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .account-btn img[hidden], .account-btn span[hidden] { display: none; }
+.account-btn .who { display: none; }
 .menu button.menu-sep { margin-top: 2px; border-top: 1px solid var(--grid); border-top-left-radius: 0; border-top-right-radius: 0; }
 .menu-head { margin: 0; padding: 8px 10px 6px; font-size: 13px; display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--grid); margin-bottom: 2px; }
 
@@ -1528,9 +1536,6 @@ a.q-badges:focus-visible { outline: none; }
 .menu button[hidden] { display: none; }
 
 /* Users & roles (manage.js) */
-.adm-tabs { margin: 0 0 4px; padding: 0 20px; }
-.adm-tabs { flex: none; overflow-x: auto; scrollbar-width: none; }
-.adm-tabs button { flex: 1 0 auto; padding-left: 12px; padding-right: 12px; }
 .adm-user { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 8px 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--grid); font-size: 14px; }
 .adm-user.off .adm-info b { color: var(--muted); }
 .adm-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -1623,7 +1628,7 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .pf-picture { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .pf-face {
   flex: none; width: 72px; height: 72px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
-  font-size: 28px; font-weight: 650; color: #fff; background: #1d2740;
+  font-size: 28px; font-weight: 650; color: #fff; background: linear-gradient(135deg, var(--s1), color-mix(in oklab, var(--s1) 55%, var(--s3)));
 }
 .pf-face img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .pf-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 8px; }
@@ -1723,3 +1728,422 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .today-status[hidden] { display: none; }
 .today-status .st-part { display: inline-block; }
 .highlight.hl-more { padding: 6px 12px; font-weight: 650; color: var(--ink); background: var(--surface-2); }
+
+/* ===================================================================
+   Profile / Settings view (js/prefs.js): a page over the dashboard with
+   a top bar (back, Profile | Settings, you), a sidebar of sections and
+   the section's cards. Phones get the sections as a list to tap through.
+   =================================================================== */
+.pf-overlay {
+  position: fixed; inset: 0; background: var(--page); color: var(--ink);
+  animation: fade-in .18s ease-out both;
+}
+.pf-overlay.closing { animation: fade-out .14s ease-in both; }
+.pf { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.pf-scroll { overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+
+.pf-top {
+  background: color-mix(in oklab, var(--page) 82%, transparent);
+  -webkit-backdrop-filter: saturate(1.4) blur(14px); backdrop-filter: saturate(1.4) blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+.pf-top-inner { max-width: 1180px; margin: 0 auto; padding: 12px 24px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
+.pf-back {
+  justify-self: start; display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13.5px; font-weight: 550;
+  color: var(--ink-2); background: none; border: 0; padding: 7px 12px 7px 8px; border-radius: 999px; cursor: pointer;
+}
+.pf-back:hover { background: var(--wash); color: var(--ink); }
+.pf-switch { justify-self: center; display: inline-flex; background: var(--surface-2); border-radius: 999px; padding: 3px; }
+.pf-switch a { font-size: 13.5px; font-weight: 600; color: var(--ink-2); text-decoration: none; padding: 6px 16px; border-radius: 999px; transition: background .2s, color .2s; }
+.pf-switch a:hover { color: var(--ink); }
+.pf-switch a[aria-current="page"] { background: var(--ink); color: var(--surface); }
+.pf-who { justify-self: end; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pf-who .who-text { text-align: right; line-height: 1.25; min-width: 0; }
+.pf-who .who-text b { display: block; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-who .who-text span { font-size: 12px; color: var(--muted); }
+
+/* The round picture or initial: menu, top bar */
+.avatar {
+  flex: none; width: 34px; height: 34px; border-radius: 999px; display: grid; place-items: center; overflow: hidden;
+  font-size: 14px; font-weight: 650; color: #fff;
+  background: linear-gradient(135deg, var(--s1), color-mix(in oklab, var(--s1) 55%, var(--s3)));
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.pf-body { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 40px; align-items: start; }
+.pf-nav { position: sticky; top: 24px; display: grid; gap: 18px; }
+.pf-group h3, .pf-list h3 { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px 12px; }
+.pf-group ul, .pf-list ul { list-style: none; margin: 0; padding: 0; }
+.pf-group ul { display: grid; gap: 1px; }
+.pf-group a {
+  display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  padding: 7px 12px; border-radius: 10px; text-decoration: none; color: var(--ink-2); font-size: 14px; font-weight: 500;
+}
+.pf-group a svg { color: var(--muted); }
+.pf-group a:hover { background: var(--wash); color: var(--ink); }
+.pf-group a[aria-current="page"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
+.pf-group a[aria-current="page"] svg { color: var(--s1); }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 999px; background: var(--axis); flex: none; }
+.dot[hidden] { display: none; }
+.dot.ok { background: var(--good); }
+.dot.warn { background: var(--z3); }
+.dot.bad { background: var(--over); }
+
+.pf-main { max-width: 720px; min-width: 0; }
+.pf-head { margin: 2px 0 16px; }
+.pf-head h1 { font-size: 26px; letter-spacing: -0.02em; outline: none; }
+.pf-crumb { margin: 0 0 4px; font-size: 12.5px; color: var(--muted); }
+.pf-desc { margin: 4px 0 0; color: var(--ink-2); font-size: 14px; }
+.pf-up { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--s1); background: none; border: 0; padding: 4px 0; margin-bottom: 6px; cursor: pointer; }
+.pf-content { display: grid; gap: 16px; }
+.pf-content > .notice, .pf-content > .lock-error, .pf-content > .sec-msg { margin: 0; }
+
+/* The modules' sections become cards: header, then rows */
+.pf-content .wo-sec { margin: 0; background: var(--surface); border-radius: 16px; box-shadow: var(--shadow); padding: 18px 22px 20px; min-width: 0; }
+.pf-content .wo-sec-head { align-items: flex-start; margin-bottom: 12px; gap: 8px 12px; }
+.pf-content .wo-sec-head h3 { font-size: 15.5px; }
+.pf-content .wo-sec-head .muted { font-size: 13px; flex-basis: 100%; order: 2; margin-top: -6px; }
+.pf-content .wo-sec-head .badge { margin-left: auto; }
+.pf-content .wo-sec.danger { box-shadow: none; border: 1px solid color-mix(in oklab, var(--over) 35%, transparent); background: color-mix(in oklab, var(--over) 3%, var(--surface)); }
+.pf-content .wo-sec.danger h3 { color: var(--over); }
+.danger-btn { background: none; color: var(--over); border: 1px solid color-mix(in oklab, var(--over) 45%, transparent); }
+.danger-btn:hover { background: color-mix(in oklab, var(--over) 8%, transparent); }
+
+/* Settings forms: label and hint on the left, the field on the right */
+.pf-content .set-form { gap: 0; }
+.pf-content .set-field {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 300px); grid-template-areas: "label input" "hint input";
+  column-gap: 24px; row-gap: 2px; align-items: center; padding: 12px 0; border-top: 1px solid var(--grid);
+}
+.pf-content .set-form > .set-field:first-child { border-top: 0; padding-top: 2px; }
+.pf-content .set-field > .set-label { grid-area: label; display: block; }
+.pf-content .set-field > .set-label small { display: block; margin-top: 2px; }
+.pf-content .set-field > .set-hint { grid-area: hint; align-self: start; }
+.pf-content .set-field > :is(.field, .secret, select) { grid-area: input; }
+.pf-content .set-field > datalist { display: none; }
+.pf-content .set-field .field { height: 38px; border-radius: 10px; background: var(--page); border-color: color-mix(in oklab, var(--ink) 14%, transparent); font-size: 14px; padding: 8px 12px; }
+.pf-content .set-field .field.changed { border-color: var(--s1); }
+.pf-content .set-field .field:focus-visible { outline: 2px solid var(--s1); outline-offset: 1px; }
+.pf-content .set-hint.ok::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 999px; background: var(--good); margin-right: 6px; vertical-align: 1px; }
+/* Checkboxes in the forms are switches */
+.pf-content .set-check { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label input" "hint input"; }
+.pf-content .set-check input { grid-area: input; order: 0; appearance: none; -webkit-appearance: none; width: 40px; height: 24px; border-radius: 999px; background: var(--surface-2); border: 1px solid color-mix(in oklab, var(--ink) 14%, transparent); position: relative; cursor: pointer; transition: background .2s; }
+.pf-content .set-check input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 999px; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .2s var(--ease); }
+.pf-content .set-check input:checked { background: var(--s1); border-color: var(--s1); }
+.pf-content .set-check input:checked::after { transform: translateX(16px); }
+.pf-content .set-check .set-hint { grid-column: auto; }
+/* The save bar does the saving; Remove buttons and messages stay */
+.pf-content .pf-save { display: none; }
+.pf-content .set-form > .sec-row { padding-top: 12px; }
+.pf-content .set-form > .sec-row:not(:has(> :not(.pf-save))) { display: none; }
+.pf-content .pf-form { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.pf-content .pf-form .sec-msg { margin-top: 8px; }
+.pf-content .pf-picture .pf-face { width: 72px; height: 72px; font-size: 28px; }
+.pf-content .lo-panel { max-width: none; }
+.pf-content .phase-list { margin: 0; }
+
+/* The floating save bar */
+.savebar {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 5;
+  display: flex; align-items: center; gap: 14px; padding: 8px 8px 8px 18px;
+  background: var(--ink); color: var(--surface); border-radius: 999px; box-shadow: 0 10px 30px -10px rgba(0, 0, 0, .45);
+  font-size: 13.5px; font-weight: 550; white-space: nowrap; animation: slide-up .2s var(--ease) both;
+}
+.savebar[hidden] { display: none; }
+.btn { font: inherit; font-size: 13.5px; font-weight: 600; border-radius: 999px; padding: 8px 16px; border: 0; cursor: pointer; white-space: nowrap; }
+.btn.primary { background: var(--surface); color: var(--ink); }
+.btn.quiet { background: color-mix(in oklab, var(--surface) 16%, transparent); color: var(--surface); }
+.btn:disabled { opacity: .6; cursor: progress; }
+
+/* Status badges */
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+.badge .dot { background: currentColor; }
+.badge.ok { color: var(--good); background: color-mix(in oklab, var(--good) 12%, var(--surface)); }
+.badge.warn { color: color-mix(in oklab, var(--z3) 80%, var(--ink)); background: color-mix(in oklab, var(--z3) 14%, var(--surface)); }
+.badge.bad { color: var(--over); background: color-mix(in oklab, var(--over) 12%, var(--surface)); }
+.badge.off { color: var(--muted); background: var(--surface-2); }
+
+/* Phones: the list of sections, then one section at a time */
+.pf-list { display: grid; gap: 18px; }
+.pf-list > h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 4px; outline: none; }
+.pf-list ul { background: var(--surface); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+.pf-list a { position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 14px; align-items: center; gap: 12px; padding: 11px 14px; text-decoration: none; color: var(--ink); }
+.pf-list li + li a::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; border-top: 1px solid var(--grid); }
+.pf-list a:active { background: var(--wash); }
+.pf-list .ic { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #fff; }
+.pf-list .name { font-size: 15px; font-weight: 550; }
+.pf-list .status { font-size: 13px; color: var(--muted); text-align: right; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.pf-list .chev { color: var(--axis); }
+.pf[data-mode="list"] .pf-nav { display: none; }
+.pf[data-mode="list"] .pf-body { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 899px) {
+  .pf-top-inner { grid-template-columns: auto 1fr auto; padding: 10px 16px; }
+  .pf-back span, .pf-who .who-text { display: none; }
+  .pf-back { padding: 8px; }
+  .pf-body { grid-template-columns: minmax(0, 1fr); padding: 18px 16px 120px; gap: 18px; }
+  .pf-nav { display: none; }
+  .pf-content .wo-sec { padding: 16px; }
+  .pf-content .set-field, .pf-content .set-check { grid-template-columns: minmax(0, 1fr); grid-template-areas: "label" "input" "hint"; row-gap: 6px; }
+  .pf-content .set-check { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label input" "hint input"; }
+  .savebar { left: 16px; right: 16px; transform: none; justify-content: flex-end; }
+  .savebar span { margin-right: auto; }
+}
+
+/* ---------- the account menu ---------- */
+.menu.acct-menu { width: 264px; padding: 6px; gap: 0; }
+.acct-head { display: flex; align-items: center; gap: 12px; padding: 10px 10px 12px; min-width: 0; }
+.acct-head b { display: block; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acct-head div { min-width: 0; }
+.acct-head div span { font-size: 12.5px; color: var(--muted); }
+.acct-menu hr { border: 0; border-top: 1px solid var(--grid); margin: 6px 4px; }
+.menu .acct-item { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 550; padding: 9px 10px; }
+.menu .acct-item svg { color: var(--muted); }
+.menu .acct-item span { font-size: 14px; color: inherit; line-height: inherit; }
+.menu .acct-item.out, .menu .acct-item.out svg { color: var(--over); }
+.acct-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 6px 6px 10px; font-size: 14px; font-weight: 550; }
+.acct-line > span:first-child { display: flex; align-items: center; gap: 10px; }
+.acct-line > span:first-child svg { color: var(--muted); }
+.mini-seg { display: inline-flex; background: var(--surface-2); border-radius: 999px; padding: 2px; }
+.menu .mini-seg button { font: inherit; font-size: 12px; font-weight: 600; border: 0; background: none; color: var(--ink-2); border-radius: 999px; padding: 4px 9px; min-height: 24px; cursor: pointer; display: grid; place-items: center; }
+.menu .mini-seg button:hover { color: var(--ink); background: none; }
+.menu .mini-seg button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+
+/* ---------- signing out: here or everywhere ---------- */
+.so-panel { width: min(420px, 100%); background: var(--surface); border-radius: 20px; box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .45); padding: 22px; box-sizing: border-box; animation: zoom-in .22s var(--ease) both; }
+.so-panel h2 { font-size: 18px; }
+.so-panel > p { margin: 4px 0 16px; color: var(--ink-2); font-size: 14px; }
+.so-choice { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; align-items: center; width: 100%; text-align: left; font: inherit; color: var(--ink); background: var(--surface-2); border: 2px solid transparent; border-radius: 14px; padding: 12px 14px; cursor: pointer; margin-bottom: 8px; }
+.so-choice:hover { border-color: var(--axis); }
+.so-choice.default { border-color: var(--ink); background: var(--surface); }
+.so-choice .ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); color: var(--ink-2); }
+.so-choice.default .ic { background: var(--ink); color: var(--surface); }
+.so-choice b { display: block; font-size: 14.5px; }
+.so-choice b + span { display: block; font-size: 12.5px; color: var(--muted); }
+.so-cancel { display: block; margin: 8px auto 0; background: none; color: var(--ink-2); }
+
+/* ---------- a password field with an eye (js/kit.js) ---------- */
+.secret { position: relative; display: block; min-width: 0; }
+.secret > input { width: 100%; box-sizing: border-box; padding-right: 40px !important; }
+.secret .eye {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px;
+  display: grid; place-items: center; border: 0; background: none; color: var(--muted); border-radius: 8px; cursor: pointer;
+}
+.secret .eye:hover { color: var(--ink); background: var(--wash); }
+.secret .eye:disabled { display: none; }
+.secret > input::-ms-reveal, .secret > input::-ms-clear { display: none; }
+.sec-add > .secret { flex: 1 1 200px; }
+.lock .secret { width: 100%; }
+.lock .secret .eye svg { color: inherit; }
+/* A field without a hint: label and field on one line */
+.pf-content .set-field:not(:has(> .set-hint:not([hidden]))) { grid-template-areas: "label input"; }
+.pf-content .set-check:not(:has(> .set-hint)) { grid-template-areas: "label input"; }
+.pf-content .pf-face { background: linear-gradient(135deg, var(--s1), color-mix(in oklab, var(--s1) 55%, var(--s3))); color: #fff; }
+@media (max-width: 899px) {
+  .pf-content .set-field:not(:has(> .set-hint:not([hidden]))) { grid-template-areas: "label" "input"; }
+}
+.pf-code { display: flex; align-items: center; gap: 8px; }
+.pf-code code { flex: 1; margin: 0; min-width: 0; }
+
+/* ===================================================================
+   The dashboard's frame (js/shell.js): a sidebar on wide screens, a tab
+   bar on phones; card tabs as a pill switch; group labels between the
+   parts of the page. Same language as the Profile / Settings view.
+   =================================================================== */
+.side { display: none; }
+.side-label { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 -10px 12px; }
+.group-label { grid-column: 1 / -1; margin: 14px 2px -6px; }
+.group-label h2 { font-size: 12.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.more-card { display: none; }
+
+@media (min-width: 900px) {
+  body { padding-left: 248px; }
+  html[data-locked] body { padding-left: 0; }
+  .side {
+    position: fixed; inset: 0 auto 0 0; width: 248px; box-sizing: border-box; z-index: 20; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 22px; padding: 20px 14px 14px;
+    border-right: 1px solid var(--border); background: color-mix(in oklab, var(--page) 70%, var(--surface));
+  }
+  html[data-locked] .side { display: none; }
+  .side-brand { display: flex; align-items: center; gap: 10px; padding: 2px 10px; font-size: 18px; font-weight: 650; letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
+  .side-brand img { flex: none; width: 28px; height: 28px; }
+  .side .sections { flex: none; display: grid; gap: 1px; margin: 0; padding: 0; overflow: visible; }
+  .side .sections a {
+    display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: 10px; font-size: 14px; font-weight: 500; color: var(--ink-2); white-space: nowrap;
+  }
+  .side .sections a svg { color: var(--muted); }
+  .side .sections a:hover { background: var(--wash); color: var(--ink); }
+  .side .sections a[aria-current="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
+  .side .sections a[aria-current="true"] svg { color: var(--s1); }
+  .side-foot { margin-top: auto; display: grid; gap: 10px; }
+  .side-foot > .device-btn { justify-self: start; }
+  .side { overflow-x: hidden; }
+  .side-me .account { display: block; }
+  .side-me .account-btn { width: 100%; padding: 6px; border-radius: 12px; transition: background .15s; }
+  .side-me .account-btn:hover, .side-me .account-btn[aria-expanded="true"] { background: var(--wash); }
+  .side-me .account-btn .who { display: block; min-width: 0; line-height: 1.25; }
+  .side-me .who b { display: block; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side-me .who span { display: block; font-size: 12px; color: var(--muted); }
+  .side-me .account-btn .face { width: 34px; height: 34px; }
+  /* The menu is a layer of its own above the row: wider than the sidebar,
+     it must not make it scroll */
+  .side .menu.acct-menu, .side .menu.acct-menu.from-left { position: fixed; top: auto; right: auto; left: 12px; bottom: 72px; }
+  /* The header is the content's toolbar: the brand lives in the sidebar */
+  .top .brand-mark { display: none; }
+  .top-inner, .page { max-width: 1120px; }
+  .top-inner { padding: 18px 32px 14px; }
+  .page { padding: 8px 32px 48px; }
+  .top.stuck .top-inner { padding-top: 10px; padding-bottom: 10px; }
+  #greeting { font-size: 22px; }
+  .top.stuck #greeting { font-size: 17px; }
+}
+/* Medium screens: the sidebar keeps only its icons */
+@media (min-width: 900px) and (max-width: 1099px) {
+  body { padding-left: 72px; }
+  .side { width: 72px; padding: 20px 10px 14px; align-items: center; }
+  .side-brand span, .side-label, .side .sections a span, .side-me .account-btn .who { display: none; }
+  .side .sections a { grid-template-columns: 18px; padding: 10px 15px; }
+  .side-foot { justify-items: center; }
+  .side-foot > .device-btn { font-size: 0; gap: 0; padding: 0 9px; }
+  .side-me .account-btn { padding: 0; width: auto; justify-content: center; }
+}
+
+/* Cards: a little tighter, like the settings' cards */
+.card { border-radius: 16px; padding: 20px 22px; }
+.card-head h2, .table-card summary h2 { font-size: 15.5px; }
+
+/* Card tabs: a pill switch with words; when the words don't fit (shell.js
+   marks the row .icons) the tabs show their icons, the words stay for
+   screen readers and as a tooltip */
+.tabs {
+  display: inline-flex; flex-wrap: nowrap; max-width: 100%; box-sizing: border-box; overflow: hidden;
+  background: var(--surface-2); border: 0; border-radius: 999px; padding: 3px; margin: 0 0 16px; gap: 2px;
+}
+.tabs button {
+  flex: none; flex-direction: row; align-items: center; justify-content: center; gap: 6px; min-width: 0;
+  padding: 6px 14px; margin: 0; border: 0; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--ink-2);
+  transition: background .15s, color .15s;
+}
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); border: 0; box-shadow: 0 1px 2px rgba(0, 0, 0, .10), 0 0 0 1px var(--border); }
+.tabs .tab-icon, .tabs .tab-thumb { display: none; }
+.tabs .tab-label { overflow: visible; }
+.tabs.icons button { flex: 1 1 0; padding: 6px 4px; }
+.tabs.icons .tab-icon { display: block; font-size: 17px; line-height: 1.2; }
+.tabs.icons .tab-thumb { display: block; }
+.tabs.icons .tab-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.sheet .tabs { margin-left: 20px; margin-right: 20px; max-width: calc(100% - 40px); }
+
+/* Today: score and meal tiles as quiet insets */
+.score-chip, .meal-chip { border: 0; background: color-mix(in oklab, var(--surface-2) 75%, var(--surface)); border-radius: 12px; }
+.score-chip:hover, .meal-chip:hover { background: var(--surface-2); }
+
+/* "+ Log": a button in the toolbar, a round one above the tab bar on phones */
+.quick { position: relative; }
+.quick[hidden] { display: none; }
+.quick-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px 0 10px; border-radius: 999px; border: 0;
+  background: var(--ink); color: var(--surface); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; transition: transform .15s;
+}
+.quick-btn:active { transform: scale(.96); }
+.menu.quick-menu { width: 240px; padding: 6px; gap: 0; }
+.menu.quick-menu .acct-item[hidden] { display: none; }
+
+/* The benchmark picker of "+ Log → WOD result" */
+.pick-panel { width: min(420px, 100%); }
+.pick-list { display: grid; gap: 6px; margin-bottom: 14px; }
+.pick-item { font: inherit; font-size: 14.5px; font-weight: 550; text-align: left; color: var(--ink); background: var(--surface-2); border: 0; border-radius: 12px; padding: 12px 14px; cursor: pointer; }
+.pick-item:hover { background: var(--wash); }
+
+/* Phones: one part of the page at a time, chosen in the tab bar */
+.tabbar { display: none; }
+@media (max-width: 899px) {
+  .tabbar:not([hidden]) {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    background: color-mix(in oklab, var(--surface) 88%, transparent);
+    -webkit-backdrop-filter: saturate(1.4) blur(14px); backdrop-filter: saturate(1.4) blur(14px);
+    border-top: 1px solid var(--border);
+  }
+  html[data-locked] .tabbar, html[data-empty] .tabbar { display: none; }
+  .tabbar a { display: grid; justify-items: center; gap: 3px; padding: 6px 0 4px; border-radius: 12px; font-size: 11px; font-weight: 600; color: var(--muted); text-decoration: none; min-width: 0; }
+  .tabbar a span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tabbar a[aria-current="page"] { color: var(--ink); }
+  .tabbar a[aria-current="page"] svg { color: var(--s1); }
+  html:not([data-locked]) body { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .group-label { display: none; }
+  html[data-view="today"] .page [data-group]:not([data-group="today"]),
+  html[data-view="nutrition"] .page [data-group]:not([data-group="nutrition"]),
+  html[data-view="body"] .page [data-group]:not([data-group="body"]),
+  html[data-view="training"] .page [data-group]:not([data-group="training"]),
+  html[data-view="more"] .page [data-group]:not([data-group="more"]) { display: none !important; }
+  .more-card:not([hidden]) { display: grid; gap: 8px; margin-bottom: 16px; }
+  .more-card h2 { font-size: 15.5px; margin-bottom: 4px; }
+  .more-item { display: grid; gap: 2px; text-align: left; font: inherit; color: var(--ink); background: var(--surface-2); border: 0; border-radius: 12px; padding: 12px 14px; cursor: pointer; }
+  .more-item b { font-size: 15px; font-weight: 600; }
+  .more-item span { font-size: 12.5px; color: var(--muted); }
+  html[data-view="more"] #data-card { display: block; }
+  /* Tabs share the width; too many words switch to icons (shell.js) */
+  .tabs { display: flex; width: 100%; }
+  .tabs button { flex: 1 0 auto; padding: 7px 10px; }
+  .quick { position: fixed; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 31; }
+  .quick-btn { width: 54px; height: 54px; padding: 0; justify-content: center; box-shadow: 0 10px 24px -8px rgba(0, 0, 0, .45); }
+  .quick-btn svg { width: 24px; height: 24px; }
+  .quick-btn span { display: none; }
+  .quick .menu { top: auto; bottom: calc(100% + 10px); right: 0; }
+}
+@media print {
+  body { padding-left: 0 !important; }
+  .side, .tabbar, .quick, .group-label, .more-card { display: none !important; }
+}
+/* Phones: the watch and you sit at the top right, beside the greeting; the
+   range and sync get the row below; search lives in More */
+.top-me { display: none; }
+@media (max-width: 899px) {
+  .top-inner { position: relative; }
+  .top-me { position: absolute; top: 12px; right: 16px; display: flex; align-items: center; gap: 8px; }
+  .top .brand { min-width: 0; }
+  .top .brand h1 { padding-right: 96px; }
+  .top .controls #search { display: none; }
+  .top .controls { width: 100%; }
+  .top .controls .seg { flex: 1; justify-content: space-between; margin-right: 0; }
+  .top-me .device-btn { padding: 0 9px; font-size: 0; gap: 0; }
+  .top.stuck .top-me { top: 6px; }
+}
+@media (max-width: 520px) { .top.stuck .top-me { display: none; } }
+@media (max-width: 520px) {
+  .top .brand-mark { display: none; }
+  #greeting { font-size: 20px; }
+}
+@media (max-width: 359px) { .tabbar a { font-size: 10px; } #greeting { font-size: 18px; } }
+
+/* The footer: one slim line pinned to the bottom of the content on wide
+   screens (sync, Open Food Facts, the note, the source); at the end of the
+   page on phones, small. The full text of a cut line is its tooltip. */
+@media (min-width: 900px) {
+  html:not([data-locked]) .foot {
+    position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 0;
+    margin: 24px -32px -48px; padding: 6px 32px; min-height: 0; text-align: left; font-size: 12px; line-height: 1.4;
+    background: color-mix(in oklab, var(--page) 86%, transparent);
+    -webkit-backdrop-filter: saturate(1.4) blur(12px); backdrop-filter: saturate(1.4) blur(12px);
+    border-top: 1px solid var(--border);
+  }
+  html:not([data-locked]) .foot p { margin: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  html:not([data-locked]) .foot #foot-sync { flex: none; }
+  html:not([data-locked]) .foot #foot-off::before, html:not([data-locked]) .foot .foot-note::before { content: "·"; margin: 0 8px; }
+  html:not([data-locked]) .foot .foot-repo { flex: none; margin-left: auto; padding-left: 16px; }
+  html:not([data-locked]) .foot .repo-link { margin: 0; }
+  html:not([data-locked]) .foot .repo-link svg { width: 14px; height: 14px; }
+}
+@media (max-width: 899px) {
+  .foot { margin-top: 20px; font-size: 12px; line-height: 1.4; }
+  .foot p { margin: 0 0 2px; }
+}
+@media (min-width: 900px) {
+  html:not([data-locked]) .foot #foot-off { flex: 0 1 auto; }
+  html:not([data-locked]) .foot .foot-note { flex: 0 100 auto; }
+}
+/* Too narrow for the whole line: the note goes, its words stay in the title */
+@media (min-width: 900px) and (max-width: 1399px) {
+  html:not([data-locked]) .foot .foot-note { display: none; }
+}

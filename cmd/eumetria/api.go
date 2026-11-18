@@ -635,9 +635,11 @@ func clearSessionCookie(w http.ResponseWriter) {
 /* ---------- signed in ---------- */
 
 type me struct {
-	Name   string `json:"name"`
-	Role   string `json:"role"`
-	Avatar string `json:"avatar"` // the picture's address, if there is one
+	Name string `json:"name"`
+	// FirstName is from the profile, for the dashboard's greeting ("" if not given).
+	FirstName string `json:"first_name,omitempty"`
+	Role      string `json:"role"`
+	Avatar    string `json:"avatar"` // the picture's address, if there is one
 	// Scopes are every scope the role gives (admin spelled out).
 	Scopes       []string `json:"scopes"`
 	Sync         bool     `json:"sync"` // may start a sync: the page shows the button
@@ -666,7 +668,7 @@ func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User, 
 		writeError(w, http.StatusInternalServerError, "server")
 		return
 	}
-	_, avatar, err := a.store.Profile(ctx, u)
+	prof, avatar, err := a.store.Profile(ctx, u)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server")
 		return
@@ -687,7 +689,7 @@ func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User, 
 			scopes = append(scopes, sc)
 		}
 	}
-	writeJSON(w, http.StatusOK, me{Name: u.Name, Role: string(u.Role), Avatar: avatar, Scopes: scopes,
+	writeJSON(w, http.StatusOK, me{Name: u.Name, FirstName: prof.FirstName, Role: string(u.Role), Avatar: avatar, Scopes: scopes,
 		Sync: u.Can(auth.ScopeSync) && f.Any(), SecondFactor: f.Any(), NeedsSecondFactor: a.needsFactor(u) && !f.Any(), Demo: a.demo,
 		NeedsEnrolLink: !a.demo && a.needsFactor(u) && !f.Any(), Notices: notices, Remember: remember, Layout: layout})
 }

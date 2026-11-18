@@ -1,12 +1,11 @@
 // The dashboard's cards in the order the user chose, without the ones they
-// hid (account menu → Customize dashboard). The choice is stored with the
+// hid (Profile → Customize Dashboard). The choice is stored with the
 // account (api/profile/layout), so it follows them to every device.
 //
 // Some cards fit half the width: two of them next to each other share a
 // row on wide screens; one alone, or next to a wide card, takes the row.
 
 import { $, h } from './dom.js';
-import { openDialog } from './dialog.js';
 import { account, api } from './account.js';
 import { t } from './i18n.js';
 
@@ -14,6 +13,22 @@ const grid = $('#cards');
 // The page's own order, before any change.
 const DEFAULT = [...grid.children].map((c) => c.id);
 const HALF = new Set(['weight-card', 'movement-card', 'foods-card', 'top-activities-card']);
+
+// Which part of the page each card belongs to: the group labels between
+// the cards and the phone's tabs (shell.js).
+export const GROUP = {
+  today: 'today', 'review-card': 'today', tiles: 'today',
+  'energy-card': 'nutrition', 'foods-card': 'nutrition', 'sources-card': 'nutrition', 'quality-card': 'nutrition',
+  'weight-card': 'body', 'movement-card': 'body', 'recovery-card': 'body',
+  'training-card': 'training', 'top-activities-card': 'training',
+  'data-card': 'more', 'more-card': 'more',
+};
+// The labels between the cards on wide screens follow the sidebar's parts.
+const LABEL = {
+  'energy-card': 'Nutrition', 'weight-card': 'Body', 'movement-card': 'Body', 'recovery-card': 'Sleep', 'training-card': 'Training',
+  'foods-card': 'Foods', 'top-activities-card': 'Foods', 'sources-card': 'Foods', 'quality-card': 'Foods', 'data-card': 'Data',
+};
+const LABEL_TEXT = { Nutrition: () => t('Nutrition'), Body: () => t('Body'), Sleep: () => t('Sleep'), Training: () => t('Training'), Foods: () => t('Foods'), Data: () => t('Data') };
 
 const layout = () => account.user?.layout || { order: [], hidden: [] };
 
@@ -35,6 +50,7 @@ export function applyLayout() {
   const { order, hidden } = layout();
   const ids = ordered(order);
   const cards = ids.map((id) => document.getElementById(id));
+  for (const l of grid.querySelectorAll(':scope > .group-label')) l.remove();
   if (cards.some((c, i) => grid.children[i] !== c)) grid.append(...cards);
   for (const c of cards) c.toggleAttribute('data-off', hidden.includes(c.id));
   const shown = cards.filter((c) => !c.hidden && !c.hasAttribute('data-off'));
@@ -46,32 +62,38 @@ export function applyLayout() {
       i++;
     } else c.classList.add('span-2');
   }
+  // A label where the part of the page changes, in the cards' order.
+  let last = '';
+  for (const c of shown) {
+    const g = LABEL[c.id] || 'Data';
+    if (g !== last) c.before(groupLabel(g));
+    last = g;
+  }
+}
+
+function groupLabel(g) {
+  const el = h('div', { class: 'group-label' });
+  el.append(h('h2', {}, LABEL_TEXT[g]()));
+  return el;
 }
 
 const titleOf = (c) => (c.querySelector('h2')?.textContent || c.id).trim();
 
-let win = null;
 let saving = Promise.resolve();
 
-export function openLayout(returnFocus) {
-  win?.close(true);
-  const close = h('button', { class: 'sheet-close', type: 'button', 'aria-label': t('Close') }, '×');
-  const head = h('div', { class: 'sheet-head wo-head' });
-  const titles = h('div', { class: 'wo-titles' });
-  titles.append(h('h2', { id: 'lo-title' }, t('Customize dashboard')),
-    h('p', { class: 'muted' }, t('The order of the cards and which ones you see, on all your devices.')));
-  head.append(titles, close);
+// renderLayout draws the list of cards into host (Profile → Customize
+// Dashboard): each can be hidden or moved up and down.
+export function renderLayout(host) {
   const list = h('ol', { class: 'lo-list' });
   const status = h('p', { class: 'muted lo-status', role: 'status' });
   const reset = h('button', { class: 'pill-btn', type: 'button' }, t('Reset'));
   const foot = h('div', { class: 'lo-foot' });
   foot.append(reset, status);
-  const body = h('div', { class: 'wo-body' });
-  body.append(list, foot);
-  const panel = h('div', { class: 'wo-panel lo-panel' });
-  panel.append(head, body);
-  win = openDialog({ cls: 'wo-overlay', labelledBy: 'lo-title', content: [panel], returnFocus });
-  close.onclick = () => win.close();
+  const sec = h('section', { class: 'wo-sec lo-panel' });
+  const head = h('div', { class: 'wo-sec-head' });
+  head.append(h('h3', {}, t('Cards')), h('span', { class: 'muted' }, t('Unticked cards are hidden. Changes apply at once.')));
+  sec.append(head, list, foot);
+  host.replaceChildren(sec);
 
   const save = (next, focusId, dir) => {
     if (!account.user) return;

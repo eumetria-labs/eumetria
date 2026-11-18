@@ -1,8 +1,8 @@
 // Accounts: the server hands the data only to signed-in users (api.go). At
 // start the page asks who is signed in; without a session it shows the
 // sign-in form and goes on once someone signed in. The account menu in the
-// header opens the profile and the security settings, switches the style
-// and the language, and signs out.
+// header opens the Profile / Settings view (prefs.js), switches the style
+// and the language, and signs out (here or everywhere).
 //
 // Signing in: name and password, then a second factor if the account has
 // one (a passkey or security key, a code from an authenticator app, or a
@@ -17,12 +17,10 @@
 
 import { $, h, hashParam, popupMenu, setHashParam } from './dom.js';
 import { autofillSupported, credentialJSON, requestOptions, supported } from './webauthn.js';
-import { openSecurity, useEnrolLink } from './security.js';
-import { openManage } from './manage.js';
-import { openProfile } from './profile.js';
-import { openLayout } from './layout.js';
-import { openPhases } from './phases.js';
-import { openSettings } from './settings.js';
+import { useEnrolLink } from './security.js';
+import { face, openFromHash, openPrefs, roleLabel } from './prefs.js';
+import { icon, revealable, revealInPlace } from './kit.js';
+import { openDialog } from './dialog.js';
 import { confirmIdentity } from './stepup.js';
 import { store } from './state.js';
 import { DATE_LOCALE, LANG, setLang, t } from './i18n.js';
@@ -141,6 +139,8 @@ async function welcome(user) {
   $('#account-initial').textContent = user.name.slice(0, 1).toUpperCase();
   showPicture(user.avatar);
   $('#account-name').textContent = user.name;
+  $('#account-role').textContent = roleLabel(user.role);
+  $('#account-menu-face').replaceWith(Object.assign(face(), { id: 'account-menu-face' }));
   $('#account').hidden = false;
   $('#mfa-notice').hidden = !user.needs_second_factor;
   // Not an admin: a role that writes, or an admin asked this user for a
@@ -156,7 +156,7 @@ async function welcome(user) {
   if (emailToken != null) {
     setHashParam('email', null);
     api('profile/email/confirm', 'POST', { token: emailToken }).then((res) => {
-      if (res.ok) openProfile($('#account-btn'));
+      if (res.ok) openPrefs('profile', 'account', { returnFocus: $('#account-btn') });
       else $('#updated').textContent = t('That confirmation link didn’t work: it was used already or is older than a day.');
     }, () => {});
   }
@@ -166,35 +166,13 @@ async function welcome(user) {
   if (enrol != null) {
     setHashParam('enrol', null);
     useEnrolLink(enrol);
-    if (user.needs_second_factor) openSecurity($('#account-btn'));
+    if (user.needs_second_factor) openPrefs('settings', 'sign-in', { returnFocus: $('#account-btn') });
   }
-  $('#account-admin').hidden = $('#account-settings').hidden = !user.scopes?.includes('admin');
   for (const fn of changeListeners) fn(user);
-  // "#profile" opens the profile, also after signing in again.
-  if (hashParam('profile') != null) {
-    setHashParam('profile', null);
-    openProfile($('#account-btn'));
-  }
-  // "#security" opens the security settings, also after signing in again.
-  if (hashParam('security') != null) {
-    setHashParam('security', null);
-    openSecurity($('#account-btn'));
-  }
-  // "#settings=google" opens that tab, also after signing in again and when
-  // Connect Google comes back ("&google=connected").
-  const settings = hashParam('settings');
-  if (settings != null && user.scopes?.includes('admin')) {
-    const result = hashParam('google') || '';
-    setHashParam('settings', null);
-    setHashParam('google', null);
-    openSettings($('#account-btn'), settings, result);
-  }
-  // "#admin=roles" opens Users & Roles on that tab, also after signing in again.
-  const admin = hashParam('admin');
-  if (admin != null && user.scopes?.includes('admin')) {
-    setHashParam('admin', null);
-    openManage($('#account-btn'), admin);
-  }
+  // "#profile=account", "#settings=google" and the old "#security",
+  // "#admin=roles": also after signing in again, and when Connect Google
+  // comes back ("&google=connected").
+  openFromHash();
 }
 
 // What a security notice says (pentest F18/F19): a change to how the account
@@ -225,7 +203,7 @@ function showNotices(list) {
     items.append(h('li', {}, (NOTICES[n.kind]?.(n) ?? n.kind) + ' (' + when + ')'));
   }
   const open = h('button', { class: 'pill-btn', type: 'button' }, t('Security settings'));
-  open.onclick = () => openSecurity(open);
+  open.onclick = () => openPrefs('settings', 'sign-in', { returnFocus: open });
   const ok = h('button', { class: 'pill-btn', type: 'button' }, t('Got it'));
   ok.onclick = async () => {
     ok.disabled = true;
@@ -374,7 +352,7 @@ async function askInvite(token) {
     const form = h('form', { class: 'card lock' });
     form.append(h('img', { src: 'icons/mark.svg', alt: '', width: '44', height: '44' }), h('h2', {}, t('Welcome, {name}', { name })),
       h('p', { class: 'muted' }, factor ? t('Choose your password: at least 12 characters. Then you set up a second factor.') : t('Choose your password: at least 12 characters.')),
-      user, pw, again, keep, error, go);
+      user, revealable(pw), revealable(again), keep, error, go);
     $('#login').before(form);
     pw.focus();
     const fail = (text) => {
@@ -550,26 +528,59 @@ async function lockedText(res) {
 
 /* ---------- the account menu ---------- */
 
-// The profile, security settings, the style and the language, or signing
-// out here or everywhere. Signing out also makes this device forget the
-// data it kept for offline use. toggleTheme switches the style.
-export function initAccount(toggleTheme) {
-  $('#lang-label').textContent = LANG === 'de' ? 'English' : 'Deutsch';
-  $('#lang-label').lang = LANG === 'de' ? 'en' : 'de';
+// Profile, Settings, the style (light, dark or as the device), the
+// language, and signing out here or everywhere. Signing out also makes
+// this device forget the data it kept for offline use. theme is
+// { get(), set(choice) } with the choices light, dark and system.
+export function initAccount(theme) {
   // Offline, or for a picture just removed: the initial instead.
   $('#account-photo').onerror = () => showPicture(null);
-  popupMenu($('#account-btn'), $('#account-menu'), async (item) => {
-    if (item.dataset.action === 'profile') return openProfile($('#account-btn'));
-    if (item.dataset.action === 'layout') return openLayout($('#account-btn'));
-    if (item.dataset.action === 'phases') return openPhases($('#account-btn'));
-    if (item.dataset.action === 'settings') return openSettings($('#account-btn'));
-    if (item.dataset.action === 'theme') return toggleTheme();
-    if (item.dataset.action === 'lang') return setLang(LANG === 'de' ? 'en' : 'de');
-    if (item.dataset.action === 'security') return openSecurity($('#account-btn'));
-    if (item.dataset.action === 'admin') return openManage($('#account-btn'));
-    await signOut(item.dataset.out === 'all');
+  const mark = () => {
+    for (const b of $('#theme-switch').children) b.setAttribute('aria-checked', String(b.dataset.theme === theme.get()));
+    for (const b of $('#lang-switch').children) b.setAttribute('aria-checked', String(b.dataset.lang === LANG));
+  };
+  mark();
+  popupMenu($('#account-btn'), $('#account-menu'), (item) => {
+    if (item.dataset.theme) {
+      theme.set(item.dataset.theme);
+      return mark();
+    }
+    if (item.dataset.lang) return item.dataset.lang !== LANG && setLang(item.dataset.lang);
+    if (item.dataset.action === 'profile') return openPrefs('profile', '', { returnFocus: $('#account-btn') });
+    if (item.dataset.action === 'settings') return openPrefs('settings', '', { returnFocus: $('#account-btn') });
+    if (item.dataset.action === 'signout') return askSignOut($('#account-btn'));
   });
-  $('#mfa-setup').onclick = () => openSecurity($('#mfa-setup'));
+  $('#mfa-setup').onclick = () => openPrefs('settings', 'sign-in', { returnFocus: $('#mfa-setup') });
+  // The sign-in form's password gets the eye too.
+  if ($('#login-password')) revealInPlace($('#login-password'));
+}
+
+// askSignOut asks where to sign out: on this device (the default) or on all
+// of them.
+async function askSignOut(returnFocus) {
+  const sessions = await api('sessions').then((r) => (r.ok ? r.json() : null), () => null);
+  const panel = h('div', { class: 'so-panel', role: 'document' });
+  const choice = (ic, title, text, everywhere) => {
+    const b = h('button', { class: 'so-choice' + (everywhere ? '' : ' default'), type: 'button' });
+    const tile = h('span', { class: 'ic' });
+    tile.append(icon(ic));
+    const words = h('span');
+    words.append(h('b', {}, title), h('span', {}, text));
+    b.append(tile, words);
+    b.onclick = () => {
+      win.close(true);
+      signOut(everywhere);
+    };
+    return b;
+  };
+  const n = sessions?.length || 0;
+  const here = choice('phone', t('This device'), t('Signs you out here. Your other devices stay signed in.'), false);
+  const all = choice('monitor', t('Everywhere'), n > 1 ? t('Ends all your sessions: {n} devices.', { n }) : t('Ends all your sessions.'), true);
+  const cancel = h('button', { class: 'pill-btn so-cancel', type: 'button' }, t('Cancel'));
+  panel.append(h('h2', { id: 'so-title' }, t('Sign out')), h('p', {}, t('Where do you want to sign out?')), here, all, cancel);
+  const win = openDialog({ cls: 'wo-overlay so-overlay', labelledBy: 'so-title', content: [panel], returnFocus });
+  cancel.onclick = () => win.close();
+  here.focus();
 }
 
 // signOut ends the session (or all of them) and reloads the page, which

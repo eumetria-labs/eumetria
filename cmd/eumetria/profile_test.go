@@ -31,6 +31,10 @@ func TestProfile(t *testing.T) {
 	if res.StatusCode != 200 || got.FirstName != "Anna" || got.Surname != "Müller" || got.Instagram != "anna.m_1" {
 		t.Fatalf("saved = %d %s", res.StatusCode, body)
 	}
+	// The greeting on the dashboard uses the first name from /api/me.
+	if _, body := e.do(t, anna, "GET", "/api/me", ""); !strings.Contains(body, `"first_name":"Anna"`) {
+		t.Errorf("me without the first name: %s", body)
+	}
 	// Each user has their own.
 	if _, body := e.do(t, coach, "GET", "/api/profile", ""); strings.Contains(body, "Anna") {
 		t.Errorf("the coach sees anna's profile: %s", body)

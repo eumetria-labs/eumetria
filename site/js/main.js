@@ -21,7 +21,8 @@ import { refreshLifts, renderTraining } from './training.js';
 import { renderDevice, renderNotices } from './device.js';
 import { initAdmin } from './admin.js';
 import { account, forgetData, initAccount, onUserChange, reason, signedIn } from './account.js';
-import { openSettings } from './settings.js';
+import { openPrefs } from './prefs.js';
+import { greeting, initShell, showQuick } from './shell.js';
 import { loadNotes } from './notes.js';
 import { loadLifts } from './lifts.js';
 import { loadWods } from './wods.js';
@@ -62,6 +63,21 @@ translatePage();
 // Smoke tests (and curious developers) can read these off <html>.
 addEventListener('error', (e) => { document.documentElement.dataset.error = e.message; });
 
+// The style: light, dark or "system" (as the device says), chosen in the
+// account menu and remembered on this device.
+const theme = {
+  get: () => store.get('theme') || 'system',
+  set(choice) {
+    if (choice === 'light' || choice === 'dark') {
+      document.documentElement.dataset.theme = choice;
+      store.set('theme', choice);
+    } else {
+      delete document.documentElement.dataset.theme;
+      store.remove('theme');
+    }
+  },
+};
+
 initTheme();
 initLanguage();
 initRange();
@@ -69,8 +85,9 @@ initStickyHeader();
 initSections();
 initSearch();
 initOffline();
-initAccount(toggleTheme);
-$('#empty-settings').onclick = () => openSettings($('#empty-settings'), 'yazio');
+initAccount(theme);
+initShell();
+$('#empty-settings').onclick = () => openPrefs('settings', 'yazio', { returnFocus: $('#empty-settings') });
 onUserChange(() => initAdmin({ onSynced: load, onIdle: renderUpdated }));
 start();
 setInterval(renderUpdated, 60 * 1000);
@@ -251,27 +268,9 @@ function initLanguage() {
   }
 }
 
-function currentTheme() {
-  return document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-}
-
-// The account menu offers the style that isn't on.
-function themeLabel() {
-  $('#theme-label').textContent = currentTheme() === 'dark' ? t('Light mode') : t('Dark mode');
-}
-
 function initTheme() {
   const saved = store.get('theme');
   if (saved) document.documentElement.dataset.theme = saved;
-  themeLabel();
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', themeLabel);
-}
-
-function toggleTheme() {
-  const next = currentTheme() === 'dark' ? 'light' : 'dark';
-  document.documentElement.dataset.theme = next;
-  store.set('theme', next);
-  themeLabel();
 }
 
 function initStickyHeader() {
@@ -344,6 +343,8 @@ function render() {
   $('#title').textContent = title;
   document.title = title;
   state.today = todayISO(data.timezone);
+  $('#greeting').textContent = greeting(title);
+  showQuick();
   const every = syncEvery(data.sync_interval_minutes);
   const fitbit = data.days.some((d) => d.workouts?.length || d.sleep || d.rhr);
   const by = { every: every || t('automatically') };

@@ -1,5 +1,5 @@
 // Phases (a cut, a bulk, maintenance, or one's own) and events (a
-// competition, a race), in a window from the account menu. People note
+// competition, a race), under Profile → Phases & Events. People note
 // them themselves: the server keeps them (phases.go), view.nutrition or
 // view.health reads them, edit.lifts writes them. The weight, calorie,
 // macro, score and load charts shade the phases and mark the events
@@ -11,6 +11,7 @@ import { openDialog } from './dialog.js';
 import { api, reason } from './account.js';
 import { mayEditLifts } from './lifts.js';
 import { state } from './state.js';
+import { openPrefs } from './prefs.js';
 import { KINDS, isEvent, phaseName, phaseOn, phaseSummary } from './phase.js';
 import { t, tn } from './i18n.js';
 
@@ -20,7 +21,6 @@ const readable = (scopes) => !scopes || scopes.includes('view.nutrition') || sco
 // which -demo writes. Offline the ones already here stay.
 export async function loadPhases(data) {
   const ok = readable(data.scopes);
-  $('#account-phases').hidden = !ok;
   if (!ok) {
     state.phases = [];
     return;
@@ -30,15 +30,26 @@ export async function loadPhases(data) {
   if (res?.status === 404) {
     state.phases = [];
     state.phasesLoaded = true;
+    loaded();
     return;
   }
   if (!res?.ok) {
     console.error('loading the phases failed', res?.status);
+    loaded();
     return;
   }
   state.phases = await res.json();
   state.phasesLoaded = true;
+  loaded();
 }
+
+// Profile → Phases & Events can be open before the phases are here (a link
+// to it): it waits for this.
+let tried = false;
+const loaded = () => {
+  tried = true;
+  document.dispatchEvent(new Event('phases-loaded'));
+};
 
 // Charts and the Today card are drawn again after a change here.
 const changed = () => document.dispatchEvent(new Event('phases-change'));
@@ -55,8 +66,8 @@ const notedDates = () => new Set([...state.lifts.map((e) => e.date), ...state.wo
 
 // The running phase ("Maintain · day 71") and the next event within 90
 // days ("Open 26.1 in 24 days"), as one line under the Today card's title:
-// they hold for weeks, so they're status, not highlights. It opens the
-// window.
+// they hold for weeks, so they're status, not highlights. It opens
+// Profile → Phases & Events.
 export function renderPhaseStatus() {
   const host = $('#today-status');
   const today = state.today;
@@ -74,29 +85,22 @@ export function renderPhaseStatus() {
   const spans = parts.map((p) => h('span', { class: 'st-part' }, p));
   spans.at(-1).append(' ', h('span', { 'aria-hidden': 'true' }, '›'));
   host.replaceChildren(...spans.flatMap((sp, i) => (i ? [' · ', sp] : [sp])));
-  host.title = t('Phases & events');
-  host.onclick = () => openPhases(host);
+  host.title = t('Phases & Events');
+  host.onclick = () => openPrefs('profile', 'phases', { returnFocus: host });
 }
 
-/* ---------- the window ---------- */
+/* ---------- Profile → Phases & Events ---------- */
 
-let win = null;
-
-export function openPhases(returnFocus) {
-  win?.close(true);
-  const close = h('button', { class: 'sheet-close', type: 'button', 'aria-label': t('Close') }, '×');
-  const head = h('div', { class: 'sheet-head wo-head' });
-  const titles = h('div', { class: 'wo-titles' });
-  titles.append(h('h2', { id: 'phases-title' }, t('Phases & events')),
-    h('p', { class: 'muted' }, t('Cuts, bulks and competitions, shaded and marked on the charts.')));
-  head.append(titles, close);
-  const body = h('div', { class: 'wo-body phases-body' });
-  const panel = h('div', { class: 'wo-panel phases-panel' });
-  panel.append(head, body);
-  win = openDialog({ cls: 'wo-overlay', labelledBy: 'phases-title', content: [panel], returnFocus });
-  close.onclick = () => win.close();
-  close.focus();
-
+// renderPhases draws the phases and events into body, with their numbers;
+// people who may write lifts add and change them here.
+export function renderPhases(body) {
+  const card = (title, list) => {
+    const sec = h('section', { class: 'wo-sec' });
+    const head = h('div', { class: 'wo-sec-head' });
+    head.append(h('h3', {}, title));
+    sec.append(head, list);
+    return sec;
+  };
   const draw = () => {
     const edit = mayEditLifts();
     const today = state.today || iso(new Date());
@@ -112,7 +116,10 @@ export function openPhases(returnFocus) {
       add.append(addPhase, addEvent);
       parts.push(add);
     }
-    if (!state.phases.length) {
+    if (!state.phasesLoaded && !tried) {
+      document.addEventListener('phases-loaded', () => { if (body.isConnected) draw(); }, { once: true });
+      parts.push(h('p', { class: 'empty-tab' }, t('Loading…')));
+    } else if (!state.phases.length) {
       parts.push(h('p', { class: 'empty-tab' }, !state.phasesLoaded ? t('The phases could not be loaded.')
         : edit ? t('No phases yet. Note a cut, a bulk or a competition to see it on the charts.') : t('No phases yet.')));
     }
@@ -147,7 +154,7 @@ export function openPhases(returnFocus) {
         ].filter(Boolean);
         return item(p, [[kind, when, tn(s.days, '{n} day', '{n} days')].filter(Boolean).join(' · '), facts.join(' · ')]);
       }));
-      parts.push(h('h3', { class: 'phase-head' }, t('Phases')), ul);
+      parts.push(card(t('Phases'), ul));
     }
     if (events.length) {
       const ul = h('ul', { class: 'phase-list' });
@@ -156,7 +163,7 @@ export function openPhases(returnFocus) {
         const rel = n > 0 ? tn(n, 'in {n} day', 'in {n} days') : n === 0 ? t('today') : tn(-n, '{n} day ago', '{n} days ago');
         return item(p, [`${day(p.start)} · ${rel}`]);
       }));
-      parts.push(h('h3', { class: 'phase-head' }, t('Events')), ul);
+      parts.push(card(t('Events'), ul));
     }
     body.replaceChildren(...parts);
   };
@@ -178,7 +185,7 @@ async function refused(res) {
 
 // The form for a new phase or event (kind to start with) or for changing
 // one (entry). after runs once the phases changed.
-function openPhaseForm({ entry, kind, returnFocus, after }) {
+export function openPhaseForm({ entry, kind, returnFocus, after }) {
   const event = entry ? isEvent(entry) : kind === 'event';
   const close = h('button', { class: 'sheet-close', type: 'button', 'aria-label': t('Close') }, '×');
   const head = h('div', { class: 'sheet-head wo-head' });

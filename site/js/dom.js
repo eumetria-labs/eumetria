@@ -240,7 +240,9 @@ export function download(filename, type, bytes) {
 // items, Escape, Tab and a click elsewhere close it. onPick gets the item
 // chosen. The button and the menu share a positioned parent.
 export function popupMenu(button, menu, onPick) {
-  const items = () => [...menu.querySelectorAll('[role="menuitem"]')];
+  // Items, and the switches in a menu (theme, language), which pick without
+  // closing it.
+  const items = () => [...menu.querySelectorAll('[role="menuitem"], [role="menuitemradio"]')];
   const open = (focus) => {
     menu.hidden = false;
     // Opens to the left of the button, unless it sits at the left edge
@@ -258,9 +260,9 @@ export function popupMenu(button, menu, onPick) {
   };
   button.addEventListener('click', () => (menu.hidden ? open(true) : close()));
   menu.addEventListener('click', (e) => {
-    const b = e.target.closest('[role="menuitem"]');
+    const b = e.target.closest('[role="menuitem"], [role="menuitemradio"]');
     if (!b) return;
-    close(true);
+    if (b.getAttribute('role') === 'menuitem') close(true);
     onPick(b);
   });
   menu.addEventListener('keydown', (e) => {

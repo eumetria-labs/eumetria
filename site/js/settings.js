@@ -1,57 +1,34 @@
-// The settings (account menu → Settings, admins only). Each tab saves on its
-// own; the server checks every value (settings.go) and a change applies at
+// The settings (Settings → Data sources and Site, admins only). Each section
+// saves on its own; the server checks every value (settings.go) and a change applies at
 // once. A secret never comes back from the server: the page only learns
 // whether one is set, and a field left empty keeps it. Changes need a recent
 // proof of who one is, which api() asks for when needed (stepup.js).
 
 import { LOCALE } from './format.js';
-import { h, tabKeys } from './dom.js';
-import { openDialog } from './dialog.js';
+import { h } from './dom.js';
 import { api, reason } from './account.js';
 import { confirmNote } from './stepup.js';
 import { t } from './i18n.js';
+import { badge, revealable } from './kit.js';
 
 const dfTime = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-const TABS = [['general', () => t('General')], ['sync', () => t('Sync')], ['yazio', () => 'Yazio'], ['google', () => 'Google'], ['review', () => t('Weekly review')], ['backups', () => t('Backups')], ['mail', () => t('Email')]];
 const POLL_MS = 2000;
 
-let win = null;
-let polling = 0; // the status poll that may go on; closing the window ends it
+let polling = 0; // the status poll that may go on; leaving the section ends it
 
-// result is how Connect Google ended, when it brought the browser back here.
-export function openSettings(returnFocus, tab = 'general', result = '') {
-  win?.close(true);
-  const close = h('button', { class: 'sheet-close', type: 'button', 'aria-label': t('Close') }, '×');
-  const head = h('div', { class: 'sheet-head wo-head' });
-  const titles = h('div', { class: 'wo-titles' });
-  titles.append(h('h2', { id: 'set-title' }, t('Settings')), h('p', { class: 'muted' }, t('Changes apply at once.')));
-  head.append(titles, close);
-  const tabs = h('div', { class: 'tabs adm-tabs', role: 'tablist', 'aria-label': t('Settings') });
-  const body = h('div', { class: 'wo-body sec-body', role: 'tabpanel' });
-  const buttons = TABS.map(([key, label]) => {
-    const b = h('button', { role: 'tab', type: 'button', 'data-tab': key }, label());
-    b.onclick = () => show(key);
-    return b;
-  });
-  tabs.append(...buttons);
-  tabs.addEventListener('keydown', (e) => tabKeys(e, tabs));
-  const panel = h('div', { class: 'wo-panel adm-panel' });
-  panel.append(head, tabs, body);
-  win = openDialog({ cls: 'wo-overlay', labelledBy: 'set-title', content: [panel], returnFocus, onClose: () => { polling++; } });
-  close.onclick = () => win.close();
+// renderSettings draws one part of the settings (general, sync, yazio,
+// google, review, backups, mail) into body: a section of the Profile /
+// Settings view. result is how Connect Google ended, when it brought the
+// browser back here.
+export function renderSettings(body, tab, result = '') {
+  polling++;
+  return load(body, tab, result);
+}
 
-  function show(key) {
-    for (const b of buttons) {
-      const on = b.dataset.tab === key;
-      b.setAttribute('aria-selected', String(on));
-      b.tabIndex = on ? 0 : -1;
-    }
-    polling++;
-    load(body, key, result);
-    result = '';
-  }
-  show(TABS.some(([k]) => k === tab) ? tab : 'general');
+// stopSettings ends a status poll when its section is left.
+export function stopSettings() {
+  polling++;
 }
 
 async function load(body, tab, result) {
@@ -75,10 +52,19 @@ async function load(body, tab, result) {
   // not what every object has, such as "constructor" (pentest F8).
   const tabs = { general: generalTab, sync: syncTab, yazio: yazioTab, google: googleTab, review: reviewTab, backups: backupsTab, mail: mailTab };
   body.replaceChildren(...(Object.hasOwn(tabs, tab) ? tabs[tab] : generalTab)(body, data, result));
+  // The save bar saves every form of the section in one request.
+  body._saveAll = () => {
+    const forms = [...body.querySelectorAll('form[data-save]')];
+    const values = Object.assign({}, ...forms.map((f) => f._values?.() || {}));
+    if (!Object.keys(values).length) return;
+    const names = Object.assign({}, ...forms.map((f) => f._names || {}));
+    return send(body, forms[0].querySelector('[type="submit"]'), () => api('admin/settings', 'PUT', { values }),
+      (why) => why.error === 'bad_value' && t('Check this: {name}', { name: names[why.key] || why.key }));
+  };
 }
 
-function section(title, note) {
-  const sec = h('section', { class: 'wo-sec' });
+function section(title, note, cls = '') {
+  const sec = h('section', { class: ('wo-sec ' + cls).trim() });
   const hd = h('div', { class: 'wo-sec-head' });
   hd.append(h('h3', {}, title));
   if (note) hd.append(h('span', { class: 'muted' }, note));
@@ -126,7 +112,7 @@ const SOURCE = { env: () => t('from the env file'), default: () => t('default') 
 // A form saving the fields it holds, each { key, label, type, hint, options }.
 // What didn't change isn't sent, and a secret field left empty keeps the secret.
 function form(body, data, fields) {
-  const el = h('form', { class: 'set-form' });
+  const el = h('form', { class: 'set-form', 'data-save': '' });
   const names = {};
   const inputs = fields.map((f) => {
     const item = data.settings[f.key];
@@ -153,14 +139,14 @@ function form(body, data, fields) {
       if (f.placeholder) input.placeholder = f.placeholder;
       else if (item.source !== 'db' && SOURCE[item.source]) head.append(h('small', {}, SOURCE[item.source]()));
     }
-    label.append(head, input);
+    label.append(head, item.secret ? revealable(input) : input);
     if (f.hint) label.append(h('span', { class: 'muted set-hint' }, f.hint));
     if (f.list) label.append(f.list);
     el.append(label);
     return { f, item, input };
   });
   const row = h('div', { class: 'sec-row' });
-  const save = h('button', { class: 'pill-btn', type: 'submit' }, t('Save'));
+  const save = h('button', { class: 'pill-btn pf-save', type: 'submit' }, t('Save'));
   row.append(save);
   const reset = inputs.filter(({ item }) => item.secret && item.state === 'set');
   for (const { f } of reset) {
@@ -171,14 +157,20 @@ function form(body, data, fields) {
     row.append(remove);
   }
   el.append(row);
-  el.onsubmit = (e) => {
-    e.preventDefault();
+  // The values that changed: what Save sends.
+  el._values = () => {
     const values = {};
     for (const { f, item, input } of inputs) {
       const value = f.type === 'checkbox' ? String(input.checked) : input.value.trim();
       const was = f.type === 'checkbox' ? String(/^(1|t|true)$/i.test(item.value)) : item.value ?? '';
       if (item.secret ? value : value !== was) values[f.key] = item.secret ? input.value : value;
     }
+    return values;
+  };
+  el._names = names;
+  el.onsubmit = (e) => {
+    e.preventDefault();
+    const values = el._values();
     if (!Object.keys(values).length) return;
     send(body, save, () => api('admin/settings', 'PUT', { values }), (why) => why.error === 'bad_value' && t('Check this: {name}', { name: names[why.key] || why.key }));
   };
@@ -211,7 +203,11 @@ function generalTab(body, data) {
     back.onclick = () => send(body, back, () => api('admin/settings', 'PUT', { reset: ['timezone'] }));
     sec.append(back);
   }
-  return [sec];
+  const scores = section(t('Scores'), t('Eumetria’s own sleep, recovery and readiness scores.'));
+  scores.append(form(body, data, [
+    { key: 'sleep_goal', label: t('Sleep goal (minutes)'), hint: t('How long you want to sleep, for the sleep score: 480 is 8 h, between 240 and 720.'), type: 'number' },
+  ]));
+  return [sec, scores];
 }
 
 /* ---------- sync ---------- */
@@ -384,9 +380,13 @@ function googleTab(body, data, result) {
     { key: 'google_client_id', label: t('Client ID') },
     { key: 'google_client_secret', label: t('Client secret') },
   ]));
-  client.append(h('p', { class: 'muted set-hint' }, t('Authorized redirect URI of the client, character for character:')), h('code', { class: 'sec-secret pf-secret' }, g.callback));
-  const conn = section(t('Connection'), g.connected ? t('Connected') : t('Not connected'));
-  if (g.issued_at) conn.append(h('p', { class: 'muted' }, t('Since {date}', { date: dfTime.format(new Date(g.issued_at)) })));
+  const uri = h('div', { class: 'pf-code' });
+  const copy = h('button', { class: 'pill-btn small', type: 'button' }, t('Copy'));
+  copy.onclick = () => navigator.clipboard?.writeText(g.callback).then(() => { copy.textContent = t('Copied'); });
+  uri.append(h('code', { class: 'sec-secret pf-secret' }, g.callback), copy);
+  client.append(h('p', { class: 'muted set-hint' }, t('Authorized redirect URI of the client, character for character:')), uri);
+  const conn = section(t('Connection'), g.issued_at ? t('Since {date}', { date: dfTime.format(new Date(g.issued_at)) }) : '');
+  conn.querySelector('.wo-sec-head').append(g.connected ? (g.missing?.length ? badge('warn', t('Partly connected')) : badge('ok', t('Connected'))) : badge('off', t('Not connected')));
   if (g.missing?.length) conn.append(h('p', { class: 'lock-error' }, t('Not granted, so some data is missing: {scopes}', { scopes: g.missing.join(', ') })));
   const row = h('div', { class: 'sec-row' });
   const connect = h('button', { class: 'pill-btn', type: 'button' }, g.connected ? t('Connect again') : t('Connect Google'));
@@ -404,19 +404,19 @@ function googleTab(body, data, result) {
     showError(body, why === 'no_client' ? t('Save the client ID and secret first.') : t('That didn’t work. Try again.'));
   };
   row.append(connect);
+  conn.append(row);
+  // Disconnecting sits apart, in red: it stops the Fitbit data.
+  const danger = [];
   if (g.connected) {
-    const off = h('button', { class: 'pill-btn', type: 'button' }, t('Disconnect'));
+    const zone = section(t('Disconnect Google'), t('Syncing Fitbit data stops until you connect again. What was synced stays.'), 'danger');
+    const off = h('button', { class: 'pill-btn danger-btn', type: 'button' }, t('Disconnect'));
     off.onclick = () => {
       if (confirm(t('Disconnect Google? Syncing Fitbit data stops until you connect again.'))) send(body, off, () => api('google', 'DELETE'));
     };
-    row.append(off);
+    zone.append(off);
+    danger.push(zone);
   }
-  conn.append(row);
-  const scores = section(t('Scores'), t('Eumetria’s own sleep, recovery and readiness scores.'));
-  scores.append(form(body, data, [
-    { key: 'sleep_goal', label: t('Sleep goal (minutes)'), hint: t('How long you want to sleep, for the sleep score: 480 is 8 h, between 240 and 720.'), type: 'number' },
-  ]));
-  return [...parts, client, conn, scores];
+  return [...parts, conn, client, ...danger];
 }
 
 /* ---------- weekly review ---------- */
@@ -479,7 +479,7 @@ function passphraseSection(body, data) {
   const field = (label) => {
     const input = h('input', { class: 'field', type: 'password', autocomplete: 'new-password', 'aria-label': label, placeholder: label });
     input.disabled = !data.can_encrypt;
-    form.append(input);
+    form.append(revealable(input));
     return input;
   };
   const one = field(t('New passphrase (12+ characters)'));
@@ -489,7 +489,8 @@ function passphraseSection(body, data) {
   make.disabled = !data.can_encrypt;
   make.onclick = () => {
     one.value = two.value = newPassphrase();
-    one.type = 'text'; // to copy it
+    // Shown, to copy it.
+    if (one.type === 'password') one.parentElement.querySelector('.eye')?.click();
     one.select();
   };
   const save = h('button', { class: 'pill-btn', type: 'submit' }, t('Save'));
@@ -544,7 +545,7 @@ function backupsTab(body, data) {
   if (on && !data.google.drive) {
     const box = h('div', { class: 'notice notice-row' });
     const go = h('button', { class: 'pill-btn', type: 'button' }, t('To Google'));
-    go.onclick = () => body.closest('.adm-panel').querySelector('[data-tab="google"]').click();
+    go.onclick = () => body.dispatchEvent(new CustomEvent('prefs-go', { bubbles: true, detail: 'google' }));
     box.append(h('span', {}, t('Google hasn’t allowed Drive yet: use Connect again there.')), go);
     drive.append(box);
   }
