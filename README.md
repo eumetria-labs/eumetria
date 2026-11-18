@@ -270,6 +270,12 @@ go run ./cmd/eumetria -serve :8080 -site site
 go vet ./... && go test ./...
 node --test tests/*.test.js
 go run ./cmd/eumetria -demo -out site/stats.json && node scripts/smoke.js site
+# the sample data depends only on the time it is made for: -now repeats a
+# CI run (its log prints the time), and the page's clock follows the data
+go run ./cmd/eumetria -demo -now 2026-11-17T13:24:00Z -out site/stats.json && node scripts/smoke.js site
+
+# how fast the page renders on a slow phone (390 px, CPU 4× slower; median of 5)
+node scripts/perf.js site
 
 # known vulnerabilities in the code's call paths, with the newest Go patch
 # release (as CI does; an older local Go reports the standard library's)

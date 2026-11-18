@@ -38,7 +38,7 @@ func healthDay(r *rand.Rand, day time.Time, t float64, act *store.Activity) *sto
 	z := demoZones
 	hd := &store.HealthDay{
 		Date:         date,
-		FetchedAt:    time.Now().UTC(),
+		FetchedAt:    day.UTC(),
 		RestingHR:    math.Round(66 - 5*t + r.NormFloat64()*1.5),
 		HRV:          math.Round((30+9*t+r.NormFloat64()*4)*10) / 10,
 		HRVDeep:      math.Round((26+8*t+r.NormFloat64()*4)*10) / 10,

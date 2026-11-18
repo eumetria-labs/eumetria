@@ -92,6 +92,7 @@ type config struct {
 	refreshAll    bool
 	workers       int
 	demo          bool
+	fixedNow      time.Time     // -now with -demo: the clock the sample data is made for
 	interval      time.Duration // written to stats.json for the footer; 0 if unknown
 	googleToken   string        // Google Health token file
 	backupDir     string        // where archives go
@@ -117,6 +118,12 @@ func (c config) with(v settings.Values) config {
 // now is the time in the zone that decides what "today" is. Each run reads it,
 // so a new zone applies without a restart.
 func (c config) now() time.Time {
+	if !c.fixedNow.IsZero() {
+		if c.values.Zone == nil {
+			return c.fixedNow
+		}
+		return c.fixedNow.In(c.values.Zone)
+	}
 	if c.values.Zone == nil {
 		return time.Now()
 	}
@@ -151,6 +158,7 @@ func run() error {
 	flag.IntVar(&cfg.workers, "workers", 4, "parallel requests")
 	flag.StringVar(&cfg.photoDir, "photos", "", "private cache of downloaded meal photos (default <data>/photos)")
 	flag.BoolVar(&cfg.demo, "demo", false, "write generated sample data instead of calling Yazio")
+	fixedNow := flag.String("now", "", "with -demo: make the sample data for this time (RFC 3339) instead of now, so a test run is repeatable")
 	flag.StringVar(&cfg.backupDir, "backups", os.Getenv("BACKUP_DIR"), "folder for backup archives (default <data>/backups)")
 	flag.StringVar(&cfg.googleToken, "google-token", "", "private Google Health refresh token, written by -google-auth (default <data>/google-token.json)")
 	flag.StringVar(&accounts.createUser, "create-user", "", "create an account with this name and exit (asks for the password; -role)")
@@ -170,6 +178,16 @@ func run() error {
 	flag.IntVar(&accounts.expiresDays, "expires", 365, "with -create-token: days until it expires, 0 for never")
 	flag.Parse()
 	cfg.inData()
+	if *fixedNow != "" {
+		if !cfg.demo {
+			return errors.New("-now only works with -demo")
+		}
+		t, err := time.Parse(time.RFC3339, *fixedNow)
+		if err != nil {
+			return fmt.Errorf("invalid -now %q: %w", *fixedNow, err)
+		}
+		cfg.fixedNow = t
+	}
 
 	// Serve mode syncs every -interval (the footer shows it); a one-off sync
 	// has no schedule unless SYNC_INTERVAL names one.

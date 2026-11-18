@@ -117,14 +117,19 @@ func History(today time.Time, n int) *store.History {
 		"energy.energy": baseEnergy, "nutrient.protein": 150, "nutrient.carb": 210, "nutrient.fat": 70,
 		"activity.step": 10000, "water": 2500, "bodyvalue.weight": 78,
 	}
-	split := map[string]float64{"breakfast": 0.25, "lunch": 0.33, "dinner": 0.32, "snack": 0.10}
+	// A slice, not a map: map order changes from run to run, and the meals
+	// draw from r in that order, so the data would too.
+	split := []struct {
+		meal  string
+		share float64
+	}{{"breakfast", 0.25}, {"lunch", 0.33}, {"dinner", 0.32}, {"snack", 0.10}}
 
 	for i := n - 1; i >= 0; i-- {
 		day := today.AddDate(0, 0, -i)
 		t := float64(n-1-i) / float64(n-1)
 		weekend := day.Weekday() == time.Saturday || day.Weekday() == time.Sunday
 
-		d := &store.Day{Date: day.Format(time.DateOnly), FetchedAt: time.Now().UTC(), Goals: goals, Meals: map[string]store.Macros{}}
+		d := &store.Day{Date: day.Format(time.DateOnly), FetchedAt: today.UTC(), Goals: goals, Meals: map[string]store.Macros{}}
 
 		// Skip logging food on ~6% of days.
 		if r.Float64() > 0.06 {
@@ -132,7 +137,8 @@ func History(today time.Time, n int) *store.History {
 			if weekend {
 				target += 250
 			}
-			for meal, share := range split {
+			for _, sp := range split {
+				meal, share := sp.meal, sp.share
 				kcal := target * share * (0.8 + r.Float64()*0.4)
 				m := store.Macros{Energy: kcal, Protein: kcal * 0.28 / 4, Carb: kcal * 0.42 / 4, Fat: kcal * 0.30 / 9}
 				d.Meals[meal] = m
@@ -214,7 +220,7 @@ func History(today time.Time, n int) *store.History {
 		h.Days[d.Date] = d
 	}
 	addRecipes(h)
-	addProducts(h)
+	addProducts(h, today)
 	addReviews(h, today)
 	return h
 }
@@ -233,7 +239,7 @@ func addReviews(h *store.History, today time.Time) {
 	h.Reviews = map[string]*store.Review{}
 	for i, text := range texts {
 		week := monday.AddDate(0, 0, -7*i).Format(time.DateOnly)
-		h.Reviews[week] = &store.Review{Week: week, Text: text[0], TextDE: text[1], Model: "claude-opus-5-5", CreatedAt: time.Now().UTC()}
+		h.Reviews[week] = &store.Review{Week: week, Text: text[0], TextDE: text[1], Model: "claude-opus-5-5", CreatedAt: today.UTC()}
 	}
 }
 
@@ -262,12 +268,12 @@ var products = map[string]store.OFFProduct{
 	"Sweetcorn":        {Name: "Sweetcorn", NutriScore: "b", NOVA: 3},
 }
 
-func addProducts(h *store.History) {
+func addProducts(h *store.History, today time.Time) {
 	h.OFF = map[string]*store.OFFProduct{}
 	eans := map[string]string{}
 	for name, p := range products {
 		ean := "demo-" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-		p.FetchedAt = time.Now().UTC()
+		p.FetchedAt = today.UTC()
 		h.OFF[ean] = &p
 		h.Foods["product:"+ean] = &store.Food{Version: store.FoodVersion, Name: name, EAN: ean}
 		eans[name] = ean
