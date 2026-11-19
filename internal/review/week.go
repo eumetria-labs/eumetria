@@ -158,26 +158,30 @@ type Goals struct {
 }
 
 type Day struct {
-	Date       string             `json:"date"`
-	Weekday    string             `json:"weekday"`
-	Logged     bool               `json:"food_logged"`
-	Kcal       float64            `json:"kcal_eaten,omitempty"`
-	KcalGoal   float64            `json:"kcal_goal_incl_activity,omitempty"`
-	ProteinG   float64            `json:"protein_g,omitempty"`
-	ProteinGl  float64            `json:"protein_goal_g,omitempty"`
-	CarbsG     float64            `json:"carbs_g,omitempty"`
-	FatG       float64            `json:"fat_g,omitempty"`
-	Meals      map[string]float64 `json:"meals_kcal,omitempty"`
-	Foods      []Food             `json:"foods,omitempty"`
-	Steps      float64            `json:"steps,omitempty"`
-	WeightKg   *float64           `json:"weight_kg,omitempty"`
-	BurnedKcal float64            `json:"kcal_burned_fitbit,omitempty"`
-	Activities []Activity         `json:"activities,omitempty"`
-	Sleep      *Sleep             `json:"sleep,omitempty"` // the night that ended this morning
-	RestingHR  float64            `json:"resting_hr,omitempty"`
-	HRV        float64            `json:"hrv_ms,omitempty"`
-	SleepHR    float64            `json:"sleeping_hr,omitempty"`
-	ZoneMin    float64            `json:"active_zone_minutes,omitempty"`
+	Date      string             `json:"date"`
+	Weekday   string             `json:"weekday"`
+	Logged    bool               `json:"food_logged"`
+	Kcal      float64            `json:"kcal_eaten,omitempty"`
+	KcalGoal  float64            `json:"kcal_goal_incl_activity,omitempty"`
+	ProteinG  float64            `json:"protein_g,omitempty"`
+	ProteinGl float64            `json:"protein_goal_g,omitempty"`
+	CarbsG    float64            `json:"carbs_g,omitempty"`
+	FatG      float64            `json:"fat_g,omitempty"`
+	Meals     map[string]float64 `json:"meals_kcal,omitempty"`
+	Foods     []Food             `json:"foods,omitempty"`
+	Steps     float64            `json:"steps,omitempty"`
+	WeightKg  *float64           `json:"weight_kg,omitempty"`
+	// The scale's morning weigh-in: where the weight comes from, and the
+	// body composition with it.
+	WeightFrom string      `json:"weight_from,omitempty"`
+	Body       *stats.Body `json:"body_composition,omitempty"`
+	BurnedKcal float64     `json:"kcal_burned_fitbit,omitempty"`
+	Activities []Activity  `json:"activities,omitempty"`
+	Sleep      *Sleep      `json:"sleep,omitempty"` // the night that ended this morning
+	RestingHR  float64     `json:"resting_hr,omitempty"`
+	HRV        float64     `json:"hrv_ms,omitempty"`
+	SleepHR    float64     `json:"sleeping_hr,omitempty"`
+	ZoneMin    float64     `json:"active_zone_minutes,omitempty"`
 	// Eumetria's own scores (0–100) and the training load ratio.
 	SleepScore int      `json:"eumetria_sleep_score,omitempty"`
 	Recovery   int      `json:"eumetria_recovery,omitempty"`
@@ -355,7 +359,7 @@ func day(d stats.Day, date time.Time, out stats.Output) Day {
 	o := Day{
 		Date: d.Date, Weekday: date.Weekday().String(), Logged: d.Energy > 0,
 		Kcal: d.Energy, KcalGoal: d.EnergyGoal, ProteinG: d.Protein, CarbsG: d.Carb, FatG: d.Fat,
-		Meals: d.Meals, Steps: d.Steps, WeightKg: d.Weight, BurnedKcal: d.FitbitKcal, AlcoholG: d.Nutrients["alcohol"][0],
+		Meals: d.Meals, Steps: d.Steps, WeightKg: d.Weight, WeightFrom: d.WeightSource, Body: d.Body, BurnedKcal: d.FitbitKcal, AlcoholG: d.Nutrients["alcohol"][0],
 		RestingHR: d.RestingHR, HRV: d.HRV, SleepHR: d.SleepHR,
 	}
 	// The app scales macro goals with the day's activity bonus.

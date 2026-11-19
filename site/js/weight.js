@@ -60,7 +60,7 @@ export function renderWeight(s) {
       return {
         title: dfLong.format(parse(rows[i].date)),
         rows: [
-          pts[i] != null && { cls: 'dot s1-soft', value: fmt(pts[i], 1) + ' kg', label: t('weigh-in') },
+          pts[i] != null && { cls: 'dot s1-soft', value: fmt(pts[i], 1) + ' kg', label: rows[i].weight_src === 'withings' ? t('weigh-in, Withings') : t('weigh-in') },
           trend[i] != null && { cls: 's1', value: fmt(trend[i], 1) + ' kg', label: t('7-day average') },
           ...goalTipRows(marks, i),
         ],

@@ -101,6 +101,7 @@ func (a *app) settingsGet(w http.ResponseWriter, req *http.Request, _ *principal
 		"can_encrypt": a.runner.settings.CanEncrypt(),
 		"zone":        map[string]string{"name": v.ZoneName, "env": os.Getenv("TZ")},
 		"google":      gs,
+		"withings":    a.withingsState(ctx, req),
 		"status":      a.runner.status(),
 		"mail":        a.outbox.Status(), // how sending went lately (email.go)
 	})

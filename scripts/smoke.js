@@ -89,6 +89,8 @@ const views = [
   { hash: 'range=90', expect: ['class="hbars goal-hits"', 'class="ex-r"'] },
   // The Training card's Sessions tab (the demo's eight weeks).
   { hash: 'range=30', expect: ['class="ses-week"', 'class="ses-vol-row"'] },
+  // The demo's scale: body composition, the weigh-in on the Today card.
+  { hash: 'range=30', expect: ['class="stat-row body-stats"', 'Body fat', 'Weighed in at'] },
   // German ("#lang=de" in a link), page and a day.
   { hash: 'range=30&lang=de', expect: ['<html lang="de"', 'Tagesdetails', 'Meistgegessen'] },
   { hash: `range=30&lang=de&day=${day}`, expect: ['<dialog class="dlg sheet-overlay"', 'Vorheriger Tag'] },

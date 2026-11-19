@@ -353,6 +353,9 @@ func (a *app) routes() []route {
 		{"POST", "/api/google/connect", adminOnly, a.googleConnect},
 		{"GET", "/api/google/callback", adminOnly, a.googleCallbackRoute},
 		{"DELETE", "/api/google", adminOnly, a.googleDisconnect},
+		{"POST", "/api/withings/connect", adminOnly, a.withingsConnect},
+		{"GET", "/api/withings/callback", adminOnly, a.withingsCallbackRoute},
+		{"DELETE", "/api/withings", adminOnly, a.withingsDisconnect},
 		{"GET", "/api/status", syncAccess, a.status},
 		{"POST", "/api/sync", syncAccess, a.sync},
 	}

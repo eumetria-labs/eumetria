@@ -1,0 +1,7 @@
+{"status":0,"body":{"updatetime":1763535600,"timezone":"Europe/Berlin","more":1,"offset":2,
+ "measuregrps":[
+  {"grpid":101,"attrib":0,"date":1763448600,"created":1763448610,"modified":1763448610,"category":1,"deviceid":"dev1",
+   "measures":[{"value":78420,"type":1,"unit":-3},{"value":182,"type":6,"unit":-1},{"value":14273,"type":8,"unit":-3},{"value":64147,"type":5,"unit":-3},{"value":6100,"type":76,"unit":-2},{"value":7,"type":170,"unit":0},{"value":42,"type":999,"unit":0}]},
+  {"grpid":102,"attrib":0,"date":1763448700,"created":1763448700,"modified":1763448700,"category":2,"deviceid":"",
+   "measures":[{"value":75000,"type":1,"unit":-3}]}
+ ]}}

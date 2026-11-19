@@ -57,6 +57,7 @@ func sources(cfg config, opts stats.Options) []Source {
 	srcs := []Source{
 		yazioSource{photoDir: cfg.photoDir, values: cfg.values},
 		googleSource{tokenPath: cfg.googleToken, values: cfg.values},
+		withingsSource{values: cfg.values, secrets: cfg.secrets, zone: cfg.values.Zone},
 	}
 	// Open Food Facts only sees barcodes; turned off, even those stay on the
 	// server.

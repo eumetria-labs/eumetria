@@ -15,6 +15,7 @@ import { fmtResult, openWod } from './wods.js';
 import { offeredYear, openYear } from './yearreview.js';
 import { renderPhaseStatus } from './phases.js';
 import { renderCheckin } from './checkin.js';
+import { bodyChip } from './body.js';
 
 export function renderToday() {
   const { data } = state;
@@ -160,6 +161,9 @@ export function renderHighlights() {
   const { data, byDate } = state;
   const items = highlights(data.days, byDate, data.goals || {}, state.today);
   const chips = bestChips();
+  // A weigh-in on the scale this morning comes first.
+  const weighed = bodyChip();
+  if (weighed) chips.unshift(weighed);
   const year = offeredYear(state.today);
   if (year && data.days.some((d) => d.date.startsWith(year))) {
     const b = h('button', { class: 'highlight yr-chip', type: 'button', role: 'listitem' });

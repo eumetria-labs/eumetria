@@ -1,0 +1,5 @@
+{"status":0,"body":{"updatetime":1763535600,"timezone":"Europe/Berlin","more":0,"offset":0,
+ "measuregrps":[
+  {"grpid":103,"attrib":0,"date":1763535000,"created":1763535010,"modified":1763535100,"category":1,"deviceid":"dev1",
+   "measures":[{"value":782,"type":1,"unit":-1},{"value":180,"type":6,"unit":-1}]}
+ ]}}

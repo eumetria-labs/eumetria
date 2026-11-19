@@ -173,6 +173,11 @@ type History struct {
 	// Monday; ReviewState records a failing attempt.
 	Reviews     map[string]*Review `json:"reviews,omitempty"`
 	ReviewState *ReviewState       `json:"review_state,omitempty"`
+	// Body are the Withings weigh-ins by measure group; BodySync the
+	// outcome of their syncs, and BodyUpdate the lastupdate to ask from.
+	Body       map[string]*Body `json:"body,omitempty"`
+	BodySync   *SyncState       `json:"body_sync,omitempty"`
+	BodyUpdate int64            `json:"body_update,omitempty"`
 }
 
 // Review is the AI review of one calendar week (Monday to Sunday).

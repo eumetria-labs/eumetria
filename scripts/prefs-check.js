@@ -151,7 +151,7 @@ const adminSession = await signIn(...ADMIN, begun.secret);
 await useSession(adminSession);
 await sections('admin', {
   profile: ['account', 'layout', 'phases'],
-  settings: ['sign-in', 'devices', 'users', 'roles', 'sessions', 'notes', 'audit', 'yazio', 'google', 'sync', 'general', 'review', 'mail', 'backups'],
+  settings: ['sign-in', 'devices', 'users', 'roles', 'sessions', 'notes', 'audit', 'yazio', 'google', 'withings', 'sync', 'general', 'review', 'mail', 'backups'],
 });
 
 await browser.view(base + '/#range=30', { width: 1280, height: 900 });

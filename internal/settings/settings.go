@@ -11,6 +11,7 @@ package settings
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -70,6 +71,9 @@ var defs = []def{
 	{key: "yazio_client_secret", env: "YAZIO_CLIENT_SECRET", secret: true},
 	{key: "google_client_id", env: "GOOGLE_CLIENT_ID", valid: text(256, true)},
 	{key: "google_client_secret", env: "GOOGLE_CLIENT_SECRET", secret: true},
+	// Withings (the scale): the app's client from developer.withings.com.
+	{key: "withings_client_id", env: "WITHINGS_CLIENT_ID", valid: text(256, true)},
+	{key: "withings_client_secret", env: "WITHINGS_CLIENT_SECRET", secret: true},
 	{key: "review", fallback: "true", valid: boolean},
 	{key: "anthropic_key", env: "ANTHROPIC_API_KEY", secret: true},
 	{key: "ai_model", env: "AI_MODEL", fallback: review.DefaultModel, valid: text(64, false)},
@@ -255,6 +259,44 @@ func (s *Store) rows(ctx context.Context) (map[string]string, error) {
 	return out, rows.Err()
 }
 
+// Internal secrets are written and read only by the server (the Withings
+// token, which rotates with every refresh): sealed like the others, never
+// through Save, the settings view or the page.
+var internalSecrets = []string{"withings_token"}
+
+// SaveInternal stores an internal secret, or deletes it for "".
+func (s *Store) SaveInternal(ctx context.Context, key, plain string) error {
+	if !slices.Contains(internalSecrets, key) {
+		return fmt.Errorf("%w: %s", ErrUnknown, key)
+	}
+	if plain == "" {
+		_, err := s.DB.ExecContext(ctx, `DELETE FROM settings WHERE key = ?`, key)
+		return err
+	}
+	sealed, err := s.seal(key, plain)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.ExecContext(ctx, upsert, key, sealed)
+	return err
+}
+
+// Internal reads an internal secret; "" when there is none.
+func (s *Store) Internal(ctx context.Context, key string) (string, error) {
+	if !slices.Contains(internalSecrets, key) {
+		return "", fmt.Errorf("%w: %s", ErrUnknown, key)
+	}
+	var stored string
+	err := s.DB.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&stored)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return s.open(key, stored)
+}
+
 const upsert = `INSERT INTO settings (key, value) VALUES (?, ?)
 	ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`
 
@@ -433,6 +475,8 @@ type Values struct {
 	YazioClientSecret string
 	GoogleClientID    string
 	GoogleSecret      string
+	WithingsClientID  string
+	WithingsSecret    string
 	Review            bool
 	AnthropicKey      string
 	Model, Effort     string
@@ -483,6 +527,7 @@ func resolve(get func(key string) string) Values {
 		YazioEmail: get("yazio_email"), YazioPassword: get("yazio_password"),
 		YazioClientID: get("yazio_client_id"), YazioClientSecret: get("yazio_client_secret"),
 		GoogleClientID: get("google_client_id"), GoogleSecret: get("google_client_secret"),
+		WithingsClientID: get("withings_client_id"), WithingsSecret: get("withings_client_secret"),
 		AnthropicKey: get("anthropic_key"), Model: get("ai_model"), Effort: get("ai_effort"),
 		BackupTime: get("backup_time"), BackupPassphrase: get("backup_passphrase"), BackupPassphraseAt: get("backup_passphrase_at"),
 		BackupFolder: get("backup_folder"),

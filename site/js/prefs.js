@@ -57,6 +57,7 @@ const SECTIONS = [
     draw: (host) => renderManage(host, key) })),
   ...[['yazio', () => 'Yazio', 'food', '#1baf7a', () => t('Calories, meals, foods, weight, steps and activities.')],
     ['google', () => 'Google', 'pulse', '#e34948', () => t('Workouts, sleep and overnight measurements from a Fitbit or Pixel Watch, through the Google Health API.')],
+    ['withings', () => 'Withings', 'scale', '#00a3a3', () => t('Weight and body composition from a Withings scale.')],
     ['sync', () => t('Sync'), 'sync', '#2a78d6', () => t('When and how far back the data is fetched.')],
   ].map(([key, label, ic, color, desc]) => ({ side: 'settings', group: () => t('Data sources'), key, label, icon: ic, color, desc, when: admin,
     draw: (host, result) => renderSettings(host, key, result) })),
@@ -409,8 +410,11 @@ function saveBar(host, redraw) {
 // "#profile", "#security", "#settings=google", "#admin=roles". It answers
 // whether it did.
 export function openFromHash() {
-  const result = hashParam('google') || '';
-  if (result) setHashParam('google', null);
+  const result = hashParam('google') || hashParam('withings') || '';
+  if (result) {
+    setHashParam('google', null);
+    setHashParam('withings', null);
+  }
   if (hashParam('security') != null) {
     setHashParam('security', null);
     openPrefs('settings', 'sign-in');
