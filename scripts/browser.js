@@ -54,19 +54,38 @@ export function clockAt(t) {
 // launch starts headless Chrome with one page. The page gets clockAt(now)
 // when now is given. It answers the DevTools connection (connect) plus
 // view(), which loads a URL at a size and waits until the page has rendered,
-// and close().
-export async function launch(chrome, { now } = {}) {
+// and close(). A Chrome that doesn't come up is tried once more; the error
+// then says its version, exit code and last words.
+export async function launch(chrome, opts = {}) {
+  try {
+    return await launchOnce(chrome, opts);
+  } catch (err) {
+    console.error(`note: Chrome didn't start, trying once more: ${err.message}`);
+    return launchOnce(chrome, opts);
+  }
+}
+
+async function launchOnce(chrome, { now } = {}) {
   const profile = await mkdtemp(join(tmpdir(), 'eumetria-chrome-'));
-  const p = spawn(chrome, ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-    '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], {
-    stdio: 'ignore',
+  const p = spawn(chrome, ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--no-first-run',
+    '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], {
+    stdio: ['ignore', 'ignore', 'pipe'],
     // Chrome's own temporary files (.com.google.Chrome.*) into the profile,
     // which is removed afterwards: left in /tmp they pile up run after run.
     env: { ...process.env, TMPDIR: profile },
   });
-  const exited = new Promise((ok) => p.once('exit', ok));
+  // The last of what Chrome says, for the error when it doesn't come up.
+  let said = '';
+  p.stderr.setEncoding('utf8');
+  p.stderr.on('data', (s) => { said = (said + s).slice(-3000); });
+  let gone = null;
+  const exited = new Promise((ok) => p.once('exit', (code, signal) => { gone = { code, signal }; ok(); }));
   try {
-    const cdp = await connect(profile);
+    const cdp = await connect(profile, () => gone).catch((err) => {
+      const version = spawnSync(chrome, ['--version'], { encoding: 'utf8' }).stdout?.split('\n')[0].trim() || chrome;
+      const how = gone ? `it exited (${gone.signal || 'code ' + gone.code})` : 'it is still running';
+      throw new Error(`${err.message}; ${version}, ${how}${said.trim() ? '. It said:\n' + said.trim() : ', and said nothing'}`);
+    });
     await cdp.send('Page.enable');
     if (now) await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: clockAt(now) });
     return {
@@ -117,9 +136,10 @@ async function removeProfile(profile) {
 // connect opens the DevTools protocol on the page of the Chrome whose
 // profile is profile: send(method, params) answers its result, eval(js)
 // the value of an expression (a promise is awaited).
-async function connect(profile) {
+async function connect(profile, gone = () => null) {
   let port;
-  for (let i = 0; i < 100 && !port; i++) {
+  // Up to 30 s: a fresh CI runner starts Chrome slowly the first time.
+  for (let i = 0; i < 300 && !port && !gone(); i++) {
     port = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8').catch(() => '')).split('\n')[0];
     if (!port) await new Promise((ok) => setTimeout(ok, 100));
   }
