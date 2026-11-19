@@ -20,7 +20,7 @@ export function offeredYear(today) {
   return m === '12' ? String(y) : m === '01' ? String(y - 1) : null;
 }
 
-const summary = (year) => yearSummary(state.data.days, year, { lifts: state.lifts || [], wods: state.wods || { workouts: [], results: [] } });
+const summary = (year) => yearSummary(state.data.days, year, { lifts: state.lifts || [], wods: state.wods || { workouts: [], results: [] }, sessions: state.sessions || [] });
 
 const signedKg = (kg) => (kg > 0 ? '+' : kg < 0 ? '−' : '±') + fmt(Math.abs(kg), 1) + ' kg';
 
@@ -30,6 +30,7 @@ function keyNumbers(y) {
     y.training && [t('Days trained'), fmt(y.training.days), ''],
     y.training?.hours >= 1 && [t('Hours of workouts'), fmt(y.training.hours), 'h'],
     y.training?.km >= 1 && [t('Distance'), fmt(y.training.km), 'km'],
+    y.training?.sets > 0 && [t('Work sets logged'), fmt(y.training.sets), ''],
     y.bests && [t('New bests'), fmt(y.bests.n), ''],
     y.steps && [t('Steps a day'), fmt(y.steps.avg), ''],
     y.sleep && [t('Asleep a night'), fmtSleep(y.sleep.asleep), ''],

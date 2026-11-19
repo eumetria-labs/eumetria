@@ -44,11 +44,13 @@ type Entry struct {
 	Date string  `json:"date"`
 	Note string  `json:"note,omitempty"`
 	// The Fitbit workout it was lifted in, if it is linked to one.
-	FitbitWorkout string    `json:"fitbit_workout,omitempty"`
-	CreatedBy     string    `json:"created_by"`
-	UpdatedBy     string    `json:"updated_by"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	FitbitWorkout string `json:"fitbit_workout,omitempty"`
+	// The training session it was saved from (internal/sessions), if any.
+	SessionID *int64    `json:"session_id,omitempty"`
+	CreatedBy string    `json:"created_by"`
+	UpdatedBy string    `json:"updated_by"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Input is what people send for an entry.
@@ -110,7 +112,7 @@ type Store struct {
 }
 
 // An author whose account was deleted is "".
-const selectEntry = `SELECT l.id, l.lift, l.kg, l.reps, l.date, l.note, l.fitbit_workout, coalesce(c.name, ''), coalesce(u.name, ''), l.created_at, l.updated_at
+const selectEntry = `SELECT l.id, l.lift, l.kg, l.reps, l.date, l.note, l.fitbit_workout, l.session_id, coalesce(c.name, ''), coalesce(u.name, ''), l.created_at, l.updated_at
 	FROM lifts l LEFT JOIN users c ON c.id = l.created_by LEFT JOIN users u ON u.id = l.updated_by`
 
 type scanner interface{ Scan(...any) error }
@@ -118,7 +120,11 @@ type scanner interface{ Scan(...any) error }
 func scan(row scanner) (Entry, error) {
 	var e Entry
 	var created, updated int64
-	err := row.Scan(&e.ID, &e.Lift, &e.Kg, &e.Reps, &e.Date, &e.Note, &e.FitbitWorkout, &e.CreatedBy, &e.UpdatedBy, &created, &updated)
+	var session sql.NullInt64
+	err := row.Scan(&e.ID, &e.Lift, &e.Kg, &e.Reps, &e.Date, &e.Note, &e.FitbitWorkout, &session, &e.CreatedBy, &e.UpdatedBy, &created, &updated)
+	if session.Valid {
+		e.SessionID = &session.Int64
+	}
 	e.CreatedAt, e.UpdatedAt = time.Unix(created, 0).UTC(), time.Unix(updated, 0).UTC()
 	return e, err
 }

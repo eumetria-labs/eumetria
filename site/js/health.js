@@ -514,3 +514,69 @@ export function retestDue(entries, workouts, results, today, months = DEFAULT_RE
   }
   return out.sort((a, b) => a.last.localeCompare(b.last) || a.name.localeCompare(b.name));
 }
+
+/* ---------- training sessions (sets × reps) ---------- */
+
+// A work set that can be a personal best: with a weight, and at most 20
+// reps (the server's limit for a lift entry).
+const bestable = (s) => s.type !== 'warmup' && s.kg > 0 && s.reps >= 1 && s.reps <= 20;
+
+// sessionVolumes are a session's work sets per lift, warm-ups left out:
+// Map(lift → { sets, reps, kg }) where kg is the volume, kg × reps.
+export function sessionVolumes(session) {
+  const out = new Map();
+  for (const s of session.sets) {
+    if (s.type === 'warmup') continue;
+    const v = out.get(s.lift) || { sets: 0, reps: 0, kg: 0 };
+    v.sets++;
+    v.reps += s.reps;
+    v.kg += s.kg * s.reps;
+    out.set(s.lift, v);
+  }
+  return out;
+}
+
+// sessionWeeks groups sessions by Monday-first week, the latest first:
+// [{ monday, sessions, sets, volumes: Map(lift → { sets, reps, kg }) }].
+export function sessionWeeks(sessions) {
+  const weeks = new Map();
+  for (const x of sessions) {
+    const d = parse(x.date);
+    const monday = iso(addDays(d, -((d.getUTCDay() + 6) % 7)));
+    if (!weeks.has(monday)) weeks.set(monday, { monday, sessions: [], sets: 0, volumes: new Map() });
+    const w = weeks.get(monday);
+    w.sessions.push(x);
+    for (const [lift, v] of sessionVolumes(x)) {
+      const all = w.volumes.get(lift) || { sets: 0, reps: 0, kg: 0 };
+      all.sets += v.sets;
+      all.reps += v.reps;
+      all.kg += v.kg;
+      w.volumes.set(lift, all);
+      w.sets += v.sets;
+    }
+  }
+  return [...weeks.values()].sort((a, b) => b.monday.localeCompare(a.monday));
+}
+
+// sessionEntries are the sessions' work sets as lift results ({ lift, kg,
+// reps, date }), for the strength over time next to the bests.
+export const sessionEntries = (sessions) => sessions.flatMap((x) => x.sets.filter(bestable).map((s) => ({ lift: s.lift, kg: s.kg, reps: s.reps, date: x.date })));
+
+// bestCandidates are the sets of a session that would be a lift's new best
+// (heavier than its best, or as heavy for more reps): for each lift its
+// best work set, if it beats the best noted before, or the lift has none.
+// [{ index, set, prev }] with prev the best it beats (null for a first).
+export function bestCandidates(sets, entries) {
+  const board = new Map(liftBoard(entries, null).map((r) => [r.key, r.best]));
+  const top = new Map();
+  sets.forEach((s, index) => {
+    if (!bestable(s) || !s.lift?.trim()) return;
+    const key = liftKey(s);
+    const cur = top.get(key);
+    if (!cur || liftBetter(s, cur.set)) top.set(key, { index, set: s });
+  });
+  return [...top.entries()].flatMap(([key, c]) => {
+    const prev = board.get(key) || null;
+    return !prev || liftBetter(c.set, prev) ? [{ ...c, prev }] : [];
+  });
+}

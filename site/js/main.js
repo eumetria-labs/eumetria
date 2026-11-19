@@ -30,6 +30,7 @@ import { loadLifts } from './lifts.js';
 import { loadWods } from './wods.js';
 import { loadPhases } from './phases.js';
 import { loadCheckins } from './checkin.js';
+import { loadSessions } from './sessions.js';
 import { renderTable } from './table.js';
 import { renderFoodQuality } from './foodquality.js';
 import { renderReview } from './weekly.js';
@@ -134,7 +135,7 @@ async function load(force) {
     // when a window opens, the bests are drawn again here when nothing else
     // changed.
     const phasesBefore = JSON.stringify(state.phases) + JSON.stringify([...(state.checkins || [])]);
-    await Promise.all([loadNotes(recent), loadLifts(recent), loadWods(recent), loadPhases(recent), loadCheckins(recent)]);
+    await Promise.all([loadNotes(recent), loadLifts(recent), loadWods(recent), loadPhases(recent), loadCheckins(recent), loadSessions(recent)]);
     if (!force && state.data && recent.generated_at === state.data.generated_at) {
       // Phases or check-ins changed elsewhere: every chart draws them.
       if (state.data.days.length && JSON.stringify(state.phases) + JSON.stringify([...(state.checkins || [])]) !== phasesBefore) return render();

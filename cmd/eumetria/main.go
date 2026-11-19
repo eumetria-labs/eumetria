@@ -65,6 +65,7 @@ import (
 	"eumetria/internal/imgmeta"
 	"eumetria/internal/lifts"
 	"eumetria/internal/phases"
+	"eumetria/internal/sessions"
 	"eumetria/internal/settings"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
@@ -384,6 +385,14 @@ func syncOnce(ctx context.Context, cfg config) error {
 			noted = demo.Phases(cfg.now())
 		}
 		if err := store.WriteJSON(filepath.Join(filepath.Dir(cfg.outPath), "phases.json"), noted, false); err != nil {
+			return err
+		}
+		// Training sessions likewise, in sessions.json.
+		trained := []sessions.Session{}
+		if cfg.demo {
+			trained = demo.Sessions(cfg.now())
+		}
+		if err := store.WriteJSON(filepath.Join(filepath.Dir(cfg.outPath), "sessions.json"), trained, false); err != nil {
 			return err
 		}
 		if err := store.WriteJSON(filepath.Join(filepath.Dir(cfg.outPath), "checkins.json"), map[string]any{"checkins": checked, "tags": checkins.Tags}, false); err != nil {

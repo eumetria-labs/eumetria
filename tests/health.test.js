@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, liftBetter, linkSuggestions, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares, strengthTrend, retestDue } from '../site/js/health.js';
+import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, liftBetter, linkSuggestions, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares, strengthTrend, retestDue, sessionVolumes, sessionWeeks, sessionEntries, bestCandidates } from '../site/js/health.js';
 
 test('zoneOf uses the lower bounds of moderate, vigorous and peak', () => {
   const limits = [109, 133, 163];
@@ -263,4 +263,29 @@ test('retest hints: lifts and benchmark workouts not done for months, the longes
   assert.equal(retestDue([{ id: 1, lift: 'X', kg: 1, reps: 1, date: '2026-05-18' }], [], [], '2026-11-19', 6).length, 1);
   assert.deepEqual(retestDue(lifts, workouts, results, '2026-11-19', 0), []);
   assert.deepEqual(retestDue(lifts, workouts, results, '2026-11-19', 12).map((d) => d.name), ['Snatch']);
+});
+
+test('sessions: volume per lift, weeks, and which sets beat the best', () => {
+  const s1 = { date: '2026-11-16', sets: [
+    { lift: 'Back Squat', type: 'warmup', reps: 5, kg: 60 },
+    { lift: 'Back Squat', type: 'work', reps: 5, kg: 100 },
+    { lift: 'Back Squat', type: 'work', reps: 5, kg: 100 },
+    { lift: 'Pull-up', type: 'work', reps: 8, kg: 0 },
+  ] };
+  const s2 = { date: '2026-11-19', sets: [{ lift: 'Deadlift', type: 'work', reps: 5, kg: 140 }] };
+  const s0 = { date: '2026-11-12', sets: [{ lift: 'Back Squat', type: 'work', reps: 3, kg: 105 }] };
+  assert.deepEqual(Object.fromEntries(sessionVolumes(s1)), { 'Back Squat': { sets: 2, reps: 10, kg: 1000 }, 'Pull-up': { sets: 1, reps: 8, kg: 0 } });
+  const weeks = sessionWeeks([s0, s1, s2]);
+  assert.deepEqual(weeks.map((w) => [w.monday, w.sessions.length, w.sets]), [['2026-11-16', 2, 4], ['2026-11-09', 1, 1]]);
+  assert.deepEqual(sessionEntries([s1]), [{ lift: 'Back Squat', kg: 100, reps: 5, date: '2026-11-16' }, { lift: 'Back Squat', kg: 100, reps: 5, date: '2026-11-16' }]);
+
+  // The rule: heavier, or as heavy for more reps.
+  const bests = [{ id: 1, lift: 'Back Squat', kg: 100, reps: 3, date: '2026-10-01' }, { id: 2, lift: 'Deadlift', kg: 150, reps: 1, date: '2026-10-01' }];
+  const c = bestCandidates(s1.sets, bests);
+  assert.deepEqual(c.map((x) => [x.index, x.set.kg, x.set.reps, x.prev?.reps]), [[1, 100, 5, 3]]); // equal weight, more reps; the first of equal sets
+  assert.deepEqual(bestCandidates([{ lift: 'Back Squat', type: 'work', reps: 3, kg: 100 }], bests), []); // only as good
+  assert.deepEqual(bestCandidates([{ lift: 'Back Squat', type: 'warmup', reps: 1, kg: 120 }], bests), []); // a warm-up
+  assert.deepEqual(bestCandidates(s2.sets, bests), []); // lighter
+  // A lift without a best yet: its best work set is the first.
+  assert.deepEqual(bestCandidates([{ lift: 'Front Squat', type: 'work', reps: 3, kg: 80 }, { lift: 'front squat', type: 'work', reps: 1, kg: 90 }], bests).map((x) => [x.index, x.prev]), [[1, null]]);
 });

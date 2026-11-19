@@ -7,6 +7,7 @@ import (
 
 	"eumetria/internal/checkins"
 	"eumetria/internal/phases"
+	"eumetria/internal/sessions"
 	"eumetria/internal/stats"
 )
 
@@ -69,5 +70,27 @@ func TestWeekGoalHits(t *testing.T) {
 		if g.Goal == "calories" && (g.Hit != 1 || g.Of != 2 || !strings.Contains(g.Rule, "cut")) {
 			t.Errorf("calories in a cut = %+v", g)
 		}
+	}
+}
+
+func TestWeekSessions(t *testing.T) {
+	w := Week{From: "2026-11-09", To: "2026-11-15", Days: []Day{{Date: "2026-11-15"}}}
+	rpe := 8
+	w.AddSessions([]sessions.Session{
+		{Date: "2026-11-02", Sets: []sessions.Set{{Lift: "Deadlift", Type: "work", Reps: 5, Kg: 140}}}, // the week before
+		{Date: "2026-11-12", Title: "Squat day", RPE: &rpe, Sets: []sessions.Set{
+			{Lift: "Back Squat", Type: "warmup", Reps: 5, Kg: 60},
+			{Lift: "Back Squat", Type: "work", Reps: 5, Kg: 100}, {Lift: "Back Squat", Type: "work", Reps: 5, Kg: 100},
+			{Lift: "Back Squat", Type: "work", Reps: 3, Kg: 105},
+			{Lift: "Pull-up", Type: "work", Reps: 8, Kg: 0},
+		}},
+	})
+	if len(w.Sessions) != 1 {
+		t.Fatalf("sessions = %+v", w.Sessions)
+	}
+	s := w.Sessions[0]
+	sq, pu := s.Lifts[0], s.Lifts[1]
+	if sq.WorkSets != "2×5 @ 100 kg, 3 @ 105 kg" || sq.VolumeKg != 1315 || sq.Warmups != 1 || pu.WorkSets != "8 @ bodyweight" || pu.VolumeKg != 0 || *s.RPE != 8 {
+		t.Errorf("session = %+v", s)
 	}
 }

@@ -323,6 +323,33 @@ check('phone: nothing wider than the screen', await ev(`document.documentElement
   check('check-in: Readiness says rest on a sick day', await ev(`[...document.querySelectorAll('#today-scores .sc-word')].some((w) => w.textContent.includes('Sick: rest first'))`), await ev(`document.getElementById('today-scores').textContent`));
 }
 
+/* ---------- a training session, at 320 px ---------- */
+await browser.view(base + '/#range=30', { width: 320, height: 700, mobile: true });
+await wait(800);
+await ev(`document.getElementById('quick-btn').click()`);
+await wait(200);
+await ev(`document.querySelector('#quick-menu [data-log="session"]').click()`);
+await wait(500);
+check('session: the form opens from + Log', await ev(`!!document.querySelector('.session-form')`));
+check('session: nothing wider than a 320 px screen', await ev(`(() => { const W = innerWidth; return [...document.querySelectorAll('.session-panel *')].every((el) => { const r = el.getBoundingClientRect(); return !r.width || r.right <= W + 0.5; }); })()`),
+  await ev(`[...document.querySelectorAll('.session-panel *')].filter((el) => el.getBoundingClientRect().right > innerWidth + 0.5).map((el) => el.className).slice(0, 5).join()`));
+await ev(`(() => {
+  const set = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+  set(document.querySelector('.ses-lift'), 'Zercher Squat');
+  const [reps, kg] = document.querySelectorAll('.ses-set .field');
+  set(reps, '5'); set(kg, '100');
+})()`);
+await wait(200);
+check('session: a first set is offered as a best, ticked', await ev(`document.querySelector('.ses-best input')?.checked === true`));
+await ev(`document.querySelector('.session-form button[type=submit]').click()`);
+await wait(1200);
+{
+  const list = await (await fetch(base + '/api/training/sessions', { headers: { cookie: adminSession.cookie } })).json();
+  const bests = await (await fetch(base + '/api/lifts', { headers: { cookie: adminSession.cookie } })).json();
+  check('session: saved with the best, linked', list.length === 1 && list[0].sets[0].kg === 100 && bests.some((e) => e.session_id === list[0].id && e.kg === 100 && e.reps === 5),
+    JSON.stringify([list.length, bests.length]));
+}
+
 /* ---------- viewer ---------- */
 await browser.send('Network.deleteCookies', { name: adminSession.cookie.split('=')[0], url: base + '/' });
 await useSession(await signIn(...VIEWER));

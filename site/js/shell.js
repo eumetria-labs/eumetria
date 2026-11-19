@@ -9,6 +9,7 @@ import { account, onUserChange } from './account.js';
 import { state } from './state.js';
 import { isBirthday, todayISO } from './format.js';
 import { mayCheckin, openCheckin } from './checkin.js';
+import { openSessionForm } from './sessions.js';
 import { t } from './i18n.js';
 import { mayEditLifts, openLiftForm } from './lifts.js';
 import { openResultForm, openWorkoutForm } from './wods.js';
@@ -143,6 +144,7 @@ function initQuick() {
     if (item.dataset.log === 'wod') return pickWod(back);
     if (item.dataset.log === 'phase') return openPhaseForm({ kind: 'cut', returnFocus: back });
     if (item.dataset.log === 'checkin') return openCheckin({ returnFocus: back });
+    if (item.dataset.log === 'session') return openSessionForm({ returnFocus: back });
     if (item.dataset.log === 'note') {
       const day = state.byDate?.get(state.today);
       const w = day?.workouts?.at(-1);

@@ -50,6 +50,8 @@ type Week struct {
 	// When the person slept: the week's regularity, and the chronotype
 	// from the four weeks up to its end.
 	SleepTiming *SleepTiming `json:"sleep_timing,omitempty"`
+	// Training sessions noted set by set.
+	Sessions []TrainingSession `json:"training_sessions_noted,omitempty"`
 	// How many of the week's complete days met each goal.
 	GoalHits []GoalHit `json:"goal_hit_rates,omitempty"`
 

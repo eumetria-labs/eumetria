@@ -15,6 +15,7 @@ import (
 	"eumetria/internal/lifts"
 	"eumetria/internal/phases"
 	"eumetria/internal/review"
+	"eumetria/internal/sessions"
 	"eumetria/internal/stats"
 	"eumetria/internal/store"
 	"eumetria/internal/wods"
@@ -144,6 +145,7 @@ type noted struct {
 	results  []wods.Result
 	phases   []phases.Phase
 	checkins []checkins.Checkin
+	sessions []sessions.Session
 }
 
 func (n noted) addTo(w *review.Week) {
@@ -151,6 +153,7 @@ func (n noted) addTo(w *review.Week) {
 	w.AddBenchmarks(n.workouts, n.results)
 	w.AddPhases(n.phases)
 	w.AddCheckins(n.checkins)
+	w.AddSessions(n.sessions)
 }
 
 // withOwner gives opts the site owner's sex and date of birth from their
@@ -216,6 +219,9 @@ func loadNoted(ctx context.Context, path string) (n noted) {
 	}
 	if n.checkins, err = (&checkins.Store{DB: d, Now: time.Now}).List(ctx, "2000-01-01", "2999-12-31"); err != nil {
 		log.Printf("weekly review: no check-ins: %v", err)
+	}
+	if n.sessions, err = (&sessions.Store{DB: d, Now: time.Now}).List(ctx); err != nil {
+		log.Printf("weekly review: no training sessions: %v", err)
 	}
 	return n
 }

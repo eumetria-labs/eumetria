@@ -5,6 +5,7 @@
 // selected range on one map.
 
 import { actLabel, addDays, avgOf, dfLong, dfMonth, dfShort, fmt, fmtDistance, fmtDuration, fmtRatio, iso, parse, signed } from './format.js';
+import { hasSessions, renderSessions } from './sessions.js';
 import { LOAD_ZONE, bestDays, loadLabel, personalBests, speedLabel, trainingDays, trainingSummary, trainingWeek, wodBestDays, workoutIcon, workoutName } from './health.js';
 import { $, h, svg, nameCell, panelTabs, showTip, hideTip } from './dom.js';
 import { timeChart, bucketTitle, fadeArea, smoothPath, valuePill, resizer } from './charts.js';
@@ -23,12 +24,13 @@ export function renderTraining(s) {
   const card = $('#training-card');
   const days = state.data.days;
   const workouts = days.some((d) => d.workouts?.length);
-  card.hidden = !workouts && !hasLifts() && !hasWods();
+  card.hidden = !workouts && !hasLifts() && !hasWods() && !hasSessions();
   if (card.hidden) return;
   const routes = days.some((d) => d.workouts?.some((w) => w.route_src || w.route?.length > 1));
   panelTabs($('#training-tabs'), [
     workouts && ['overview', t('Overview'), '📈'],
     ['bests', t('Personal bests'), '🏆'],
+    hasSessions() && ['sessions', t('Sessions'), '📋'],
     ['calendar', t('Calendar'), '📅'],
     routes && ['routes', t('Routes'), '🗺️'],
   ].filter(Boolean), store.get('trainingTab'), (key) => store.set('trainingTab', key));
@@ -40,6 +42,7 @@ export function renderTraining(s) {
   }
   renderLifts();
   renderWods();
+  renderSessions();
   renderLinkNotice();
   $('#workout-bests-part').hidden = !workouts;
   renderBests(days);
@@ -53,7 +56,7 @@ onBestsChange(renderLinkNotice);
 // After lifts or benchmark workouts changed without new data: only the list is drawn again
 // (the map keeps its zoom), unless the card appears or goes.
 export function refreshLifts(s) {
-  const hide = !state.data.days.some((d) => d.workouts?.length) && !hasLifts() && !hasWods();
+  const hide = !state.data.days.some((d) => d.workouts?.length) && !hasLifts() && !hasWods() && !hasSessions();
   if (hide !== $('#training-card').hidden) return renderTraining(s);
   if (!hide) {
     renderLifts();
@@ -372,7 +375,7 @@ function renderCalendar() {
   const host = $('#train-cal');
   if (!host) return;
   const { byDate } = state;
-  const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date)];
+  const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date), ...state.sessions.map((x) => x.date)];
   const trained = trainingDays(state.data.days, noted, [...bestDays(state.lifts), ...wodBestDays(state.wods.workouts, state.wods.results)]);
   const end = parse(state.today || state.data.days.at(-1).date);
   const draw = () => {

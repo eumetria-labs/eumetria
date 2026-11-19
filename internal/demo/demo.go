@@ -13,6 +13,7 @@ import (
 	"eumetria/internal/checkins"
 	"eumetria/internal/lifts"
 	"eumetria/internal/phases"
+	"eumetria/internal/sessions"
 	"eumetria/internal/store"
 	"eumetria/internal/wods"
 )
@@ -501,6 +502,45 @@ func Checkins(today time.Time) []checkins.Checkin {
 			c.Energy, c.Tags = n(2), []string{"bad_room"}
 		}
 		out = append(out, c)
+	}
+	return out
+}
+
+// Sessions are sample training sessions of the last eight weeks, two a
+// week: Mondays squats and presses, Thursdays deadlifts and pull-ups, a
+// little heavier each week.
+func Sessions(today time.Time) []sessions.Session {
+	var out []sessions.Session
+	set := func(lift, typ string, reps int, kg float64) sessions.Set {
+		return sessions.Set{Lift: lift, Type: typ, Reps: reps, Kg: kg}
+	}
+	monday := today.AddDate(0, 0, -int(today.Weekday()+6)%7)
+	for w := 7; w >= 0; w-- {
+		week := monday.AddDate(0, 0, -7*w)
+		up := 2.5 * float64(7-w)
+		for _, s := range []struct {
+			day   int
+			title string
+			sets  []sessions.Set
+		}{
+			{0, "Squat day", []sessions.Set{
+				set("Back Squat", sessions.Warmup, 5, 60), set("Back Squat", sessions.Warmup, 3, 80),
+				set("Back Squat", "work", 5, 90+up), set("Back Squat", "work", 5, 90+up), set("Back Squat", "work", 5, 90+up), set("Back Squat", "work", 5, 90+up), set("Back Squat", "work", 5, 90+up),
+				set("Strict Press", "work", 5, 40+up/2), set("Strict Press", "work", 5, 40+up/2), set("Strict Press", "work", 5, 40+up/2),
+			}},
+			{3, "Pull day", []sessions.Set{
+				set("Deadlift", sessions.Warmup, 5, 80), set("Deadlift", "work", 5, 120+up), set("Deadlift", "work", 5, 120+up), set("Deadlift", "work", 5, 120+up),
+				set("Pull-up", "work", 8, 0), set("Pull-up", "work", 8, 0), set("Pull-up", "work", 6, 0),
+			}},
+		} {
+			day := week.AddDate(0, 0, s.day)
+			if day.After(today) {
+				continue
+			}
+			rpe := 7 + (7-w)%3
+			out = append(out, sessions.Session{ID: int64(len(out) + 1), Date: day.Format(time.DateOnly), Title: s.title, RPE: &rpe, Sets: s.sets,
+				CreatedBy: "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day})
+		}
 	}
 	return out
 }

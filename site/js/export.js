@@ -141,8 +141,8 @@ const EMPTY = { d: {}, f: {}, r: {}, it: {}, a: {}, w: {}, s: {}, k: '', amount:
 // { lifts, wods } (the lifts and benchmark tables), phases (the phases
 // table), notes (a Map of the workout notes, as state.notes) and checkins
 // (each day's check-in with its tags resolved, as checkinRows makes them)
-// and freeNight (the free-night test, sleeptiming.js; else Saturday and
-// Sunday mornings).
+// freeNight (the free-night test, sleeptiming.js; else Saturday and Sunday
+// mornings) and sessions (the training sessions, set by set).
 export function exportTables(data, from, to, extras = null) {
   const byDate = new Map(data.days.map((d) => [d.date, d]));
   const days = [];
@@ -157,6 +157,7 @@ export function exportTables(data, from, to, extras = null) {
   if (extras?.lifts || extras?.wods) tables.push(...bestTables(extras, from, to));
   if (extras?.phases) tables.push(phaseTable(extras.phases, from, to));
   if (extras?.checkins) tables.push(checkinTable(extras.checkins, from, to));
+  if (extras?.sessions) tables.push(...sessionTables(extras.sessions, from, to));
   const timing = timingTable(days, extras?.checkins, extras?.freeNight);
   if (timing) tables.push(timing);
   return tables;
@@ -177,6 +178,24 @@ function timingTable(days, checkins, isFree = freeNight) {
   };
   const columns = Object.keys(row);
   return ['sleep_timing', columns, [Object.fromEntries(columns.map((k) => [k, value(row[k])]))]];
+}
+
+// The training sessions of the range, and their sets in order; volume_kg
+// is kg × reps of the work sets.
+function sessionTables(list, from, to) {
+  const mine = list.filter((x) => x.date >= from && x.date <= to).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  const sc = ['session_id', 'date', 'title', 'rpe', 'work_sets', 'volume_kg', 'fitbit_workout', 'note'];
+  const sessions = mine.map((x) => {
+    const work = x.sets.filter((s) => s.type !== 'warmup');
+    const r = { session_id: x.id, date: x.date, title: x.title, rpe: x.rpe, work_sets: work.length, volume_kg: work.reduce((a, s) => a + s.kg * s.reps, 0), fitbit_workout: x.fitbit_workout, note: x.note };
+    return Object.fromEntries(sc.map((k) => [k, value(r[k])]));
+  });
+  const tc = ['session_id', 'date', 'set', 'lift', 'type', 'reps', 'kg', 'rpe'];
+  const sets = mine.flatMap((x) => x.sets.map((s, i) => {
+    const r = { session_id: x.id, date: x.date, set: i + 1, lift: s.lift, type: s.type, reps: s.reps, kg: s.kg, rpe: s.rpe };
+    return Object.fromEntries(tc.map((k) => [k, k === 'kg' ? r.kg : value(r[k])]));
+  }));
+  return [['training_sessions', sc, sessions], ['training_sets', tc, sets]];
 }
 
 // The check-ins of the range: the answers from 1 to 5, the note, and the

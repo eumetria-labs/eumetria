@@ -30,6 +30,7 @@ import (
 	"eumetria/internal/mail"
 	"eumetria/internal/notes"
 	"eumetria/internal/phases"
+	"eumetria/internal/sessions"
 	"eumetria/internal/stats"
 	"eumetria/internal/wods"
 )
@@ -188,6 +189,7 @@ type app struct {
 	notes    *notes.Store
 	lifts    *lifts.Store
 	wods     *wods.Store
+	training *sessions.Store // training sessions (sets × reps)
 	phases   *phases.Store
 	checkins *checkins.Store
 	data     *published
@@ -230,6 +232,7 @@ func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, a
 		notes:         &notes.Store{DB: store.DB, Now: store.Now},
 		lifts:         &lifts.Store{DB: store.DB, Now: store.Now},
 		wods:          &wods.Store{DB: store.DB, Now: store.Now},
+		training:      &sessions.Store{DB: store.DB, Now: store.Now},
 		phases:        &phases.Store{DB: store.DB, Now: store.Now},
 		checkins:      &checkins.Store{DB: store.DB, Now: store.Now},
 		data:          data,
@@ -284,6 +287,10 @@ func (a *app) routes() []route {
 		{"POST", "/api/phases", liftWriter, a.phasePost},
 		{"PUT", "/api/phases/{id}", liftWriter, a.phasePut},
 		{"DELETE", "/api/phases/{id}", liftWriter, a.phaseDelete},
+		{"GET", "/api/training/sessions", signedIn, scoped(auth.ViewHealth, a.sessionsList)},
+		{"POST", "/api/training/sessions", liftWriter, a.sessionPost},
+		{"PUT", "/api/training/sessions/{id}", liftWriter, a.sessionPut},
+		{"DELETE", "/api/training/sessions/{id}", liftWriter, a.sessionDelete},
 		{"GET", "/api/wods", signedIn, scoped(auth.ViewHealth, a.wodsList)},
 		{"POST", "/api/wods", liftWriter, a.wodPost},
 		{"PUT", "/api/wods/{id}", liftWriter, a.wodPut},

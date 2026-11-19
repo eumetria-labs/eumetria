@@ -142,6 +142,17 @@ Two roles are built in: **admin** (everything) and **viewer** (every `view.*` sc
 
 **Retest hints.** A lift or benchmark workout without a result for six months gets a "Retest?" mark in **Personal bests** and one chip on the Today card ("Time to retest Overhead Squat? 8 months ago", or "3 to retest" for several, which opens the Personal bests). **Profile → Customize Dashboard → Retest hints** sets the months (3 to 24) or turns it off, per account.
 
+**Training sessions.** Optional, for logging a session set by set without turning Eumetria into a training app; personal bests and benchmark workouts stay as they are.
+- **The form:** **+ Log → Session** takes a date (ticked to that day's Fitbit workout when there is just one), a name, the effort (RPE 1–10), a note and exercises. Each exercise is a lift (names from your lifts, earlier sessions and the common ones) with sets of reps × kg, marked **W** for a warm-up; 0 kg is bodyweight. **+ Set** copies the last set, and **Repeat last time** fills in the sets of the last session with that lift.
+- **New bests:** a work set that beats the lift's best (heavier, or as heavy for more reps) is offered as **Save as PB?**, ticked. Saving the session then adds the best, linked to the session. Deleting the session leaves the best, without the link.
+- **Where they show:**
+  - The Training card's **Sessions** tab lists them by week, with work sets and volume (kg × reps, warm-ups left out) per lift.
+  - The lift window shows the **Last sessions** with that lift, and its strength over time also uses the work sets.
+  - The calendar counts session days as trained, and the workout window shows a linked session's sets.
+  - The weekly review gets the week's sessions, and the export adds `training_sessions` and `training_sets` tables.
+  - The printable report counts work sets and volume, and the year in review counts the work sets logged.
+- **Access:** `view.health` reads them and `edit.lifts` writes them (the API is `/api/training/sessions`). They live in `app.db`.
+
 Each tile explains itself behind an ⓘ. A day off is one of your usual weekdays off (**Profile → Sleep**, Saturday and Sunday unless you change them), a public holiday of your state (Germany's 16 states or Austria, computed from the rules; only holidays of the whole state), a day of a **Vacation** (a kind under **Phases & Events**, which may be planned ahead) or a day tagged **Day off** in the check-in. **Profile → Sleep** also holds the sleep goal in hours and minutes, and only the site's owner sees it: the sleep shown is theirs. Shifts that change from week to week don't fit a weekday list; the tags and vacations can cover the exceptions. The chronotype needs at least four free and four work nights in the range, and nights tagged travel don't count. The times are the nights' local clock times, so a time-zone or daylight-saving change doesn't skew them. The export adds each night's mid-sleep and whether it was free or work to the `sleep` table, plus a `sleep_timing` table for the range; the weekly review gets the week's regularity and the chronotype of the last four weeks. The page (`site/js/sleeptiming.js`) and the server (`internal/stats/sleeptiming.go`) compute the same numbers, checked against shared cases in `tests/fixtures/sleeptiming.json`.
 
 **Training vs rest days.** The Macros tab compares calories, protein, carbs and fat on training days (a Fitbit workout, a Yazio activity or a noted lift or benchmark result) with rest days over the selected range, next to protein per kg split the same way.

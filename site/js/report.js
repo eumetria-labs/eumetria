@@ -301,7 +301,7 @@ function scoresSection(buckets, weekly) {
 // noted in the range, the new bests marked.
 function trainingSection(rows) {
   const from = rows[0].date, to = rows.at(-1).date;
-  const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date)];
+  const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date), ...state.sessions.map((x) => x.date)];
   const trained = trainingDays(state.data.days, noted, [...bestDays(state.lifts), ...wodBestDays(state.wods.workouts, state.wods.results)]);
   const sum = trainingSummary(trained, from, to);
   const results = rows.flatMap((r) => notedOn(r.date).map((x) => ({ date: r.date, ...x })));
@@ -310,8 +310,12 @@ function trainingSection(rows) {
   const azm = rows.reduce((a, r) => a + (r.azm ? r.azm[0] + r.azm[1] + r.azm[2] : 0), 0);
   const vo2 = rows.filter((r) => r.vo2max != null);
   const load = rows.findLast((r) => r.scores?.load?.ratio != null)?.scores.load.ratio;
+  // Sessions noted set by set in the range: work sets and volume.
+  const sessions = state.sessions.filter((x) => x.date >= from && x.date <= to);
+  const work = sessions.flatMap((x) => x.sets.filter((s) => s.type !== 'warmup'));
   const items = [
     kpi(t('Days trained'), fmt(sum.days), '', t('{n} per week', { n: fmt(sum.perWeek, 1) }), 's3'),
+    work.length > 0 && kpi(t('Work sets'), fmt(work.length), '', [tn(sessions.length, '{n} session', '{n} sessions'), `${fmt(work.reduce((a, s) => a + s.kg * s.reps, 0))} kg`].join(' · '), 's1'),
     azm > 0 && kpi(t('Zone minutes'), fmt(azm / Math.max(1, weeks)), t('per week'), t('WHO: 150 per week'), 'z4'),
     vo2.length && kpi(t('VO2 max'), fmt(vo2.at(-1).vo2max, 1), '', vo2.length > 1 ? t('{diff} since {date}', { diff: signed(vo2.at(-1).vo2max - vo2[0].vo2max, 1), date: dfShort.format(parse(vo2[0].date)) }) : '', 's2'),
     load != null ? kpi(t('Training load'), fmt(load, 2), '', t('7 days vs. 28 days; usual {lo}–{hi}', { lo: fmt(0.8, 1), hi: fmt(1.3, 1) }), 's1')

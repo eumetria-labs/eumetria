@@ -6,7 +6,7 @@
 // (the heaviest, more reps at the same weight), the rest is its history.
 
 import { NUM_LOCALE, actLabel, dfLong, dfShort, dfMonthYear, fmt, fmtDuration, parse } from './format.js';
-import { COMMON_LIFTS, DEFAULT_RETEST, retestDue, bestDays, bestsReadiness, liftBoard, liftMarks, linkableWorkouts, liftSet, loadable, oneRepMax, percentages, platesFor, strengthTrend, wodBestDays, workoutIcon, workoutName } from './health.js';
+import { COMMON_LIFTS, DEFAULT_RETEST, retestDue, sessionEntries, bestDays, bestsReadiness, liftBoard, liftMarks, linkableWorkouts, liftSet, loadable, oneRepMax, percentages, platesFor, strengthTrend, wodBestDays, workoutIcon, workoutName } from './health.js';
 import { openWorkout } from './workout.js';
 import { $, emoji, h, nameCell } from './dom.js';
 import { drawProgress, progressChart } from './charts.js';
@@ -16,6 +16,7 @@ import { openDialog } from './dialog.js';
 import { account, api, reason } from './account.js';
 import { state, store } from './state.js';
 import { t, tn } from './i18n.js';
+import { liftSessions } from './sessions.js';
 
 const nfKg = new Intl.NumberFormat(NUM_LOCALE, { maximumFractionDigits: 2 });
 const nfX = new Intl.NumberFormat(NUM_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -77,8 +78,6 @@ export async function loadLifts(data) {
   state.liftsLoaded = true;
 }
 
-// Without a second factor the server refuses a role that needs one, except
-// with -demo.
 // retestMonths is after how many months a lift or benchmark workout is
 // offered for a retest (Profile → Customize Dashboard; 0: never).
 export const retestMonths = () => account.user?.layout?.retest_months ?? DEFAULT_RETEST;
@@ -89,6 +88,8 @@ export const dueKeys = () => new Set(retestDue(state.lifts, state.wods.workouts,
 // retestBadge marks a row of the Personal bests due for a retest.
 export const retestBadge = (last) => h('span', { class: 'lift-retest', title: t('No result since {date}', { date: dfShort.format(parse(last)) }) }, t('Retest?'));
 
+// Without a second factor the server refuses a role that needs one, except
+// with -demo.
 export function mayEditLifts() {
   const u = account.user;
   return !!u?.scopes?.includes('edit.lifts') && (!u.needs_second_factor || !!u.demo);
@@ -185,7 +186,7 @@ export function openLift(key, returnFocus) {
     const bw = bodyweight(r.best);
     sub.textContent = [t('Best {value} on {date}', { value: fmtSet(r.best), date: dfLong.format(parse(r.best.date)) }), bw ? t('{x}× bodyweight', { x: nfX.format(bw) }) : ''].filter(Boolean).join(' · ');
     const plates = plateSection(r.best.kg);
-    body.replaceChildren(...[progressSection(r), repMaxSection(r), strengthSection(r), percentSection(r, plates.show), plates.sec, historySection(r, draw)].filter(Boolean));
+    body.replaceChildren(...[progressSection(r), repMaxSection(r), strengthSection(r), liftSessions(r.key), percentSection(r, plates.show), plates.sec, historySection(r, draw)].filter(Boolean));
   };
   draw();
 }
@@ -284,7 +285,8 @@ function repMaxSection(r) {
 // progress above: other rep counts, or weigh-ins to compare with.
 function strengthSection(r) {
   const bwAt = (date) => (state.byDate ? weightTrendAt(state.byDate, date) : null);
-  const points = strengthTrend(state.lifts, r.lift, bwAt);
+  // The bests and every work set of the sessions: more points in between.
+  const points = strengthTrend([...state.lifts, ...sessionEntries(state.sessions)], r.lift, bwAt);
   const otherReps = r.repMaxes.length > 1;
   const ratios = points.filter((p) => p.ratio != null);
   if (points.length < 2 || (!otherReps && ratios.length < 2)) return null;

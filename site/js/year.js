@@ -9,7 +9,7 @@ import { bestEntries, liftBetter, liftKey, trainingDays, wodBestResults } from '
 // The years with data, newest first.
 export const yearsOf = (days) => [...new Set(days.map((d) => d.date.slice(0, 4)))].sort().reverse();
 
-export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], results: [] } } = {}) {
+export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], results: [] }, sessions = [] } = {}) {
   const days = allDays.filter((d) => d.date.startsWith(year));
   const inYear = (date) => date.startsWith(year);
   const eaten = days.filter(logged);
@@ -27,7 +27,10 @@ export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], 
 
   // Training: the Fitbit workouts, and days with a noted result.
   const workouts = days.flatMap((d) => (d.workouts || []).map((w) => ({ ...w, date: d.date })));
-  const noted = [...lifts.map((e) => e.date), ...wods.results.map((r) => r.date)].filter(inYear);
+  const noted = [...lifts.map((e) => e.date), ...wods.results.map((r) => r.date), ...sessions.map((x) => x.date)].filter(inYear);
+  // Sessions noted set by set: their work sets and volume (kg × reps).
+  const mySessions = sessions.filter((x) => inYear(x.date));
+  const work = mySessions.flatMap((x) => x.sets.filter((s) => s.type !== 'warmup'));
   const trained = [...trainingDays(days, noted).entries()].filter(([date]) => inYear(date));
   const longest = workouts.reduce((a, w) => (!a || (w.dur || 0) > (a.dur || 0) ? w : a), null);
 
@@ -90,6 +93,7 @@ export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], 
       hours: workouts.reduce((a, w) => a + (w.dur || 0), 0) / 3600,
       km: workouts.reduce((a, w) => a + (w.dist || 0), 0) / 1000,
       longest: longest ? { date: longest.date, type: longest.type, dur: longest.dur, dist: longest.dist } : null,
+      sessions: mySessions.length, sets: work.length, volume: work.reduce((a, s) => a + s.kg * s.reps, 0),
     } : null,
     bests: liftBests.length || wodBests.length ? { lifts: liftBests, wods: wodBests, n: liftBests.reduce((a, b) => a + b.n, 0) + wodBests.reduce((a, b) => a + b.n, 0) } : null,
     sleep: nights.length ? {

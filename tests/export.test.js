@@ -260,3 +260,17 @@ test('sleep timing: mid-sleep per night and the range in one row', () => {
   assert.equal(few.free_nights, 2);
   assert.equal(few.social_jetlag_min, null);
 });
+
+test('training sessions and their sets, only when given', () => {
+  const sessions = [
+    { id: 1, date: '2026-10-12', title: 'Squat day', rpe: 8, sets: [
+      { lift: 'Back Squat', type: 'warmup', reps: 5, kg: 60 }, { lift: 'Back Squat', type: 'work', reps: 5, kg: 100 }, { lift: 'Pull-up', type: 'work', reps: 8, kg: 0 }] },
+    { id: 2, date: '2026-10-20', sets: [{ lift: 'Deadlift', type: 'work', reps: 5, kg: 140 }] }, // after
+  ];
+  const tables = exportTables(data, '2026-10-11', '2026-10-14', { sessions });
+  const [, , rows] = tables.find(([n]) => n === 'training_sessions');
+  assert.deepEqual(rows, [{ session_id: 1, date: '2026-10-12', title: 'Squat day', rpe: 8, work_sets: 2, volume_kg: 500, fitbit_workout: null, note: null }]);
+  const [, , sets] = tables.find(([n]) => n === 'training_sets');
+  assert.deepEqual(sets.map((s) => [s.set, s.lift, s.type, s.reps, s.kg]), [[1, 'Back Squat', 'warmup', 5, 60], [2, 'Back Squat', 'work', 5, 100], [3, 'Pull-up', 'work', 8, 0]]);
+  assert.ok(!exportTables(data, '2026-10-11', '2026-10-14').some(([n]) => n === 'training_sessions'));
+});
