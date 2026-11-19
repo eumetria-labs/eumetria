@@ -6,7 +6,7 @@
 // (the heaviest, more reps at the same weight), the rest is its history.
 
 import { NUM_LOCALE, actLabel, dfLong, dfShort, dfMonthYear, fmt, fmtDuration, parse } from './format.js';
-import { COMMON_LIFTS, bestDays, bestsReadiness, liftBoard, liftMarks, linkableWorkouts, liftSet, loadable, oneRepMax, percentages, platesFor, strengthTrend, wodBestDays, workoutIcon, workoutName } from './health.js';
+import { COMMON_LIFTS, DEFAULT_RETEST, retestDue, bestDays, bestsReadiness, liftBoard, liftMarks, linkableWorkouts, liftSet, loadable, oneRepMax, percentages, platesFor, strengthTrend, wodBestDays, workoutIcon, workoutName } from './health.js';
 import { openWorkout } from './workout.js';
 import { $, emoji, h, nameCell } from './dom.js';
 import { drawProgress, progressChart } from './charts.js';
@@ -79,6 +79,16 @@ export async function loadLifts(data) {
 
 // Without a second factor the server refuses a role that needs one, except
 // with -demo.
+// retestMonths is after how many months a lift or benchmark workout is
+// offered for a retest (Profile → Customize Dashboard; 0: never).
+export const retestMonths = () => account.user?.layout?.retest_months ?? DEFAULT_RETEST;
+
+// dueKeys are the keys ("lift:back squat", "wod:3") of what is due for a retest.
+export const dueKeys = () => new Set(retestDue(state.lifts, state.wods.workouts, state.wods.results, state.today, retestMonths()).map((d) => `${d.kind}:${d.key}`));
+
+// retestBadge marks a row of the Personal bests due for a retest.
+export const retestBadge = (last) => h('span', { class: 'lift-retest', title: t('No result since {date}', { date: dfShort.format(parse(last)) }) }, t('Retest?'));
+
 export function mayEditLifts() {
   const u = account.user;
   return !!u?.scopes?.includes('edit.lifts') && (!u.needs_second_factor || !!u.demo);
@@ -115,12 +125,14 @@ export function renderLifts() {
       : mayEditLifts() ? t('No lifts yet. Add your first personal best.') : t('No lifts noted yet.')));
     return;
   }
+  const due = dueKeys();
   host.replaceChildren(...rows.map((r) => {
     const bw = bodyweight(r.best);
     const detail = [shortDate(r.best.date), liftGain(r.best, r.prev), bw ? t('{x}× bodyweight', { x: nfX.format(bw) }) : ''].filter(Boolean).join(' · ');
     const row = h('button', { class: 'day-item workout-row lift-row', type: 'button', 'aria-label': t('{label}: {value}, {detail}. Show history', { label: r.lift, value: fmtSet(r.best), detail }) });
     const name = nameCell(r.lift, false, '🏋️');
     if (r.recent) name.append(h('span', { class: 'lift-new', title: t('Set in the last 30 days') }, t('New')));
+    else if (due.has('lift:' + r.key)) name.append(retestBadge(r.entries.at(-1).date));
     row.append(name, h('span', { class: 'amt' }, detail), h('span', { class: 'val' }, fmtSet(r.best)), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
     row.addEventListener('click', () => openLift(r.key, row));
     return row;

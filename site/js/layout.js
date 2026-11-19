@@ -7,7 +7,8 @@
 
 import { $, h } from './dom.js';
 import { account, api } from './account.js';
-import { t } from './i18n.js';
+import { t, tn } from './i18n.js';
+import { DEFAULT_RETEST } from './health.js';
 
 const grid = $('#cards');
 // The page's own order, before any change.
@@ -20,15 +21,15 @@ export const GROUP = {
   today: 'today', 'review-card': 'today', tiles: 'today',
   'energy-card': 'nutrition', 'foods-card': 'nutrition', 'sources-card': 'nutrition', 'quality-card': 'nutrition',
   'weight-card': 'body', 'movement-card': 'body', 'recovery-card': 'body',
-  'training-card': 'training', 'top-activities-card': 'training',
+  'training-card': 'training', 'top-activities-card': 'training', 'insights-card': 'more',
   'data-card': 'more', 'more-card': 'more',
 };
 // The labels between the cards on wide screens follow the sidebar's parts.
 const LABEL = {
-  'energy-card': 'Nutrition', 'weight-card': 'Body', 'movement-card': 'Body', 'recovery-card': 'Sleep', 'training-card': 'Training',
+  'energy-card': 'Nutrition', 'weight-card': 'Body', 'movement-card': 'Body', 'recovery-card': 'Sleep', 'training-card': 'Training', 'insights-card': 'Insights',
   'foods-card': 'Foods', 'top-activities-card': 'Foods', 'sources-card': 'Foods', 'quality-card': 'Foods', 'data-card': 'Data',
 };
-const LABEL_TEXT = { Nutrition: () => t('Nutrition'), Body: () => t('Body'), Sleep: () => t('Sleep'), Training: () => t('Training'), Foods: () => t('Foods'), Data: () => t('Data') };
+const LABEL_TEXT = { Nutrition: () => t('Nutrition'), Body: () => t('Body'), Sleep: () => t('Sleep'), Training: () => t('Training'), Foods: () => t('Foods'), Insights: () => t('Insights'), Data: () => t('Data') };
 
 const layout = () => account.user?.layout || { order: [], hidden: [] };
 
@@ -93,11 +94,29 @@ export function renderLayout(host) {
   const head = h('div', { class: 'wo-sec-head' });
   head.append(h('h3', {}, t('Cards')), h('span', { class: 'muted' }, t('Unticked cards are hidden. Changes apply at once.')));
   sec.append(head, list, foot);
-  host.replaceChildren(sec);
+
+  // Retest hints: after how many months a lift or benchmark workout is
+  // offered again (Today, Personal bests).
+  const hints = h('section', { class: 'wo-sec lo-panel' });
+  const hintsHead = h('div', { class: 'wo-sec-head' });
+  hintsHead.append(h('h3', {}, t('Retest hints')), h('span', { class: 'muted' }, t('A hint on the Today card and in Personal bests when a lift or benchmark workout wasn’t done for a while.')));
+  const months = h('select', { class: 'field', id: 'lo-retest' });
+  months.append(h('option', { value: '0' }, t('Off')), ...[3, 6, 9, 12, 18, 24].map((m) => h('option', { value: String(m) }, tn(m, 'after {n} month', 'after {n} months'))));
+  months.value = String(layout().retest_months ?? DEFAULT_RETEST);
+  months.onchange = () => save({ ...layout(), retest_months: Number(months.value) }, 'lo-retest');
+  const row = h('label', { class: 'lo-hint', for: 'lo-retest' });
+  row.append(h('span', {}, t('Offer a retest')), months);
+  hints.append(hintsHead, row);
+  host.replaceChildren(sec, hints);
 
   const save = (next, focusId, dir) => {
     if (!account.user) return;
+    // The retest setting stays when the cards change, and the other way round.
+    const before = layout().retest_months;
+    next = { retest_months: before, ...next };
+    if (next.retest_months == null) delete next.retest_months;
     account.user.layout = next;
+    if (next.retest_months !== before) document.dispatchEvent(new Event('phases-change'));
     applyLayout();
     draw(focusId, dir);
     saving = saving.then(async () => {

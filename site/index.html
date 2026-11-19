@@ -37,6 +37,7 @@
         <a href="#weight-card" data-cards="weight-card movement-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V9a6 6 0 0 1 12 0v11"/><path d="M9 20v-5h6v5"/><circle cx="12" cy="8" r="2"/></svg><span>Body</span></a>
         <a href="#recovery-card" data-cards="recovery-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><span>Sleep</span></a>
         <a href="#training-card" data-cards="training-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"/></svg><span>Training</span></a>
+        <a href="#insights-card" data-cards="insights-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="16" r="1.5"/><circle cx="11" cy="11" r="1.5"/><circle cx="16" cy="13" r="1.5"/><circle cx="18" cy="6" r="1.5"/><path d="M4 20h16"/></svg><span>Insights</span></a>
         <a href="#foods-card" data-cards="foods-card top-activities-card sources-card quality-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v8a2 2 0 0 0 4 0V3M9 11v10M17 3c-2 0-3 2-3 5s1 4 3 4v9"/></svg><span>Foods</span></a>
         <a href="#data-card" data-cards="data-card"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 15h16M10 4v16"/></svg><span>Data</span></a>
     </nav>
@@ -423,6 +424,14 @@
           </div>
         </article>
 
+        <article class="card span-2" id="insights-card" hidden>
+          <header class="card-head">
+            <div><h2>Insights</h2><p class="muted" id="insights-sub">Goals met, and how two measures move together, in this range</p></div>
+          </header>
+          <div class="tabs" role="tablist" aria-label="Insights" id="insights-tabs"></div>
+          <div class="card-panel" id="insights-goals" role="tabpanel" data-tab="goals"></div>
+          <div class="card-panel" id="insights-explore" role="tabpanel" data-tab="explore" hidden></div>
+        </article>
         <article class="card" id="foods-card">
           <header class="card-head"><div><h2>Most logged foods</h2><p class="muted" id="foods-sub"></p></div></header>
           <div class="tabs" role="tablist" aria-label="Meal" id="foods-tabs"></div>

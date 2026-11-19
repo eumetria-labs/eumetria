@@ -2274,3 +2274,34 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .cs-avg { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--muted); border-radius: 1px; }
 .cs-you { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--ink); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--ink); }
 .cs-ends { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+
+/* A lift or benchmark workout not tested for months (retest hints) */
+.lift-retest {
+  flex: none; margin-left: 6px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 700; line-height: 16px; letter-spacing: .03em;
+  color: var(--s2); background: color-mix(in oklab, var(--s2) 14%, transparent);
+}
+.lo-hint { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
+.lo-hint .field { width: auto; min-width: 160px; }
+
+/* ---------- Insights (js/insightscard.js) ---------- */
+.goal-hits .name { color: var(--ink); }
+.ex-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 12px; }
+.ex-sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ex-sentence .field { width: auto; max-width: 100%; }
+.ex-swap { width: 32px; height: 32px; }
+.ex-skip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.ex-summary { margin: 0 0 8px; font-size: 14px; }
+.ex-r { font-variant-numeric: tabular-nums; }
+.ex-chart { height: 280px; }
+.ex-chart svg { display: block; width: 100%; height: 100%; touch-action: pan-y; cursor: crosshair; }
+.ex-dot { fill: var(--s1); stroke: var(--surface); stroke-width: 2; }
+.ex-dot.on { fill: var(--ink); r: 6; }
+.ex-trend { stroke: var(--ink-2); stroke-width: 2; stroke-linecap: round; opacity: .7; }
+.ex-axis-name { fill: var(--muted); font-size: 10.5px; }
+.ex-link { margin-top: 10px; }
+@media (max-width: 640px) {
+  .ex-sentence { width: 100%; }
+  .ex-sentence .field { flex: 1 1 140px; }
+  .ex-chart { height: 240px; }
+}
+.ex-link { display: inline-block; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--s1); cursor: pointer; }

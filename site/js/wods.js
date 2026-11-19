@@ -14,7 +14,7 @@ import { drawProgress, progressChart } from './charts.js';
 import { chart, list, shareTools, textLines, tiles } from './share.js';
 import { openDialog } from './dialog.js';
 import { api, reason } from './account.js';
-import { fmtKg, fmtSet, liftGain, liftSeries, mayEditLifts, notifyBests, openLift, sessionSummary } from './lifts.js';
+import { dueKeys, fmtKg, fmtSet, liftGain, liftSeries, mayEditLifts, notifyBests, openLift, retestBadge, sessionSummary } from './lifts.js';
 import { state } from './state.js';
 import { t } from './i18n.js';
 
@@ -86,6 +86,7 @@ export function renderWods() {
       : t('No benchmark workouts yet. Add Fran, Cindy or one your box repeats.')));
     return;
   }
+  const due = dueKeys();
   host.replaceChildren(...rows.map((r) => {
     const name = r.workout.name + (r.scaled ? ` · ${t('Scaled')}` : '');
     const detail = (short) => (r.best ? [shortDate(r.best.date), r.prev ? t('was {result}', { result: fmtResult(r.workout.scoring, r.prev, short) }) : ''].filter(Boolean).join(' · ') : t('No result yet'));
@@ -94,6 +95,11 @@ export function renderWods() {
     const cell = nameCell(r.workout.name, false, '⏱️');
     if (r.scaled) cell.append(h('span', { class: 'lift-rm' }, t('Scaled')));
     if (r.recent && r.prev) cell.append(h('span', { class: 'lift-new', title: t('Set in the last 30 days') }, t('New')));
+    // Rx and scaled share one hint: the workout's last result, any.
+    else if (due.has('wod:' + r.workout.id) && r.best) {
+      const last = state.wods.results.filter((x) => x.workout === r.workout.id).reduce((a, x) => (x.date > a ? x.date : a), '');
+      if (r.entries.some((x) => x.date === last)) cell.append(retestBadge(last));
+    }
     row.append(cell, h('span', { class: 'amt' }, detail(true)), h('span', { class: 'val' }, value(true)), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
     row.addEventListener('click', () => openWod(r.workout.id, row));
     return row;

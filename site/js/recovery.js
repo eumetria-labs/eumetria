@@ -5,6 +5,7 @@
 import { addDays, avgOf, fmt, fmtDuration, iso, logged, parse, signed } from './format.js';
 import { AVERAGE_MSF, MIN_FREE, MIN_NIGHTS, MIN_WORK, chronoType, chronotype, clockOf, regularity } from './sleeptiming.js';
 import { TAGS, dayTags, pageFreeNight, tagName } from './checkin.js';
+import { openExplore } from './insightscard.js';
 import { median, nightsAfter } from './insights.js';
 import { RESTLESS, STAGES, fmtSleep, nightBreaks, stageRow } from './health.js';
 import { legendToggles } from './legend.js';
@@ -179,6 +180,9 @@ function renderNightsAfter(s) {
 
   const shown = pairs.filter(([, c]) => c.ok);
   if (!shown.length) return false;
+  // Any two measures, at any lag: the Insights card.
+  const more = h('button', { class: 'link-btn ex-link', type: 'button' }, t('Compare any two measures in Insights') + ' ›');
+  more.onclick = openExplore;
   const table = h('table', { class: 'compare' });
   const head = h('tr');
   [t('The night after'), t('Nights'), 'HRV', t('Sleeping HR'), t('Asleep')].forEach((c) => head.append(h('th', { scope: 'col' }, c)));
@@ -197,7 +201,7 @@ function renderNightsAfter(s) {
       table.tBodies[0].append(tr);
     });
   }
-  $('#nights-after-table').replaceChildren(table);
+  $('#nights-after-table').replaceChildren(table, more);
   return true;
 }
 

@@ -396,6 +396,12 @@ func Lifts(today time.Time) []lifts.Entry {
 		FitbitWorkout: "demo-" + day.Format("20060102"),
 		CreatedBy:     "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day,
 	})
+	// One lift not done for eight months: offered for a retest.
+	for i, back := range []int{300, 245} {
+		d := today.AddDate(0, 0, -back)
+		out = append(out, lifts.Entry{ID: id + 2 + int64(i), Lift: "Overhead Squat", Kg: 60 + 2.5*float64(i), Reps: 1, Date: d.Format(time.DateOnly),
+			CreatedBy: "demo", UpdatedBy: "demo", CreatedAt: d, UpdatedAt: d})
+	}
 	return out
 }
 

@@ -50,6 +50,8 @@ type Week struct {
 	// When the person slept: the week's regularity, and the chronotype
 	// from the four weeks up to its end.
 	SleepTiming *SleepTiming `json:"sleep_timing,omitempty"`
+	// How many of the week's complete days met each goal.
+	GoalHits []GoalHit `json:"goal_hit_rates,omitempty"`
 
 	// The week's Fitbit workouts by id, as their activity rows name them
 	// ("CrossFit at 16:25"): where a linked lift or benchmark was done.
@@ -58,9 +60,15 @@ type Week struct {
 	// the days away and off are known (AddPhases, AddCheckins): the weekdays
 	// off and holidays (free), vacation and day-off days (off), travel.
 	recent []stats.Day
-	free   stats.Output
-	off    map[string]bool
-	travel map[string]bool
+	// The complete days, the goals and the phases, for the hit rates again
+	// once the phases are known (AddPhases).
+	complete     []stats.Day
+	sleepGoal    float64
+	alcoholKnown bool
+	phaseList    []phases.Phase
+	free         stats.Output
+	off          map[string]bool
+	travel       map[string]bool
 }
 
 // SleepTiming is the week's sleep regularity and the chronotype of the
@@ -295,6 +303,8 @@ func BuildWeek(out stats.Output, monday time.Time, today string) Week {
 		}
 	}
 	w.Summary = totals(complete, out)
+	w.complete, w.sleepGoal, w.alcoholKnown = complete, out.SleepGoal, alcoholEver(out)
+	w.goalHits()
 	w.NutrientsLow = nutrientsLow(complete, out.NutrientRefs)
 	var prev []stats.Day
 	for i := 7; i > 0; i-- {
@@ -571,6 +581,8 @@ func (w *Week) AddPhases(all []phases.Phase) {
 	if w.off == nil {
 		w.off = map[string]bool{}
 	}
+	w.phaseList = all
+	w.goalHits()
 	for _, p := range all {
 		start, err := time.Parse(time.DateOnly, p.Start)
 		if err != nil {

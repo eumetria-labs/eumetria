@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, liftBetter, linkSuggestions, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares, strengthTrend } from '../site/js/health.js';
+import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, liftBetter, linkSuggestions, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares, strengthTrend, retestDue } from '../site/js/health.js';
 
 test('zoneOf uses the lower bounds of moderate, vigorous and peak', () => {
   const limits = [109, 133, 163];
@@ -240,4 +240,27 @@ test('link suggestions: unlinked results on days with workouts, walks aside', ()
     ['wod', 9, ['cf'], 'cf'],
     ['lift', 2, ['a', 'b'], null],
   ]);
+});
+
+test('retest hints: lifts and benchmark workouts not done for months, the longest ago first', () => {
+  const lifts = [
+    { id: 1, lift: 'Back Squat', kg: 140, reps: 1, date: '2026-01-10' },
+    { id: 2, lift: 'Back Squat', kg: 120, reps: 5, date: '2026-04-30' }, // the last one counts, any reps
+    { id: 3, lift: 'Deadlift', kg: 180, reps: 1, date: '2026-10-01' },
+    { id: 4, lift: 'Snatch', kg: 70, reps: 1, date: '2025-11-01' },
+  ];
+  const workouts = [{ id: 1, name: 'Fran' }, { id: 2, name: 'Grace' }, { id: 3, name: 'Never done' }];
+  const results = [
+    { id: 1, workout: 1, date: '2026-03-01', scaled: false },
+    { id: 2, workout: 1, date: '2026-05-10', scaled: true }, // scaled counts too
+    { id: 3, workout: 2, date: '2026-09-01', scaled: false },
+  ];
+  const due = retestDue(lifts, workouts, results, '2026-11-19', 6);
+  assert.deepEqual(due.map((d) => [d.name, d.last]), [['Snatch', '2025-11-01'], ['Back Squat', '2026-04-30'], ['Fran', '2026-05-10']]);
+  assert.equal(due[1].key, 'back squat');
+  // Exactly six months ago isn't more than six months.
+  assert.equal(retestDue([{ id: 1, lift: 'X', kg: 1, reps: 1, date: '2026-05-19' }], [], [], '2026-11-19', 6).length, 0);
+  assert.equal(retestDue([{ id: 1, lift: 'X', kg: 1, reps: 1, date: '2026-05-18' }], [], [], '2026-11-19', 6).length, 1);
+  assert.deepEqual(retestDue(lifts, workouts, results, '2026-11-19', 0), []);
+  assert.deepEqual(retestDue(lifts, workouts, results, '2026-11-19', 12).map((d) => d.name), ['Snatch']);
 });

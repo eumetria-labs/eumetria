@@ -15,11 +15,14 @@ import (
 type Layout struct {
 	Order  []string `json:"order"`
 	Hidden []string `json:"hidden"`
+	// RetestMonths: after how many months without a result a lift or a
+	// benchmark workout is offered for a retest; 0 none, nil the default (6).
+	RetestMonths *int `json:"retest_months,omitempty"`
 }
 
 const maxLayoutCards = 32
 
-var ErrBadLayout = errors.New("layout: up to 32 card names of lowercase letters, digits and -")
+var ErrBadLayout = errors.New("layout: up to 32 card names of lowercase letters, digits and -; retest months 0 to 24")
 
 var cardName = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
 
@@ -48,7 +51,10 @@ func (l Layout) Clean() (Layout, error) {
 	if err != nil {
 		return Layout{}, err
 	}
-	return Layout{order, hidden}, nil
+	if m := l.RetestMonths; m != nil && (*m < 0 || *m > 24) {
+		return Layout{}, ErrBadLayout
+	}
+	return Layout{order, hidden, l.RetestMonths}, nil
 }
 
 // Layout returns u's layout, empty lists when they never arranged the page.

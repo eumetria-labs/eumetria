@@ -207,6 +207,20 @@ await wait(150);
 check('sleep timing: ⓘ opens the explanation', await ev(`(() => { const b = document.querySelector('#sleep-timing .info-btn'); return b?.getAttribute('aria-expanded') === 'true' && !b.closest('.timing').querySelector('.timing-info').hidden; })()`));
 await useSession(adminSession);
 
+/* ---------- Customize Dashboard: retest hints ---------- */
+await open('profile=layout', { width: 1280, height: 900 });
+await ev(`(() => { const s = document.getElementById('lo-retest'); s.value = '12'; s.dispatchEvent(new Event('change')); })()`);
+await wait(600);
+// A card hidden afterwards keeps the setting.
+await ev(`document.querySelector('.lo-row input[type=checkbox]').click()`);
+await wait(600);
+{
+  const me = await (await fetch(base + '/api/me', { headers: { cookie: adminSession.cookie } })).json();
+  check('retest hints: saved, and kept when a card changes', me.layout?.retest_months === 12 && me.layout.hidden.length === 1, JSON.stringify(me.layout));
+}
+await ev(`document.querySelector('.lo-foot .pill-btn').click()`); // Reset the cards
+await wait(600);
+
 await open('settings=general', { width: 1280, height: 900 });
 const title = `document.querySelector('.pf-content input.field')`;
 const type = (v) => ev(`(() => { const i = ${title}; i.value = ${JSON.stringify(v)}; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);

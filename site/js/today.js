@@ -9,8 +9,8 @@ import { openDay } from './sheet.js';
 import { highlights, macroGoal } from './insights.js';
 import { t, tn } from './i18n.js';
 import { renderTodayScores } from './scores.js';
-import { liftBoard, wodBoard } from './health.js';
-import { fmtSet, onBestsChange, openLift } from './lifts.js';
+import { liftBoard, retestDue, wodBoard } from './health.js';
+import { fmtSet, onBestsChange, openLift, retestMonths } from './lifts.js';
 import { fmtResult, openWod } from './wods.js';
 import { offeredYear, openYear } from './yearreview.js';
 import { renderPhaseStatus } from './phases.js';
@@ -91,7 +91,7 @@ function bestChips() {
     value: fmtResult(r.workout.scoring, r.best), open: (b) => openWod(r.workout.id, b),
   }));
   const all = [...lifts, ...wods].sort((a, b) => b.date.localeCompare(a.date));
-  if (!all.length) return [];
+  if (!all.length) return retestChip();
   if (all.length === 1) {
     const [x] = all;
     const b = h('button', { class: 'highlight', type: 'button', role: 'listitem', title: t('Show the history') });
@@ -103,7 +103,34 @@ function bestChips() {
   const b = h('button', { class: 'highlight', type: 'button', role: 'listitem', title: t('Show the personal bests') });
   b.append(emoji('🏆'), h('b', {}, tn(all.length, '{n} new PB', '{n} new PBs')), h('span', { class: 'hl-text' }, names), h('b', {}, '›'));
   b.onclick = () => showBests(() => all[0].open(b));
+  return [b, ...retestChip()];
+}
+
+// retestChip offers what wasn't tested for months (Profile → Customize
+// Dashboard sets how many): one chip, naming the longest ago, and for more
+// than one opening the Personal bests where they are marked.
+function retestChip() {
+  const due = retestDue(state.lifts, state.wods.workouts, state.wods.results, state.today, retestMonths());
+  if (!due.length) return [];
+  const [x] = due;
+  const months = monthsSince(x.last, state.today);
+  const b = h('button', { class: 'highlight', type: 'button', role: 'listitem' });
+  if (due.length === 1) {
+    b.title = t('Show the history');
+    b.append(emoji('🔁'), h('span', { class: 'hl-text' }, t('Time to retest {what}?', { what: x.name })), h('b', {}, tn(months, '{n} month ago', '{n} months ago')));
+    b.onclick = () => (x.kind === 'lift' ? openLift(x.key, b) : openWod(x.key, b));
+  } else {
+    b.title = t('Show the personal bests');
+    b.append(emoji('🔁'), h('b', {}, tn(due.length, '{n} to retest', '{n} to retest')), h('span', { class: 'hl-text' }, due.map((d) => d.name).join(', ')), h('b', {}, '›'));
+    b.onclick = () => showBests(() => (x.kind === 'lift' ? openLift(x.key, b) : openWod(x.key, b)));
+  }
   return [b];
+}
+
+// Whole months from date to today.
+function monthsSince(date, today) {
+  const a = parse(date), z = parse(today);
+  return (z.getUTCFullYear() - a.getUTCFullYear()) * 12 + z.getUTCMonth() - a.getUTCMonth() - (z.getUTCDate() < a.getUTCDate() ? 1 : 0);
 }
 onBestsChange(() => {
   if (!state.data) return;

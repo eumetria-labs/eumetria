@@ -79,12 +79,14 @@ const activity = stats.days?.some((d) => d.activities?.length)
 // The first day of the oldest archive file (the older days live in days/).
 const oldDay = stats.archive?.length ? JSON.parse(await readFile(join(root, stats.archive[0]), 'utf8')).days?.find((d) => d.foods?.length)?.date : null;
 const views = [
-  { hash: 'range=7', expect: ['id="today-ring"', 'class="card tile"', 'class="coach-bubble teaser"'] },
+  { hash: 'range=7', expect: ['id="today-ring"', 'class="card tile"', 'class="coach-bubble teaser"', 'Time to retest Overhead Squat?'] },
   { hash: 'range=all', expect: ['id="chart-energy"'] },
   // Calories → Nutrients and the alcohol line (the demo's Pils).
   { hash: 'range=30&view=nutrition', expect: ['class="hbar nut-row', 'class="alcohol-line"'] },
   // This morning's check-in on the Today card, the demo's cold as a band.
   { hash: 'range=30', expect: ['class="checkin-line"', 'phase-band ph-sick'] },
+  // Insights: goal hit rates, and the scatter of the default pair.
+  { hash: 'range=90', expect: ['class="hbars goal-hits"', 'class="ex-r"'] },
   // German ("#lang=de" in a link), page and a day.
   { hash: 'range=30&lang=de', expect: ['<html lang="de"', 'Tagesdetails', 'Meistgegessen'] },
   { hash: `range=30&lang=de&day=${day}`, expect: ['<dialog class="dlg sheet-overlay"', 'Vorheriger Tag'] },

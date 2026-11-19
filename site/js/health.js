@@ -487,3 +487,30 @@ export function platesFor(total, bar = 20, plates = PLATES) {
 
 // The weights at 50 to 95 % of a one-rep max, for the day's sets.
 export const percentages = (max) => [50, 60, 65, 70, 75, 80, 85, 90, 95].map((pct) => ({ pct, kg: loadable((max * pct) / 100) }));
+
+/* ---------- retest hints ---------- */
+
+// DEFAULT_RETEST is after how many months without a result a lift or a
+// benchmark workout is offered for a retest (Profile → Customize Dashboard
+// changes it, 0 turns it off).
+export const DEFAULT_RETEST = 6;
+
+// retestDue are the lifts and benchmark workouts whose last result, any
+// reps and Rx or scaled alike, lies more than months before today, the
+// longest ago first: [{ kind: 'lift' | 'wod', key, name, last }]. A
+// workout without results was never tested, so there is nothing to retest.
+export function retestDue(entries, workouts, results, today, months = DEFAULT_RETEST) {
+  if (!today || !months) return [];
+  const t0 = parse(today);
+  const before = iso(new Date(Date.UTC(t0.getUTCFullYear(), t0.getUTCMonth() - months, t0.getUTCDate())));
+  const out = [];
+  for (const r of liftBoard(entries, today)) {
+    const last = r.entries.reduce((a, e) => (e.date > a ? e.date : a), '');
+    if (last && last < before) out.push({ kind: 'lift', key: r.key, name: r.lift, last });
+  }
+  for (const w of workouts) {
+    const last = results.filter((x) => x.workout === w.id).reduce((a, x) => (x.date > a ? x.date : a), '');
+    if (last && last < before) out.push({ kind: 'wod', key: w.id, name: w.name, last });
+  }
+  return out.sort((a, b) => a.last.localeCompare(b.last) || a.name.localeCompare(b.name));
+}
