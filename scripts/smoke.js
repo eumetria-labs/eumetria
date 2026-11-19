@@ -83,10 +83,12 @@ const views = [
   { hash: 'range=all', expect: ['id="chart-energy"'] },
   // Calories → Nutrients and the alcohol line (the demo's Pils).
   { hash: 'range=30&view=nutrition', expect: ['class="hbar nut-row', 'class="alcohol-line"'] },
+  // This morning's check-in on the Today card, the demo's cold as a band.
+  { hash: 'range=30', expect: ['class="checkin-line"', 'phase-band ph-sick'] },
   // German ("#lang=de" in a link), page and a day.
   { hash: 'range=30&lang=de', expect: ['<html lang="de"', 'Tagesdetails', 'Meistgegessen'] },
   { hash: `range=30&lang=de&day=${day}`, expect: ['<dialog class="dlg sheet-overlay"', 'Vorheriger Tag'] },
-  { hash: `range=30&day=${day}`, expect: ['class="sheet"', '<dialog class="dlg sheet-overlay"'] },
+  { hash: `range=30&day=${day}`, expect: ['class="sheet"', '<dialog class="dlg sheet-overlay"', 'class="sheet-checkin"'] },
   ...(workout ? [
     { hash: 'range=30', expect: ['id="recovery-card"', 'mark-bar st-deep', 'Most calories', 'class="q-bar"'] },
     { hash: `range=30&day=${wday.date}&workout=${workout.id}`, expect: ['class="wo-panel"', 'class="hr-line"', 'class="wo-zones"'] },

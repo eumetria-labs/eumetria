@@ -21,6 +21,7 @@ const (
 	ViewReview    = "view.review"    // the weekly review
 	EditNotes     = "edit.notes"     // add, change and delete notes
 	EditLifts     = "edit.lifts"     // add, change and delete personal bests in lifts
+	EditCheckin   = "edit.checkin"   // the daily check-in and day tags
 	ScopeSync     = "sync"           // sync now, full refresh
 	ScopeAdmin    = "admin"          // users, roles, settings, backups, audit log; implies all others
 )
@@ -29,7 +30,7 @@ const (
 var ViewScopes = []string{ViewNutrition, ViewFoods, ViewPhotos, ViewActivity, ViewHealth, ViewRoutes, ViewNotes, ViewReview}
 
 // AllScopes are every scope a role can have.
-var AllScopes = append(slices.Clone(ViewScopes), EditNotes, EditLifts, ScopeSync, ScopeAdmin)
+var AllScopes = append(slices.Clone(ViewScopes), EditNotes, EditLifts, EditCheckin, ScopeSync, ScopeAdmin)
 
 // The built-in roles. Their scopes are fixed here; they can't be changed
 // or deleted.
@@ -83,7 +84,7 @@ func NormalizeScopes(scopes []string) ([]string, error) {
 			out = append(out, sc)
 		}
 	}
-	for _, need := range [][2]string{{ViewRoutes, ViewHealth}, {ViewNotes, ViewHealth}, {EditNotes, ViewNotes}, {EditLifts, ViewHealth}} {
+	for _, need := range [][2]string{{ViewRoutes, ViewHealth}, {ViewNotes, ViewHealth}, {EditNotes, ViewNotes}, {EditLifts, ViewHealth}, {EditCheckin, ViewHealth}} {
 		if slices.Contains(out, need[0]) && !slices.Contains(out, need[1]) && !slices.Contains(out, ScopeAdmin) {
 			return nil, fmt.Errorf("%w: %s needs %s", ErrBadScope, need[0], need[1])
 		}

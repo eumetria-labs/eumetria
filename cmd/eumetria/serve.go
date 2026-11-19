@@ -17,6 +17,7 @@ import (
 
 	"eumetria/internal/auth"
 	"eumetria/internal/backup"
+	"eumetria/internal/checkins"
 	"eumetria/internal/db"
 	"eumetria/internal/notes"
 	"eumetria/internal/settings"
@@ -132,6 +133,12 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 		if at, err := store.SavedAt(ctx, database.DB); err == nil && !at.IsZero() {
 			data.set(hist, at)
 		}
+	}
+	// The days tagged sick or travel stay out of the scores' baselines.
+	if skip, err := (&checkins.Store{DB: database}).SkipDays(ctx); err != nil {
+		log.Printf("checkins: the sick and travel days: %v", err)
+	} else {
+		data.setSkip(skip)
 	}
 	r := newRunner(cfg, cfg.interval, data)
 	r.settings = conf

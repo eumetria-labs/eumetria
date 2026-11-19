@@ -4,6 +4,7 @@
 // formulas, not Fitbit's, and the page says so.
 
 import { addDays, fmt, fmtRatio, iso, parse, signed } from './format.js';
+import { dayTags } from './checkin.js';
 import { $, h, svg } from './dom.js';
 import { state } from './state.js';
 import { legendToggles } from './legend.js';
@@ -51,7 +52,9 @@ export function renderTodayScores(day) {
   host.replaceChildren(...shown.map((s) => {
     const v = day.scores[s.key].value;
     // Only on the day itself: yesterday's morning says nothing about today.
-    const word = goForPB(s.key, v) && day.date === state.today ? '⚡ ' + t('Go for a PB') : scoreWord(s.key, v);
+    // A day tagged sick: rest comes first, whatever the measurements say.
+    const sick = s.key === 'readiness' && dayTags(day.date).includes('sick');
+    const word = sick ? '🤒 ' + t('Sick: rest first') : goForPB(s.key, v) && day.date === state.today ? '⚡ ' + t('Go for a PB') : scoreWord(s.key, v);
     const b = h('button', { class: 'score-chip', type: 'button', 'aria-label': t('{score} {value} of 100, {word}. Show the breakdown', { score: s.label, value: v, word }) });
     b.append(miniRing(v, s.cls));
     const txt = h('span', { class: 'sc-text' });

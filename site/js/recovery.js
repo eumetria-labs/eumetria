@@ -3,6 +3,7 @@
 // are Eumetria's own (scores.js), never named after Fitbit's.
 
 import { addDays, avgOf, fmt, iso, logged, parse, signed } from './format.js';
+import { TAGS, dayTags, tagName } from './checkin.js';
 import { median, nightsAfter } from './insights.js';
 import { RESTLESS, STAGES, fmtSleep, nightBreaks, stageRow } from './health.js';
 import { legendToggles } from './legend.js';
@@ -63,6 +64,17 @@ function renderNightsAfter(s) {
   // sauce counts for neither.
   const alcohol = (r) => r.nut?.alcohol?.[0] || 0;
   pairs.push([[t('Alcohol {g} g or more', { g: fmt(ALCOHOL_DAY) }), t('No alcohol')], nightsAfter(rows, state.byDate, (r) => (!logged(r) ? null : alcohol(r) >= ALCOHOL_DAY ? 0 : alcohol(r) === 0 ? 1 : null))]);
+  // The check-ins: stressful against calm days, and each tag against the
+  // checked-in days without it (alcohol is above, from what was logged).
+  const checked = (r) => state.checkins?.get(r.date);
+  const stress = (r) => checked(r)?.stress;
+  pairs.push([[t('Stress 4–5'), t('Stress 1–2')], nightsAfter(rows, state.byDate, (r) => (stress(r) >= 4 ? 0 : stress(r) && stress(r) <= 2 ? 1 : null), { minNights: 3 })]);
+  for (const tag of Object.keys(TAGS).filter((k) => k !== 'alcohol')) {
+    pairs.push([[tagName(tag), t('Checked in, without')], nightsAfter(rows, state.byDate, (r) => {
+      const tags = dayTags(r.date);
+      return tags.includes(tag) ? 0 : checked(r) ? 1 : null;
+    }, { minNights: 3 })]);
+  }
 
   const shown = pairs.filter(([, c]) => c.ok);
   if (!shown.length) return false;

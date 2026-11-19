@@ -35,7 +35,10 @@ type Options struct {
 	// (nutrients.go): "male" or "female", and their date of birth. Only the
 	// weekly review and the demo set it; the page asks /api/me for the
 	// viewer's own.
-	PersonSex       string
+	PersonSex string
+	// SkipBaseline are the days tagged sick or travel (check-ins): out of
+	// the scores' baselines.
+	SkipBaseline    map[string]bool
 	PersonBirthDate string // "YYYY-MM-DD" or
 }
 
@@ -222,7 +225,7 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 	// not only the days shown.
 	var dayScores map[string]*scores.Day
 	if opt.Health {
-		dayScores = scores.Compute(h.Health, opt.SleepGoal)
+		dayScores = scores.Compute(h.Health, opt.SleepGoal, opt.SkipBaseline)
 		out.SleepGoal = opt.SleepGoal
 		if out.SleepGoal <= 0 {
 			out.SleepGoal = scores.DefaultSleepGoal

@@ -13,6 +13,7 @@ import { goalChangesIn, rangeSummary, weightGoalAt, weightGoalLine, weightTrendA
 import { KINDS, isEvent, phaseName, phaseSummary } from './phase.js';
 import { t, tn } from './i18n.js';
 import { alcoholSummary } from './nutrients.js';
+import { QUESTIONS, dayTags, tagName } from './checkin.js';
 
 const W = 688; // the A4 text width at 96 dpi, so chart text prints at its real size
 const dfDate = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
@@ -50,7 +51,7 @@ export function buildReport(from, to) {
   el.append(header(rows[0].date, rows.at(-1).date, sum), kpis(sum));
   const charts = [energySection(buckets, weekly, sum), weightSection(rows, sum)];
   el.append(...charts.filter(Boolean));
-  for (const sec of [macroSection(sum, rows), phasesSection(from, to), sleepSection(buckets, weekly, sum), scoresSection(buckets, weekly), stepsSection(buckets, weekly, sum), trainingSection(rows), weeksSection(sum), listsSection(sum), goalsSection(from, to)]) {
+  for (const sec of [macroSection(sum, rows), phasesSection(from, to), sleepSection(buckets, weekly, sum), scoresSection(buckets, weekly), checkinSection(rows), stepsSection(buckets, weekly, sum), trainingSection(rows), weeksSection(sum), listsSection(sum), goalsSection(from, to)]) {
     if (sec) el.append(sec);
   }
   el.append(h('p', { class: 'rp-foot' }, t('Created with Eumetria from YAZIO and Fitbit data. Calorie and macro averages count the days with food logged; weights are 7-day averages.')));
@@ -415,6 +416,24 @@ function phasesSection(from, to) {
     [t('Protein'), (r) => (r.s?.protein != null ? `${fmt(r.s.protein)} g` : null), true],
     [t('Training days a week'), (r) => (r.s?.perWeek != null ? fmt(r.s.perWeek, 1) : null), true],
   ], rows, 'rp-phases'));
+}
+
+// The check-ins of the range: each answer's average over the days it was
+// given, and how many days had each tag.
+function checkinSection(rows) {
+  const checked = rows.map((r) => state.checkins?.get(r.date)).filter(Boolean);
+  const tagged = new Map();
+  for (const r of rows) for (const tag of dayTags(r.date)) tagged.set(tag, (tagged.get(tag) || 0) + 1);
+  if (!checked.length && !tagged.size) return null;
+  const answers = QUESTIONS.map((q) => {
+    const vs = checked.map((c) => c[q.key]).filter(Boolean);
+    return vs.length ? kpi(q.label(), fmt(mean(vs), 1), t('of 5'), tn(vs.length, '{n} day', '{n} days')) : null;
+  }).filter(Boolean);
+  const tags = [...tagged].map(([tag, n]) => `${tagName(tag)} ${tn(n, '{n} day', '{n} days')}`).join(' · ');
+  const grid = h('div', { class: 'rp-kpis rp-kpis-in' });
+  grid.append(...answers);
+  return section(t('Check-ins'), tn(checked.length, '{n} day checked in', '{n} days checked in'),
+    ...(answers.length ? [grid] : []), ...(tags ? [h('p', {}, tags)] : []));
 }
 
 function goalsSection(from, to) {

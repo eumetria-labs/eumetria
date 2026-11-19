@@ -58,6 +58,7 @@ import (
 	"time"
 	_ "time/tzdata" // TZ works even in images without a zoneinfo database
 
+	"eumetria/internal/checkins"
 	"eumetria/internal/db"
 	"eumetria/internal/demo"
 	"eumetria/internal/google"
@@ -344,7 +345,15 @@ func syncOnce(ctx context.Context, cfg config) error {
 		return err
 	}
 	if cfg.outPath != "" {
-		out := stats.Build(hist, baseOptions(cfg).Everything(), cfg.now())
+		opts := baseOptions(cfg).Everything()
+		// Check-ins likewise from checkins.json: sample ones with -demo
+		// (their sick and travel days leave the scores' baselines), else none.
+		checked := []checkins.Checkin{}
+		if cfg.demo {
+			checked = demo.Checkins(cfg.now())
+			opts.SkipBaseline = checkins.SkipOf(checked)
+		}
+		out := stats.Build(hist, opts, cfg.now())
 		if err := exportStats(cfg.outPath, out, cfg.photoDir); err != nil {
 			return fmt.Errorf("writing %s: %w", cfg.outPath, err)
 		}
@@ -375,6 +384,9 @@ func syncOnce(ctx context.Context, cfg config) error {
 			noted = demo.Phases(cfg.now())
 		}
 		if err := store.WriteJSON(filepath.Join(filepath.Dir(cfg.outPath), "phases.json"), noted, false); err != nil {
+			return err
+		}
+		if err := store.WriteJSON(filepath.Join(filepath.Dir(cfg.outPath), "checkins.json"), map[string]any{"checkins": checked, "tags": checkins.Tags}, false); err != nil {
 			return err
 		}
 	}

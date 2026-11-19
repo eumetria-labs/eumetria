@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"eumetria/internal/checkins"
 	"eumetria/internal/lifts"
 	"eumetria/internal/phases"
 	"eumetria/internal/store"
@@ -464,4 +465,36 @@ func Wods(today time.Time) ([]wods.Workout, []wods.Result) {
 	add(4, 1080, 0, true, today.AddDate(0, 0, -150), "Ring rows for muscle-ups")
 	add(4, 1135, 0, false, today.AddDate(0, 0, -30), "")
 	return workouts, results
+}
+
+// Checkins are sample check-ins of the last weeks, as someone would note
+// them most mornings: a cold three weeks ago, a trip, a late dinner, and
+// the evening out yesterday (its alcohol tag comes from the beer logged),
+// and this morning's.
+func Checkins(today time.Time) []checkins.Checkin {
+	n := func(v int) *int { return &v }
+	var out []checkins.Checkin
+	for k := 28; k >= 0; k-- {
+		day := today.AddDate(0, 0, -k)
+		if k%5 == 3 {
+			continue // not every morning
+		}
+		c := checkins.Checkin{Date: day.Format(time.DateOnly), Energy: n(3 + k%3/2), Soreness: n(1 + k%4), Stress: n(2 + k%2), Mood: n(3 + (k+1)%3/2),
+			UpdatedBy: "demo", UpdatedAt: day.Add(8 * time.Hour)}
+		switch {
+		case k >= 20 && k <= 22:
+			c.Energy, c.Mood, c.Tags = n(1), n(2), []string{"sick"}
+			if k == 22 {
+				c.Note = "Sore throat, stayed home"
+			}
+		case k == 12 || k == 11:
+			c.Tags = []string{"travel"}
+		case k == 6:
+			c.Tags = []string{"late_meal"}
+		case k == 1:
+			c.Energy, c.Tags = n(2), []string{"bad_room"}
+		}
+		out = append(out, c)
+	}
+	return out
 }

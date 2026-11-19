@@ -12,7 +12,7 @@ func TestSameDaySameData(t *testing.T) {
 	today := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
 	make := func() string {
 		w, r := Wods(today)
-		b, err := json.Marshal([]any{History(today, 120), Lifts(today), Phases(today), w, r, Devices(today)})
+		b, err := json.Marshal([]any{History(today, 120), Lifts(today), Phases(today), Checkins(today), w, r, Devices(today)})
 		if err != nil {
 			t.Fatal(err)
 		}

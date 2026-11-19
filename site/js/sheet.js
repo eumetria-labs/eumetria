@@ -16,6 +16,7 @@ import { t } from './i18n.js';
 import { linkedNames, notedRows } from './wods.js';
 import { liftedNames } from './lifts.js';
 import { dayNutrientList } from './nutrients.js';
+import { dayCheckin } from './checkin.js';
 
 let win = null;
 
@@ -184,7 +185,8 @@ export function openDay(date, tabKey, focusNav) {
 
   sum.classList.toggle('four', alcohol > 0);
   const nut = dayNutrientList(day);
-  sheet.append(head, sum, ...(nut ? [nut] : []));
+  const checkin = dayCheckin(day.date);
+  sheet.append(head, sum, ...(checkin ? [checkin] : []), ...(nut ? [nut] : []));
   if (tabs.length) sheet.append(nav);
   sheet.append(panel);
 

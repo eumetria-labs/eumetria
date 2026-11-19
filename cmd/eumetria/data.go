@@ -21,6 +21,7 @@ type published struct {
 	opts stats.Options // the settings; the parts come from the reader's scopes
 
 	mu     sync.Mutex
+	skip   map[string]bool // the days tagged sick or travel (check-ins)
 	hist   *store.History
 	at     time.Time // when hist was synced: the stats' generated_at
 	builds map[string]*build
@@ -44,6 +45,13 @@ func (p *published) setOptions(opts stats.Options) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.opts, p.builds = opts, map[string]*build{}
+}
+
+// setSkip takes the days tagged sick or travel; the stats are built again.
+func (p *published) setSkip(skip map[string]bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.skip, p.builds = skip, map[string]*build{}
 }
 
 // set replaces the history after a sync.
@@ -74,6 +82,7 @@ func (p *published) get(scopes []string, admin bool) (*build, error) {
 	opts.Routes = slices.Contains(scopes, auth.ViewRoutes)
 	opts.Review = slices.Contains(scopes, auth.ViewReview)
 	opts.CreditStatus = admin
+	opts.SkipBaseline = p.skip
 	out := stats.Build(p.hist, opts, p.at)
 	out.Scopes = scopes
 	b := &build{photos: map[string]bool{}, workouts: map[string]string{}}

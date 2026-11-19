@@ -80,8 +80,10 @@ type Load struct {
 const LoadLow, LoadHigh = 0.8, 1.3
 
 // Compute returns the scores of every day in health that has any, keyed by
-// date. sleepGoal is in minutes (DefaultSleepGoal when 0).
-func Compute(health map[string]*store.HealthDay, sleepGoal float64) map[string]*Day {
+// date. sleepGoal is in minutes (DefaultSleepGoal when 0). The days in skip
+// (tagged sick or travel) stay out of the baselines the others are
+// compared with, so a cold doesn't move what counts as usual.
+func Compute(health map[string]*store.HealthDay, sleepGoal float64, skip map[string]bool) map[string]*Day {
 	if sleepGoal <= 0 {
 		sleepGoal = DefaultSleepGoal
 	}
@@ -90,7 +92,7 @@ func Compute(health map[string]*store.HealthDay, sleepGoal float64) map[string]*
 		dates = append(dates, d)
 	}
 	sort.Strings(dates)
-	c := calc{health: health, goal: sleepGoal}
+	c := calc{health: health, goal: sleepGoal, skip: skip}
 	out := map[string]*Day{}
 	for _, date := range dates {
 		day := &Day{Load: c.load(date), Sleep: c.sleep(date), Recovery: c.recovery(date)}
@@ -105,6 +107,7 @@ func Compute(health map[string]*store.HealthDay, sleepGoal float64) map[string]*
 type calc struct {
 	health map[string]*store.HealthDay
 	goal   float64
+	skip   map[string]bool
 }
 
 // back returns the date n days before date.
@@ -118,7 +121,11 @@ func back(date string, n int) string {
 func (c calc) before(date string, days int, f func(*store.HealthDay) float64) []float64 {
 	var out []float64
 	for k := 1; k <= days; k++ {
-		if d := c.health[back(date, k)]; d != nil {
+		day := back(date, k)
+		if c.skip[day] {
+			continue
+		}
+		if d := c.health[day]; d != nil {
 			if v := f(d); v != 0 {
 				out = append(out, v)
 			}

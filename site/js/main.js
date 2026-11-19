@@ -28,6 +28,7 @@ import { loadNotes } from './notes.js';
 import { loadLifts } from './lifts.js';
 import { loadWods } from './wods.js';
 import { loadPhases } from './phases.js';
+import { loadCheckins } from './checkin.js';
 import { renderTable } from './table.js';
 import { renderFoodQuality } from './foodquality.js';
 import { renderReview } from './weekly.js';
@@ -43,6 +44,9 @@ const REFRESH_MS = 10 * 60 * 1000;
 
 // A phase or event changed here (phases.js): the charts draw them.
 document.addEventListener('phases-change', () => state.data?.days.length && render());
+// A check-in saved: drawn again, and the stats fetched again when a sick or
+// travel day changed (the scores' baselines leave those out).
+document.addEventListener('checkins-change', (e) => (e.detail?.scores ? load(true) : state.data?.days.length && render()));
 const RANGES = ['7', '30', '90', '365', 'all', 'custom'];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -100,7 +104,7 @@ async function start() {
   setInterval(load, REFRESH_MS);
 }
 
-async function load() {
+async function load(force) {
   const main = $('#main');
   if (state.data) main.classList.add('dim');
   try {
@@ -128,11 +132,11 @@ async function load() {
     // Notes, lifts and benchmark workouts change between syncs: notes show
     // when a window opens, the bests are drawn again here when nothing else
     // changed.
-    const phasesBefore = JSON.stringify(state.phases);
-    await Promise.all([loadNotes(recent), loadLifts(recent), loadWods(recent), loadPhases(recent)]);
-    if (state.data && recent.generated_at === state.data.generated_at) {
-      // Phases changed elsewhere: every chart draws them.
-      if (state.data.days.length && JSON.stringify(state.phases) !== phasesBefore) return render();
+    const phasesBefore = JSON.stringify(state.phases) + JSON.stringify([...(state.checkins || [])]);
+    await Promise.all([loadNotes(recent), loadLifts(recent), loadWods(recent), loadPhases(recent), loadCheckins(recent)]);
+    if (!force && state.data && recent.generated_at === state.data.generated_at) {
+      // Phases or check-ins changed elsewhere: every chart draws them.
+      if (state.data.days.length && JSON.stringify(state.phases) + JSON.stringify([...(state.checkins || [])]) !== phasesBefore) return render();
       if (state.data.days.length) {
         refreshLifts(slice());
         renderHighlights();

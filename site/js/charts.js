@@ -8,6 +8,7 @@ import { state, reduceMotion } from './state.js';
 import { openDay } from './sheet.js';
 import { goalChangesIn } from './insights.js';
 import { KINDS, phaseName, phaseSlots } from './phase.js';
+import { tagSpans } from './checkin.js';
 
 export const resizer = new ResizeObserver((entries) => entries.forEach((e) => e.target._draw?.()));
 
@@ -59,13 +60,15 @@ function drawTimeChart(host, cfg, animate) {
   // Phases (cfg.phases) as soft bands behind the marks, named at the
   // bottom (the top is where charts put their goal flags) when there's
   // room and no event flag in the way; events as a dashed line with a flag.
-  const slots = cfg.phases && state.phases.length ? phaseSlots(cfg.dates, state.phases, state.today) : null;
+  // Days tagged sick or travel (check-ins) are banded the same way.
+  const spans = cfg.phases ? [...state.phases, ...tagSpans()] : [];
+  const slots = spans.length ? phaseSlots(cfg.dates, spans, state.today) : null;
   if (slots) {
     const layer = svg('g', { class: 'phase-layer', 'aria-hidden': 'true' });
     for (const b of slots.bands) {
       const x0 = x(b.from) - step / 2, w = (b.to - b.from + 1) * step;
       layer.append(svg('rect', { x: x0, y: m.t, width: w, height: ph, class: 'phase-band ph-' + b.phase.kind }));
-      const name = `${KINDS[b.phase.kind]?.icon || ''} ${phaseName(b.phase)}`;
+      const name = `${b.phase.icon || KINDS[b.phase.kind]?.icon || ''} ${phaseName(b.phase)}`;
       const tw = textWidth(name, 10) + 8;
       const blocked = slots.events.some((e) => x(e.i) > x0 - 8 && x(e.i) < x0 + tw + 8);
       if (tw < w && !blocked) layer.append(svg('text', { x: x0 + 4, y: m.t + ph - 5, class: 'phase-label' }, name));

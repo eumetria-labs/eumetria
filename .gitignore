@@ -13,4 +13,5 @@ eumetria.env
 site/lifts.json
 site/wods.json
 site/phases.json
+site/checkins.json
 mockups/

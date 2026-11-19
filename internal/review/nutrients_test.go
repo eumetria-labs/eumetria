@@ -1,9 +1,11 @@
 package review
 
 import (
+	"slices"
 	"testing"
 	"time"
 
+	"eumetria/internal/checkins"
 	"eumetria/internal/stats"
 )
 
@@ -40,5 +42,26 @@ func TestWeekAlcoholAndLowNutrients(t *testing.T) {
 	out.NutrientRefs = nil
 	if w := BuildWeek(out, monday, "2026-11-20"); w.NutrientsLow != nil {
 		t.Errorf("low without references = %+v", w.NutrientsLow)
+	}
+}
+
+func TestAddCheckins(t *testing.T) {
+	n := func(v int) *int { return &v }
+	w := Week{Days: []Day{{Date: "2026-11-13", AlcoholG: 40}, {Date: "2026-11-14", AlcoholG: 30}, {Date: "2026-11-15"}, {Date: "2026-11-16", AlcoholG: 5}}}
+	w.AddCheckins([]checkins.Checkin{
+		{Date: "2026-11-14", Dismissed: []string{"alcohol"}},
+		{Date: "2026-11-15", Energy: n(2), Tags: []string{"sick"}},
+	})
+	if !slices.Equal(w.Days[0].Tags, []string{"alcohol"}) || w.Days[0].Checkin != nil {
+		t.Errorf("40 g, no check-in: %+v", w.Days[0])
+	}
+	if len(w.Days[1].Tags) != 0 || w.Days[1].Checkin != nil {
+		t.Errorf("alcohol tag removed: %+v", w.Days[1])
+	}
+	if !slices.Equal(w.Days[2].Tags, []string{"sick"}) || *w.Days[2].Checkin.Energy != 2 {
+		t.Errorf("sick: %+v", w.Days[2])
+	}
+	if len(w.Days[3].Tags) != 0 {
+		t.Errorf("5 g: %+v", w.Days[3])
 	}
 }

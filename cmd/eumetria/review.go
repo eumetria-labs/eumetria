@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"eumetria/internal/auth"
+	"eumetria/internal/checkins"
 	"eumetria/internal/db"
 	"eumetria/internal/lifts"
 	"eumetria/internal/phases"
@@ -142,20 +143,21 @@ type noted struct {
 	workouts []wods.Workout
 	results  []wods.Result
 	phases   []phases.Phase
+	checkins []checkins.Checkin
 }
 
 func (n noted) addTo(w *review.Week) {
 	w.AddLifts(n.lifts)
 	w.AddBenchmarks(n.workouts, n.results)
 	w.AddPhases(n.phases)
+	w.AddCheckins(n.checkins)
 }
 
-// loadNoted reads them from the database at path. Without a database
-// (plain files, no server) there are none; an error is logged, and the
-// review is written without them.
 // withOwner gives opts the site owner's sex and date of birth from their
-// profile: the review is about their data, and compares the minerals and
-// vitamins with their reference values. Unchanged without a database.
+// profile (the review is about their data, and compares the minerals and
+// vitamins with their reference values), and the days tagged sick or
+// travel, which stay out of the scores' baselines. Unchanged without a
+// database.
 func withOwner(ctx context.Context, path string, opts stats.Options) stats.Options {
 	if path == "" {
 		return opts
@@ -176,9 +178,15 @@ func withOwner(ctx context.Context, path string, opts stats.Options) stats.Optio
 	if p.Sex != "" {
 		opts.PersonSex, opts.PersonBirthDate = p.Sex, p.BirthDate
 	}
+	if opts.SkipBaseline, err = (&checkins.Store{DB: d}).SkipDays(ctx); err != nil {
+		log.Printf("weekly review: the sick and travel days: %v", err)
+	}
 	return opts
 }
 
+// loadNoted reads them from the database at path. Without a database
+// (plain files, no server) there are none; an error is logged, and the
+// review is written without them.
 func loadNoted(ctx context.Context, path string) (n noted) {
 	if path == "" {
 		return n
@@ -204,6 +212,9 @@ func loadNoted(ctx context.Context, path string) (n noted) {
 	}
 	if n.phases, err = (&phases.Store{DB: d, Now: time.Now}).List(ctx); err != nil {
 		log.Printf("weekly review: no phases: %v", err)
+	}
+	if n.checkins, err = (&checkins.Store{DB: d, Now: time.Now}).List(ctx, "2000-01-01", "2999-12-31"); err != nil {
+		log.Printf("weekly review: no check-ins: %v", err)
 	}
 	return n
 }

@@ -8,6 +8,7 @@ import { $, h, hashParam, popupMenu, setHashParam } from './dom.js';
 import { account, onUserChange } from './account.js';
 import { state } from './state.js';
 import { isBirthday, todayISO } from './format.js';
+import { mayCheckin, openCheckin } from './checkin.js';
 import { t } from './i18n.js';
 import { mayEditLifts, openLiftForm } from './lifts.js';
 import { openResultForm, openWorkoutForm } from './wods.js';
@@ -141,6 +142,7 @@ function initQuick() {
     if (item.dataset.log === 'lift') return openLiftForm({ returnFocus: back });
     if (item.dataset.log === 'wod') return pickWod(back);
     if (item.dataset.log === 'phase') return openPhaseForm({ kind: 'cut', returnFocus: back });
+    if (item.dataset.log === 'checkin') return openCheckin({ returnFocus: back });
     if (item.dataset.log === 'note') {
       const day = state.byDate?.get(state.today);
       const w = day?.workouts?.at(-1);
@@ -156,7 +158,7 @@ export function showQuick() {
   const notes = !!u?.scopes?.includes('edit.notes') && (!u.needs_second_factor || !!u.demo);
   const workout = state.byDate?.get(state.today)?.workouts?.length;
   const menu = $('#quick-menu');
-  for (const b of menu.querySelectorAll('[data-log]')) b.hidden = b.dataset.log === 'note' ? !(notes && workout) : !lifts;
+  for (const b of menu.querySelectorAll('[data-log]')) b.hidden = b.dataset.log === 'note' ? !(notes && workout) : b.dataset.log === 'checkin' ? !mayCheckin() : !lifts;
   $('#quick').hidden = ![...menu.querySelectorAll('[data-log]')].some((b) => !b.hidden);
 }
 

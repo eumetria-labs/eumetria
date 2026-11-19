@@ -224,3 +224,18 @@ test('alcohol and nutrients go into the export', () => {
     { date: '2026-10-31', nutrient: 'magnesium', amount: 310.4, unit: 'mg', known_share: 0.83, reference: 350 },
   ]);
 });
+
+test('the check-ins of the range, with their tags, only when given', () => {
+  const checkins = [
+    { date: '2026-10-13', energy: 2, stress: 4, tags: ['alcohol', 'sick'], note: 'cold' },
+    { date: '2026-10-12', mood: 5, tags: [] },
+    { date: '2026-10-20', energy: 5 }, // after
+  ];
+  const [, columns, rows] = exportTables(data, '2026-10-11', '2026-10-14', { checkins }).find(([n]) => n === 'checkins');
+  assert.deepEqual(columns, ['date', 'energy', 'soreness', 'stress', 'mood', 'tags', 'note']);
+  assert.deepEqual(rows, [
+    { date: '2026-10-12', energy: null, soreness: null, stress: null, mood: 5, tags: null, note: null },
+    { date: '2026-10-13', energy: 2, soreness: null, stress: 4, mood: null, tags: 'alcohol sick', note: 'cold' },
+  ]);
+  assert.ok(!exportTables(data, '2026-10-11', '2026-10-14').some(([n]) => n === 'checkins'));
+});

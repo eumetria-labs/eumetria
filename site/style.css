@@ -2178,3 +2178,61 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 }
 /* The greeting on a birthday */
 #greeting.birthday .bday { background: linear-gradient(90deg, var(--s1), var(--s3), var(--s2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* ---------- the daily check-in (js/checkin.js) ---------- */
+.today-checkin[hidden] { display: none; }
+.checkin-line {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: 14px;
+  background: var(--surface-2); color: var(--ink); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.checkin-line:hover:not(:disabled) { border-color: var(--axis); }
+.checkin-line:disabled { cursor: default; }
+.checkin-line.ask { border-style: dashed; background: none; color: var(--ink-2); }
+.checkin-line .ci-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.checkin-line .ci-go { flex: none; font-weight: 600; color: var(--s1); }
+.ci-icon { flex: none; }
+.checkin-panel { width: min(480px, 100%); }
+.checkin-form { display: grid; gap: 14px; padding-top: 8px; }
+.ci-q-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.ci-q-head .lbl { color: var(--ink-2); font-weight: 550; }
+.ci-q-head .hint { font-size: 12px; }
+.ci-q { display: grid; gap: 6px; }
+.ci-scale { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.ci-n, .ci-tag, .ci-dbtn {
+  font: inherit; color: var(--ink); background: var(--surface-2); border: 1px solid var(--border); cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+/* An answer's colour: green where it's good for you, orange where it isn't. */
+.lv-good { --tone: var(--s3); }
+.lv-bad { --tone: var(--s2); }
+.lv-even { --tone: var(--ink-2); }
+.ci-n {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 54px; padding: 6px 2px; border-radius: 12px; color: var(--muted);
+}
+.ci-n svg { color: var(--tone); opacity: .75; }
+.ci-word { font-size: 11.5px; font-weight: 550; line-height: 1.15; text-align: center; overflow-wrap: anywhere; }
+.ci-n[aria-checked="true"] { background: color-mix(in oklab, var(--tone) 16%, var(--surface-2)); border-color: var(--tone); color: var(--ink); }
+.ci-n[aria-checked="true"] svg { opacity: 1; }
+.ci-tag[aria-pressed="true"], .ci-dbtn[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.ci-ans { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; }
+.ci-ans svg { flex: none; width: 16px; height: 16px; color: var(--tone); }
+.checkin-line .ci-text > * + *::before, .ci-answers > * + *::before { content: '·'; margin: 0 7px; color: var(--muted); }
+.ci-tagged { vertical-align: middle; }
+.ci-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.ci-tag { padding: 6px 11px; border-radius: 999px; font-size: 13px; }
+.ci-auto { margin: -6px 0 0; font-size: 12px; }
+.ci-auto[hidden], .ci-when[hidden] { display: none; }
+.ci-when { margin: -8px 0 0; font-size: 12px; }
+.ci-day { display: inline-flex; gap: 4px; justify-self: start; }
+.ci-dbtn { padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 550; }
+.checkin-form .lock-error[hidden] { display: none; }
+.sheet-checkin { display: flex; align-items: center; gap: 10px; margin: 0 28px 12px; font-size: 14px; }
+.sheet-checkin .ci-text { flex: 1; min-width: 0; }
+.sheet-checkin .ci-text small { display: block; color: var(--muted); }
+.ph-sick { --ph: var(--z4); }
+.ph-travel { --ph: var(--s2); }
+@media (max-width: 640px) {
+  .sheet-checkin { margin: 0 20px 12px; }
+}

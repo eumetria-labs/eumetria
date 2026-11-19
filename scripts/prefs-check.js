@@ -266,6 +266,21 @@ await wait(400);
 check('phone: More has search, year in review, profile and settings', await ev(`document.querySelectorAll('#more-card .more-item').length === 4 && getComputedStyle(document.getElementById('more-card')).display !== 'none'`));
 check('phone: nothing wider than the screen', await ev(`document.documentElement.scrollWidth <= innerWidth`));
 
+/* ---------- the daily check-in ---------- */
+{
+  const d = new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  await browser.view(base + '/#range=30', { width: 1280, height: 900 });
+  await wait(800);
+  check('check-in: the Today card asks', await ev(`document.querySelector('#today-checkin .checkin-line.ask') !== null`));
+  const res = await fetch(base + '/api/checkins/' + today, { method: 'PUT', headers: { 'content-type': 'application/json', cookie: adminSession.cookie, origin: base, 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ energy: 2, tags: ['sick'] }) });
+  check('check-in: saved', res.status === 200, String(res.status));
+  await browser.view(base + '/#range=30', { width: 1280, height: 900 });
+  await wait(800);
+  check('check-in: the line on the Today card', await ev(`(() => { const b = document.querySelector('#today-checkin .checkin-line'); return b.title === 'Energy low · 🤒 Sick' && b.querySelector('.ci-ans.lv-bad svg') !== null; })()`), await ev(`document.querySelector('#today-checkin .checkin-line')?.title`));
+  check('check-in: Readiness says rest on a sick day', await ev(`[...document.querySelectorAll('#today-scores .sc-word')].some((w) => w.textContent.includes('Sick: rest first'))`), await ev(`document.getElementById('today-scores').textContent`));
+}
+
 /* ---------- viewer ---------- */
 await browser.send('Network.deleteCookies', { name: adminSession.cookie.split('=')[0], url: base + '/' });
 await useSession(await signIn(...VIEWER));
@@ -276,6 +291,7 @@ check('viewer: no admin sections', await ev(`[...document.querySelectorAll('.pf-
 await browser.view(base + '/#range=30', { width: 1280, height: 900 });
 await wait(600);
 check('viewer: no "+ Log" without the right to write', await ev(`document.getElementById('quick').hidden`));
+check('viewer: sees the check-in, can\'t change it', await ev(`document.querySelector('#today-checkin button')?.disabled === true`));
 await open('settings=users', { width: 1280, height: 900 });
 check('viewer: #settings=users shows Sign-in instead', await ev(`location.hash.includes('settings=sign-in')`), await ev('location.hash'));
 

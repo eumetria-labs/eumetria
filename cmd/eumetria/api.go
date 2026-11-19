@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"eumetria/internal/auth"
+	"eumetria/internal/checkins"
 	"eumetria/internal/imgmeta"
 	"eumetria/internal/lifts"
 	"eumetria/internal/mail"
@@ -127,13 +128,14 @@ import (
 type access int
 
 const (
-	open       access = iota + 1 // anyone
-	signedIn                     // a session, or a token with "read"
-	ownSession                   // a session (an API token can't manage sessions)
-	adminOnly                    // a session with the admin scope
-	syncAccess                   // a session with the sync scope, or a token with "sync"
-	noteWriter                   // a session with the edit.notes scope
-	liftWriter                   // a session with the edit.lifts scope (lifts and benchmark workouts)
+	open          access = iota + 1 // anyone
+	signedIn                        // a session, or a token with "read"
+	ownSession                      // a session (an API token can't manage sessions)
+	adminOnly                       // a session with the admin scope
+	syncAccess                      // a session with the sync scope, or a token with "sync"
+	noteWriter                      // a session with the edit.notes scope
+	liftWriter                      // a session with the edit.lifts scope (lifts and benchmark workouts)
+	checkinWriter                   // a session with the edit.checkin scope (check-ins and day tags)
 )
 
 type route struct {
@@ -187,6 +189,7 @@ type app struct {
 	lifts    *lifts.Store
 	wods     *wods.Store
 	phases   *phases.Store
+	checkins *checkins.Store
 	data     *published
 	photoDir string
 	// Images in notes (internal/notes, images.go).
@@ -228,6 +231,7 @@ func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, a
 		lifts:         &lifts.Store{DB: store.DB, Now: store.Now},
 		wods:          &wods.Store{DB: store.DB, Now: store.Now},
 		phases:        &phases.Store{DB: store.DB, Now: store.Now},
+		checkins:      &checkins.Store{DB: store.DB, Now: store.Now},
 		data:          data,
 		photoDir:      photoDir,
 		noteImages:    noteImages,
@@ -273,6 +277,9 @@ func (a *app) routes() []route {
 		{"POST", "/api/lifts", liftWriter, a.liftPost},
 		{"PUT", "/api/lifts/{id}", liftWriter, a.liftPut},
 		{"DELETE", "/api/lifts/{id}", liftWriter, a.liftDelete},
+		{"GET", "/api/checkins", signedIn, scoped(auth.ViewHealth, a.checkinsList)},
+		{"PUT", "/api/checkins/{date}", checkinWriter, a.checkinPut},
+		{"DELETE", "/api/checkins/{date}", checkinWriter, a.checkinDelete},
 		{"GET", "/api/phases", signedIn, a.phasesList},
 		{"POST", "/api/phases", liftWriter, a.phasePost},
 		{"PUT", "/api/phases/{id}", liftWriter, a.phasePut},
@@ -389,6 +396,8 @@ func (a *app) guard(rt route) http.Handler {
 			ok = p.can(auth.EditNotes)
 		case liftWriter:
 			ok = p.can(auth.EditLifts)
+		case checkinWriter:
+			ok = p.can(auth.EditCheckin)
 		}
 		if !ok {
 			writeError(w, http.StatusForbidden, "forbidden")
@@ -416,7 +425,7 @@ func (a *app) factorGate(rt route, p *principal) bool {
 	switch rt.access {
 	case adminOnly, syncAccess:
 		return true
-	case noteWriter, liftWriter:
+	case noteWriter, liftWriter, checkinWriter:
 		if !a.demo {
 			return true
 		}
@@ -429,7 +438,7 @@ func (a *app) factorGate(rt route, p *principal) bool {
 func (a *app) needsFactor(u *auth.User) bool { return needsFactor(u, a.demo) }
 
 func needsFactor(u *auth.User, demo bool) bool {
-	return u.NeedsSecondFactor() || !demo && (u.Can(auth.EditNotes) || u.Can(auth.EditLifts))
+	return u.NeedsSecondFactor() || !demo && (u.Can(auth.EditNotes) || u.Can(auth.EditLifts) || u.Can(auth.EditCheckin))
 }
 
 // scoped lets only principals with scope through to h.

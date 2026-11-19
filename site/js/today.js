@@ -14,6 +14,7 @@ import { fmtSet, onBestsChange, openLift } from './lifts.js';
 import { fmtResult, openWod } from './wods.js';
 import { offeredYear, openYear } from './yearreview.js';
 import { renderPhaseStatus } from './phases.js';
+import { renderCheckin } from './checkin.js';
 
 export function renderToday() {
   const { data } = state;
@@ -68,6 +69,7 @@ export function renderToday() {
   }));
   renderTodayScores(day);
   renderPhaseStatus();
+  renderCheckin();
   $('#today-open').onclick = () => openDay(day.date);
   renderHighlights();
 }

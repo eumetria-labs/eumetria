@@ -136,7 +136,8 @@ const EMPTY = { d: {}, f: {}, r: {}, it: {}, a: {}, w: {}, s: {}, k: '', amount:
 // has a row for every date in the range, logged or not.
 // extras are what the page loads besides data, each table only with it:
 // { lifts, wods } (the lifts and benchmark tables), phases (the phases
-// table) and notes (a Map of the workout notes, as state.notes).
+// table), notes (a Map of the workout notes, as state.notes) and checkins
+// (each day's check-in with its tags resolved, as checkinRows makes them).
 export function exportTables(data, from, to, extras = null) {
   const byDate = new Map(data.days.map((d) => [d.date, d]));
   const days = [];
@@ -150,7 +151,17 @@ export function exportTables(data, from, to, extras = null) {
   tables.push(...textTables(data, from, to, byDate, extras?.notes));
   if (extras?.lifts || extras?.wods) tables.push(...bestTables(extras, from, to));
   if (extras?.phases) tables.push(phaseTable(extras.phases, from, to));
+  if (extras?.checkins) tables.push(checkinTable(extras.checkins, from, to));
   return tables;
+}
+
+// The check-ins of the range: the answers from 1 to 5, the note, and the
+// tags separated by spaces.
+function checkinTable(list, from, to) {
+  const columns = ['date', 'energy', 'soreness', 'stress', 'mood', 'tags', 'note'];
+  const rows = list.filter((c) => c.date >= from && c.date <= to).sort((a, b) => a.date.localeCompare(b.date))
+    .map((c) => Object.fromEntries(columns.map((k) => [k, value(k === 'tags' ? (c.tags || []).join(' ') : c[k])])));
+  return ['checkins', columns, rows];
 }
 
 // The phases and events that touch the range. A running phase has no end;

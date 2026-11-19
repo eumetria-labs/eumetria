@@ -6,11 +6,13 @@ package review
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 	"unicode"
 
+	"eumetria/internal/checkins"
 	"eumetria/internal/lifts"
 	"eumetria/internal/phases"
 	"eumetria/internal/stats"
@@ -157,6 +159,18 @@ type Day struct {
 	LoadRatio  float64  `json:"training_load_ratio,omitempty"`
 	// Alcohol in the foods logged, g.
 	AlcoholG float64 `json:"alcohol_g,omitempty"`
+	// The morning check-in (1 low to 5 high) and the day's tags.
+	Checkin *Checkin `json:"checkin,omitempty"`
+	Tags    []string `json:"tags,omitempty"`
+}
+
+// Checkin is how the day felt, as noted that morning.
+type Checkin struct {
+	Energy   *int   `json:"energy_1_to_5,omitempty"`
+	Soreness *int   `json:"soreness_1_to_5,omitempty"`
+	Stress   *int   `json:"stress_1_to_5,omitempty"`
+	Mood     *int   `json:"mood_1_to_5,omitempty"`
+	Note     string `json:"note,omitempty"`
 }
 
 type Food struct {
@@ -682,4 +696,30 @@ func nutrientsLow(days []stats.Day, refs map[string]stats.Reference) []NutrientL
 		out = out[:3]
 	}
 	return out
+}
+
+// alcoholDay is the alcohol (g) that tags a day "alcohol" by itself, as on
+// the page (nutrients.js, ALCOHOL_DAY).
+const alcoholDay = 10
+
+// AddCheckins puts each day's check-in and tags on the week's days. A day
+// with 10 g of alcohol or more is tagged "alcohol" unless someone removed
+// that tag.
+func (w *Week) AddCheckins(all []checkins.Checkin) {
+	by := map[string]checkins.Checkin{}
+	for _, c := range all {
+		by[c.Date] = c
+	}
+	for i := range w.Days {
+		d := &w.Days[i]
+		c, ok := by[d.Date]
+		if ok && (c.Energy != nil || c.Soreness != nil || c.Stress != nil || c.Mood != nil || c.Note != "") {
+			d.Checkin = &Checkin{Energy: c.Energy, Soreness: c.Soreness, Stress: c.Stress, Mood: c.Mood, Note: c.Note}
+		}
+		tags := slices.Clone(c.Tags)
+		if d.AlcoholG >= alcoholDay && !slices.Contains(tags, "alcohol") && !slices.Contains(c.Dismissed, "alcohol") {
+			tags = append([]string{"alcohol"}, tags...)
+		}
+		d.Tags = tags
+	}
 }
