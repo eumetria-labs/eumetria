@@ -317,14 +317,22 @@ func login(ctx context.Context, v settings.Values) (*yazio.Client, error) {
 // baseOptions are the settings of the stats; which parts of the data they
 // include depends on who reads them.
 func baseOptions(cfg config) stats.Options {
+	// The page asks /api/me for the viewer's own reference values; the
+	// demo (plain files) has a sample person instead.
+	var sex, born string
+	if cfg.demo {
+		sex, born = "male", "1990-06-15"
+	}
 	return stats.Options{
-		Title:        cfg.values.Title,
-		Timezone:     cfg.values.ZoneName,
-		Language:     cfg.values.Language,
-		CreditUSD:    cfg.values.CreditUSD,
-		PhotoPath:    "photos/",
-		SyncInterval: cfg.interval,
-		SleepGoal:    float64(cfg.values.SleepGoal),
+		Title:           cfg.values.Title,
+		Timezone:        cfg.values.ZoneName,
+		Language:        cfg.values.Language,
+		CreditUSD:       cfg.values.CreditUSD,
+		PhotoPath:       "photos/",
+		SyncInterval:    cfg.interval,
+		SleepGoal:       float64(cfg.values.SleepGoal),
+		PersonSex:       sex,
+		PersonBirthDate: born,
 	}
 }
 

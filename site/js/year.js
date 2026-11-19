@@ -77,6 +77,8 @@ export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], 
       protein: mean(eaten.map((d) => d.protein).filter((v) => v != null)),
     } : null,
     weight,
+    // Logged days without alcohol, when the year had any (nutrients.js).
+    alcohol: eaten.some((d) => d.nut?.alcohol?.[0] > 0) ? { free: eaten.filter((d) => !(d.nut?.alcohol?.[0] > 0)).length, days: eaten.length } : null,
     steps: stepDays.length ? {
       total: stepDays.reduce((a, d) => a + d.steps, 0),
       avg: mean(stepDays.map((d) => d.steps)),

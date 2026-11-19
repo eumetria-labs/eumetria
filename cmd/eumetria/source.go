@@ -284,7 +284,7 @@ func (s reviewSource) Sync(ctx context.Context, h *store.History, w window) erro
 	if h.Reviews[key] != nil {
 		return nil
 	}
-	out := stats.Build(h, s.opts.Everything(), w.now)
+	out := stats.Build(h, withOwner(ctx, s.dbPath, s.opts.Everything()), w.now)
 	week := review.BuildWeek(out, monday, w.today.Format(time.DateOnly))
 	loadNoted(ctx, s.dbPath).addTo(&week)
 	if week.Summary.DaysLogged == 0 && week.Summary.Workouts == 0 && len(week.Lifts) == 0 && len(week.Benchmarks) == 0 {

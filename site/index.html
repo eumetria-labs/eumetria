@@ -248,6 +248,10 @@
             </div>
             <div class="stat-row" id="protein-kg" aria-label="Protein per kg of body weight" hidden></div>
             <div class="train-rest" id="train-rest" hidden></div>
+            <div class="alcohol-macros" id="alcohol-macros" hidden></div>
+          </div>
+          <div class="card-panel" id="energy-nutrients" role="tabpanel" data-tab="nutrients" hidden>
+            <div id="nutrients-part"></div>
           </div>
         </article>
 
@@ -439,6 +443,7 @@
         <article class="card span-2" id="sources-card" hidden>
           <header class="card-head"><div><h2>Macro sources</h2><p class="muted" id="sources-sub"></p></div></header>
           <div class="tabs" role="tablist" aria-label="Macro" id="sources-tabs"></div>
+          <select class="field sources-micro" id="sources-micro" aria-label="Mineral or vitamin" hidden></select>
           <div class="sources-lists" id="sources-lists" role="tabpanel">
             <div class="protein-meals" id="protein-meals" hidden>
               <h3 class="mini-title">Protein per meal <span class="muted" id="protein-meals-note"></span></h3>

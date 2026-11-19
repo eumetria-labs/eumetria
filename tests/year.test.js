@@ -52,3 +52,10 @@ test('parts the data lacks stay empty', () => {
   assert.equal(y.sleep, null);
   assert.deepEqual(y.foods, []);
 });
+
+test('the year counts the days without alcohol, when there were any with', () => {
+  const day = (date, alc) => ({ date, energy: 2000, protein: 120, ...(alc != null ? { nut: { alcohol: [alc, 1] } } : {}) });
+  const y = yearSummary([day('2026-01-01', 30), day('2026-01-02', 0), day('2026-01-03')], '2026');
+  assert.deepEqual(y.alcohol, { free: 2, days: 3 });
+  assert.equal(yearSummary([day('2026-01-02', 0)], '2026').alcohol, null);
+});

@@ -81,6 +81,8 @@ const oldDay = stats.archive?.length ? JSON.parse(await readFile(join(root, stat
 const views = [
   { hash: 'range=7', expect: ['id="today-ring"', 'class="card tile"', 'class="coach-bubble teaser"'] },
   { hash: 'range=all', expect: ['id="chart-energy"'] },
+  // Calories → Nutrients and the alcohol line (the demo's Pils).
+  { hash: 'range=30&view=nutrition', expect: ['class="hbar nut-row', 'class="alcohol-line"'] },
   // German ("#lang=de" in a link), page and a day.
   { hash: 'range=30&lang=de', expect: ['<html lang="de"', 'Tagesdetails', 'Meistgegessen'] },
   { hash: `range=30&lang=de&day=${day}`, expect: ['<dialog class="dlg sheet-overlay"', 'Vorheriger Tag'] },

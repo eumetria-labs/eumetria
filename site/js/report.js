@@ -12,6 +12,7 @@ import { drawWeight, forecastFor } from './weight.js';
 import { goalChangesIn, rangeSummary, weightGoalAt, weightGoalLine, weightTrendAt } from './insights.js';
 import { KINDS, isEvent, phaseName, phaseSummary } from './phase.js';
 import { t, tn } from './i18n.js';
+import { alcoholSummary } from './nutrients.js';
 
 const W = 688; // the A4 text width at 96 dpi, so chart text prints at its real size
 const dfDate = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
@@ -49,7 +50,7 @@ export function buildReport(from, to) {
   el.append(header(rows[0].date, rows.at(-1).date, sum), kpis(sum));
   const charts = [energySection(buckets, weekly, sum), weightSection(rows, sum)];
   el.append(...charts.filter(Boolean));
-  for (const sec of [macroSection(sum), phasesSection(from, to), sleepSection(buckets, weekly, sum), scoresSection(buckets, weekly), stepsSection(buckets, weekly, sum), trainingSection(rows), weeksSection(sum), listsSection(sum), goalsSection(from, to)]) {
+  for (const sec of [macroSection(sum, rows), phasesSection(from, to), sleepSection(buckets, weekly, sum), scoresSection(buckets, weekly), stepsSection(buckets, weekly, sum), trainingSection(rows), weeksSection(sum), listsSection(sum), goalsSection(from, to)]) {
     if (sec) el.append(sec);
   }
   el.append(h('p', { class: 'rp-foot' }, t('Created with Eumetria from YAZIO and Fitbit data. Calorie and macro averages count the days with food logged; weights are 7-day averages.')));
@@ -205,7 +206,7 @@ function weightSection(rows, sum) {
 }
 
 // Average macros and meals as two stacked bars with their numbers.
-function macroSection(sum) {
+function macroSection(sum, rows) {
   if (!sum.logged) return null;
   const stack = (title, parts) => {
     const total = parts.reduce((a, p) => a + p.kcal, 0) || 1;
@@ -228,7 +229,9 @@ function macroSection(sum) {
   const meals = stack(t('Meals'), MEALS.map(([k, label], i) => ({ cls: ['m1', 'm2', 'm3', 'm4'][i], label, kcal: sum.meals[k] || 0, value: `${fmt(sum.meals[k])} kcal` })));
   const grid = h('div', { class: 'rp-splits' });
   grid.append(macros, meals);
-  return section(t('Nutrition'), t('Average per logged day'), grid);
+  // Alcohol, when there was some: per day and the days without.
+  const alcohol = alcoholSummary(rows, false);
+  return section(t('Nutrition'), t('Average per logged day'), grid, ...(alcohol ? [alcohol] : []));
 }
 
 function sleepSection(buckets, weekly, sum) {

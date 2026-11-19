@@ -7,6 +7,7 @@
 import { $, h, hashParam, popupMenu, setHashParam } from './dom.js';
 import { account, onUserChange } from './account.js';
 import { state } from './state.js';
+import { isBirthday, todayISO } from './format.js';
 import { t } from './i18n.js';
 import { mayEditLifts, openLiftForm } from './lifts.js';
 import { openResultForm, openWorkoutForm } from './wods.js';
@@ -39,7 +40,21 @@ export function greeting(title) {
   if (!u) return title;
   const hour = new Date().getHours();
   const name = u.first_name || u.name;
+  // On their birthday (the site's "today", from the profile's date of birth).
+  if (isBirthday(u.birth_date, state.today || todayISO())) return t('Happy birthday, {name}! 🎂', { name });
   return hour < 5 || hour >= 18 ? t('Good evening, {name}', { name }) : hour < 12 ? t('Good morning, {name}', { name }) : t('Good afternoon, {name}', { name });
+}
+
+// showGreeting puts the greeting in the header; on a birthday it is set off.
+export function showGreeting(title) {
+  const el = $('#greeting');
+  const text = greeting(title);
+  const birthday = !!account.user && isBirthday(account.user.birth_date, state.today || todayISO());
+  el.classList.toggle('birthday', birthday);
+  if (!birthday) return (el.textContent = text);
+  // The words in colour; the cake keeps its own.
+  const [words, cake] = text.split(/ (?=🎂)/);
+  el.replaceChildren(h('span', { class: 'bday' }, words), ...(cake ? [' ', cake] : []));
 }
 
 /* ---------- sidebar ---------- */
@@ -69,7 +84,7 @@ function initSide() {
 function showUser(user) {
   $('#side-name').textContent = user.first_name || user.name;
   $('#side-role').textContent = $('#account-role').textContent;
-  $('#greeting').textContent = greeting(state.data?.title || 'Eumetria');
+  showGreeting(state.data?.title || 'Eumetria');
   showQuick();
 }
 

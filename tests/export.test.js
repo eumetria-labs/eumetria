@@ -209,3 +209,18 @@ test('goal changes, weekly reviews, workout notes and the weight trend', () => {
   const plain = exportTables(more, '2026-10-11', '2026-10-14').map(([n]) => n);
   assert.ok(!plain.includes('workout_notes') && plain.includes('goal_changes') && plain.includes('weekly_reviews'));
 });
+
+test('alcohol and nutrients go into the export', () => {
+  const data = {
+    days: [{ date: '2026-10-31', energy: 2200, nut: { alcohol: [52, 1], magnesium: [310.4, 0.83] } }, { date: '2026-11-01', energy: 1900 }],
+    nutrient_refs: { magnesium: { amount: 350, kind: 'estimated' } },
+  };
+  const tables = Object.fromEntries(exportTables(data, '2026-10-01', '2026-11-30').map(([name, columns, rows]) => [name, { columns, rows }]));
+  const day = (date) => tables.days.rows.find((r) => r.date === date);
+  assert.equal(day('2026-10-31').alcohol_g, 52);
+  assert.equal(day('2026-11-01').alcohol_g, null);
+  assert.deepEqual(tables.nutrients.rows, [
+    { date: '2026-10-31', nutrient: 'alcohol', amount: 52, unit: 'g', known_share: 1, reference: null },
+    { date: '2026-10-31', nutrient: 'magnesium', amount: 310.4, unit: 'mg', known_share: 0.83, reference: 350 },
+  ]);
+});

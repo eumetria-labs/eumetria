@@ -63,6 +63,12 @@ func (a *app) profileSave(w http.ResponseWriter, req *http.Request, p *principal
 	case errors.Is(err, auth.ErrBadInstagram):
 		writeError(w, http.StatusBadRequest, "bad_instagram")
 		return
+	case errors.Is(err, auth.ErrBadSex):
+		writeError(w, http.StatusBadRequest, "bad_sex")
+		return
+	case errors.Is(err, auth.ErrBadBirthDate):
+		writeError(w, http.StatusBadRequest, "bad_birth_date")
+		return
 	}
 	// A new address goes its own way: confirmed first (email.go).
 	current, _, err := a.store.Profile(req.Context(), p.user)

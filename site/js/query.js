@@ -122,19 +122,30 @@ export const mealProteinTarget = (weight) => (weight ? Math.round(weight * 0.4) 
 // saturated fat (sf) count only entries that have them, with the kcal,
 // carbs and fat of those entries alongside (fiE, fiC, suE, sfF), so ratios
 // compare like with like. totals sums every food the same way.
-export function macroSources(rows) {
+export function macroSources(rows, nutrientsOf) {
   const foods = new Map();
-  const totals = { n: 0, e: 0, pr: 0, c: 0, f: 0, fi: 0, fiE: 0, fiC: 0, su: 0, suE: 0, sf: 0, sfF: 0 };
+  const blank = () => ({ n: 0, e: 0, pr: 0, c: 0, f: 0, fi: 0, fiE: 0, fiC: 0, su: 0, suE: 0, sf: 0, sfF: 0 });
+  const totals = blank();
   for (const r of rows) for (const x of r.foods || []) {
-    if (!foods.has(x.n)) foods.set(x.n, { n: 0, e: 0, pr: 0, c: 0, f: 0, fi: 0, fiE: 0, fiC: 0, su: 0, suE: 0, sf: 0, sfF: 0 });
+    if (!foods.has(x.n)) foods.set(x.n, blank());
+    // Alcohol, minerals and vitamins of the entry (nutrients.js), when its
+    // food's are known: summed as "n:<key>", with the kcal they cover.
+    const nu = nutrientsOf?.(x);
     for (const t of [foods.get(x.n), totals]) {
       t.n++; t.e += x.e || 0; t.pr += x.pr || 0; t.c += x.c || 0; t.f += x.f || 0;
       if (x.fi != null) { t.fi += x.fi; t.fiE += x.e || 0; t.fiC += x.c || 0; }
       if (x.su != null) { t.su += x.su; t.suE += x.e || 0; }
       if (x.sf != null) { t.sf += x.sf; t.sfF += x.f || 0; }
+      if (nu) for (const [k, v] of Object.entries(nu)) { t['n:' + k] = (t['n:' + k] || 0) + v; t['nE:' + k] = (t['nE:' + k] || 0) + (x.e || 0); }
     }
   }
   return { foods: [...foods], totals };
+}
+
+// nutrientTab is a tab like MACRO_TABS' for alcohol or a mineral or vitamin
+// (key as in nutrients.js): the most of it per 100 kcal is the best source.
+export function nutrientTab(key) {
+  return { key: 'n:' + key, nutrient: key, min: 0, partial: 'nE:' + key, best: (c) => (c['nE:' + key] ? (c['n:' + key] / c['nE:' + key]) * 100 : null) };
 }
 
 // The macro sources card's tabs. top is the grams a food contributed;

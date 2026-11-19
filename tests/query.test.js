@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MACRO_TABS, activityHistory, mealProteinTarget, proteinPerMeal, dayActivities, macroSources, rankSources, referencedFiles, sessionsPerWeek, filterDays, foodHistory, matchRank, matchesQuery, noteSnippet, rangeDays, searchAll, searchNotes, sortBy, sortFoods } from '../site/js/query.js';
+import { MACRO_TABS, nutrientTab, activityHistory, mealProteinTarget, proteinPerMeal, dayActivities, macroSources, rankSources, referencedFiles, sessionsPerWeek, filterDays, foodHistory, matchRank, matchesQuery, noteSnippet, rangeDays, searchAll, searchNotes, sortBy, sortFoods } from '../site/js/query.js';
 
 const days = [
   { date: '2026-10-11', energy: 2300, energy_goal: 2100, foods: [{ n: 'Pizza Margherita', m: 'dinner', e: 800 }] },
@@ -246,4 +246,24 @@ test('protein per meal sums each meal of a day before comparing it with the targ
   assert.deepEqual(p.snack, { days: 1, avg: 0, hits: 0 });
   assert.equal(mealProteinTarget(78.4), 31);
   assert.equal(mealProteinTarget(null), 30);
+});
+
+test('macro sources sum alcohol, minerals and vitamins where known', () => {
+  const rows = [{ foods: [
+    { n: 'Pils', e: 210, nk: 1, al: 20 },
+    { n: 'Pils', e: 210, nk: 1, al: 20 },
+    { n: 'Apple', e: 80, nk: 2, vc: 10 },
+    { n: 'Poke', e: 600 },
+  ] }];
+  const nutrientsOf = (x) => (x.nk === 1 ? { alcohol: x.al } : x.nk === 2 ? { vitamin_c: x.vc } : null);
+  const { foods, totals } = macroSources(rows, nutrientsOf);
+  assert.equal(totals['n:alcohol'], 40);
+  assert.equal(totals['nE:alcohol'], 420);
+  assert.equal(totals['n:vitamin_c'], 10);
+  const tab = nutrientTab('alcohol');
+  const { top, best } = rankSources(foods, tab, { minN: 2 });
+  assert.deepEqual(top.map(([n]) => n), ['Pils']);
+  assert.equal(Math.round(tab.best(best[0][1]) * 10) / 10, 9.5);
+  // Without the lookup nothing extra is summed.
+  assert.equal(macroSources(rows).totals['n:alcohol'], undefined);
 });

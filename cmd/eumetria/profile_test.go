@@ -308,3 +308,36 @@ func TestLayout(t *testing.T) {
 		t.Errorf("cross-site save = %d", res.StatusCode)
 	}
 }
+
+func TestProfileSexAndBirthDate(t *testing.T) {
+	e := newTestEnv(t, true)
+	anna := e.signIn(t, "anna", viewerPassword, false)
+	res, body := e.do(t, anna, "PUT", "/api/profile", `{"first_name":"Anna","sex":"female","birth_date":"1990-03-14"}`, sameSite)
+	if res.StatusCode != 200 || !strings.Contains(body, `"sex":"female"`) || !strings.Contains(body, `"birth_date":"1990-03-14"`) {
+		t.Fatalf("saved = %d %s", res.StatusCode, body)
+	}
+	// /api/me has them, and the reference values for a woman of 36.
+	_, body = e.do(t, anna, "GET", "/api/me", "")
+	if !strings.Contains(body, `"birth_date":"1990-03-14"`) || !strings.Contains(body, `"iron":{"amount":16`) {
+		t.Errorf("me = %s", body)
+	}
+	for in, code := range map[string]string{
+		`{"sex":"other"}`:             "bad_sex",
+		`{"birth_date":"1890-01-01"}`: "bad_birth_date",
+		`{"birth_date":"2999-01-01"}`: "bad_birth_date",
+		`{"birth_date":"14.03.1990"}`: "bad_birth_date",
+	} {
+		if res, body := e.do(t, anna, "PUT", "/api/profile", in, sameSite); res.StatusCode != 400 || !strings.Contains(body, code) {
+			t.Errorf("%s = %d %s, want %s", in, res.StatusCode, body, code)
+		}
+	}
+	// The weekly review takes the oldest admin's: patrick has none yet.
+	if p, err := e.store.OwnerProfile(context.Background()); err != nil || p.Sex != "" {
+		t.Errorf("owner = %+v, %v", p, err)
+	}
+	pat := e.signIn(t, "patrick", adminPassword, true)
+	e.do(t, pat, "PUT", "/api/profile", `{"sex":"male","birth_date":"1987-04-02"}`, sameSite)
+	if p, _ := e.store.OwnerProfile(context.Background()); p.Sex != "male" || p.BirthDate != "1987-04-02" {
+		t.Errorf("owner = %+v", p)
+	}
+}

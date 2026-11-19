@@ -8,6 +8,7 @@ import { $, h, svg, meter, panelTabs } from './dom.js';
 import { state, store } from './state.js';
 import { legendToggles } from './legend.js';
 import { bucketTitle, drawBars, drawGoalMarks, fadeArea, goalMarks, goalTipRows, linePath, smoothPath, stepPath, timeChart, valuePill } from './charts.js';
+import { nutrientsTab } from './nutrients.js';
 import { trailingMean, weekdayAverages } from './insights.js';
 import { t, tn } from './i18n.js';
 
@@ -16,6 +17,7 @@ export function renderEnergyTabs() {
     ['chart', t('Calories'), '📈'],
     ['calendar', t('Calendar'), '📅'],
     ['macros', t('Macros'), '🥗'],
+    ...nutrientsTab(),
   ], store.get('energyTab'), (key) => store.set('energyTab', key));
 }
 

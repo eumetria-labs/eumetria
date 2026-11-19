@@ -29,6 +29,7 @@ import (
 	"eumetria/internal/mail"
 	"eumetria/internal/notes"
 	"eumetria/internal/phases"
+	"eumetria/internal/stats"
 	"eumetria/internal/wods"
 )
 
@@ -638,8 +639,13 @@ type me struct {
 	Name string `json:"name"`
 	// FirstName is from the profile, for the dashboard's greeting ("" if not given).
 	FirstName string `json:"first_name,omitempty"`
-	Role      string `json:"role"`
-	Avatar    string `json:"avatar"` // the picture's address, if there is one
+	// Sex and date of birth from the profile (the birthday greeting), and
+	// the nutrients' daily reference values for them (stats, nutrients.go).
+	Sex          string                     `json:"sex,omitempty"`
+	BirthDate    string                     `json:"birth_date,omitempty"`
+	NutrientRefs map[string]stats.Reference `json:"nutrient_refs,omitempty"`
+	Role         string                     `json:"role"`
+	Avatar       string                     `json:"avatar"` // the picture's address, if there is one
 	// Scopes are every scope the role gives (admin spelled out).
 	Scopes       []string `json:"scopes"`
 	Sync         bool     `json:"sync"` // may start a sync: the page shows the button
@@ -689,7 +695,8 @@ func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User, 
 			scopes = append(scopes, sc)
 		}
 	}
-	writeJSON(w, http.StatusOK, me{Name: u.Name, FirstName: prof.FirstName, Role: string(u.Role), Avatar: avatar, Scopes: scopes,
+	writeJSON(w, http.StatusOK, me{Name: u.Name, FirstName: prof.FirstName, Sex: prof.Sex, BirthDate: prof.BirthDate,
+		NutrientRefs: stats.References(prof.Sex, prof.BirthDate, time.Now()), Role: string(u.Role), Avatar: avatar, Scopes: scopes,
 		Sync: u.Can(auth.ScopeSync) && f.Any(), SecondFactor: f.Any(), NeedsSecondFactor: a.needsFactor(u) && !f.Any(), Demo: a.demo,
 		NeedsEnrolLink: !a.demo && a.needsFactor(u) && !f.Any(), Notices: notices, Remember: remember, Layout: layout})
 }

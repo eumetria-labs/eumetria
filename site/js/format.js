@@ -221,3 +221,14 @@ export function deviceName(ua = '') {
   if (browser && system) return t('{browser} on {system}', { browser, system });
   return browser || system || ua || t('Unknown device');
 }
+
+// isBirthday reports whether today ("YYYY-MM-DD") is the birthday of
+// someone born on birthDate; born on 29 February, it is the 28th in years
+// without one.
+export function isBirthday(birthDate, today) {
+  if (!birthDate || !today || birthDate.length < 10) return false;
+  const md = birthDate.slice(5, 10);
+  const year = Number(today.slice(0, 4));
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  return today.slice(5, 10) === (md === '02-29' && !leap ? '02-28' : md) && today >= birthDate;
+}

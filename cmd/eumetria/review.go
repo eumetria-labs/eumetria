@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"eumetria/internal/auth"
 	"eumetria/internal/db"
 	"eumetria/internal/lifts"
 	"eumetria/internal/phases"
@@ -37,7 +38,7 @@ func debugReview(ctx context.Context, cfg config, date string, dryRun bool) erro
 	}
 	now := cfg.now()
 	// Everything the history holds: the review is printed here, not published.
-	out := stats.Build(hist, stats.Options{}.Everything(), now)
+	out := stats.Build(hist, withOwner(ctx, cfg.dbPath, stats.Options{}.Everything()), now)
 	week := review.BuildWeek(out, review.Monday(day), now.Format(time.DateOnly))
 	loadNoted(ctx, cfg.dbPath).addTo(&week)
 	if len(week.Days) == 0 {
@@ -95,7 +96,7 @@ func rewriteReviews(ctx context.Context, cfg config, write writeFunc, progress f
 	sort.Strings(weeks)
 	now := cfg.now()
 	today := now.Format(time.DateOnly)
-	out := stats.Build(hist, baseOptions(cfg).Everything(), now)
+	out := stats.Build(hist, withOwner(ctx, cfg.dbPath, baseOptions(cfg).Everything()), now)
 	model, effort := cfg.values.Model, cfg.values.Effort
 	noted := loadNoted(ctx, cfg.dbPath)
 	var total float64
@@ -152,6 +153,32 @@ func (n noted) addTo(w *review.Week) {
 // loadNoted reads them from the database at path. Without a database
 // (plain files, no server) there are none; an error is logged, and the
 // review is written without them.
+// withOwner gives opts the site owner's sex and date of birth from their
+// profile: the review is about their data, and compares the minerals and
+// vitamins with their reference values. Unchanged without a database.
+func withOwner(ctx context.Context, path string, opts stats.Options) stats.Options {
+	if path == "" {
+		return opts
+	}
+	if _, err := os.Stat(path); err != nil {
+		return opts
+	}
+	d, err := db.Open(ctx, path)
+	if err != nil {
+		return opts
+	}
+	defer d.Close()
+	p, err := auth.NewStore(d).OwnerProfile(ctx)
+	if err != nil {
+		log.Printf("weekly review: the owner's profile: %v", err)
+		return opts
+	}
+	if p.Sex != "" {
+		opts.PersonSex, opts.PersonBirthDate = p.Sex, p.BirthDate
+	}
+	return opts
+}
+
 func loadNoted(ctx context.Context, path string) (n noted) {
 	if path == "" {
 		return n

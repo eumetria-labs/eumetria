@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { actIcon, actName, compact, deviceName, fitBlocks, fmt, fmtAmount, fmtAvgQty, fmtDistance, fmtDuration, hasDetail, mealThumb, recipeShare, recipeTotals, signed, syncEvery, todayISO } from '../site/js/format.js';
+import { actIcon, actName, compact, deviceName, fitBlocks, fmt, fmtAmount, fmtAvgQty, fmtDistance, fmtDuration, hasDetail, isBirthday, mealThumb, recipeShare, recipeTotals, signed, syncEvery, todayISO } from '../site/js/format.js';
 
 test('fmtDuration', () => {
   assert.equal(fmtDuration(19), '19 min');
@@ -108,4 +108,14 @@ test('deviceName: browser and system of a session', () => {
   assert.equal(deviceName('Mozilla/5.0 (Android 15; Mobile; rv:131.0) Gecko/131.0 Firefox/131.0'), 'Firefox on Android');
   assert.equal(deviceName('curl/8.7.1'), 'curl/8.7.1');
   assert.equal(deviceName(''), 'Unknown device');
+});
+
+test('birthdays, also on 29 February', () => {
+  assert.equal(isBirthday('1987-04-02', '2026-04-02'), true);
+  assert.equal(isBirthday('1987-04-02', '2026-04-03'), false);
+  assert.equal(isBirthday('1988-02-29', '2026-02-28'), true);
+  assert.equal(isBirthday('1988-02-29', '2028-02-28'), false);
+  assert.equal(isBirthday('1988-02-29', '2028-02-29'), true);
+  assert.equal(isBirthday('', '2026-04-02'), false);
+  assert.equal(isBirthday(undefined, '2026-04-02'), false);
 });

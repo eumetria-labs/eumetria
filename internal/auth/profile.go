@@ -19,12 +19,18 @@ type Profile struct {
 	Surname   string `json:"surname"`
 	Email     string `json:"email"`
 	Instagram string `json:"instagram"`
+	// Sex ("male", "female" or "") and the date of birth ("YYYY-MM-DD" or
+	// ""): the nutrients' reference values, and the birthday greeting.
+	Sex       string `json:"sex"`
+	BirthDate string `json:"birth_date"`
 }
 
 var (
 	ErrBadPersonName = errors.New("names: up to 64 characters")
 	ErrBadEmail      = errors.New("not an e-mail address")
 	ErrBadInstagram  = errors.New("Instagram handles: up to 30 letters, digits, . and _")
+	ErrBadSex        = errors.New("sex: male, female or none")
+	ErrBadBirthDate  = errors.New("date of birth: a day from 1900 to today")
 )
 
 var instagramHandle = regexp.MustCompile(`^[A-Za-z0-9._]{1,30}$`)
@@ -51,6 +57,15 @@ func (p Profile) Clean() (Profile, error) {
 	if p.Instagram != "" && !instagramHandle.MatchString(p.Instagram) {
 		return p, ErrBadInstagram
 	}
+	if p.Sex != "" && p.Sex != "male" && p.Sex != "female" {
+		return p, ErrBadSex
+	}
+	if p.BirthDate != "" {
+		d, err := time.Parse(time.DateOnly, p.BirthDate)
+		if err != nil || d.Year() < 1900 || d.After(time.Now()) {
+			return p, ErrBadBirthDate
+		}
+	}
 	return p, nil
 }
 
@@ -67,8 +82,8 @@ func AvatarURL(userID, version int64) string {
 func (s *Store) Profile(ctx context.Context, u *User) (Profile, string, error) {
 	var p Profile
 	var avatar int64
-	err := s.DB.QueryRowContext(ctx, "SELECT first_name, surname, email, instagram, avatar FROM profiles WHERE user_id = ?", u.ID).
-		Scan(&p.FirstName, &p.Surname, &p.Email, &p.Instagram, &avatar)
+	err := s.DB.QueryRowContext(ctx, "SELECT first_name, surname, email, instagram, sex, birth_date, avatar FROM profiles WHERE user_id = ?", u.ID).
+		Scan(&p.FirstName, &p.Surname, &p.Email, &p.Instagram, &p.Sex, &p.BirthDate, &avatar)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Profile{}, "", nil
 	}
@@ -79,10 +94,23 @@ func (s *Store) Profile(ctx context.Context, u *User) (Profile, string, error) {
 // stay: the address changes only through SetEmail or a confirmation
 // (email.go). p comes from Clean.
 func (s *Store) SaveProfile(ctx context.Context, u *User, p Profile) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO profiles (user_id, first_name, surname, instagram) VALUES (?, ?, ?, ?)
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO profiles (user_id, first_name, surname, instagram, sex, birth_date) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT (user_id) DO UPDATE SET first_name = excluded.first_name, surname = excluded.surname,
-		instagram = excluded.instagram`, u.ID, p.FirstName, p.Surname, p.Instagram)
+		instagram = excluded.instagram, sex = excluded.sex, birth_date = excluded.birth_date`, u.ID, p.FirstName, p.Surname, p.Instagram, p.Sex, p.BirthDate)
 	return err
+}
+
+// OwnerProfile is the profile of the site's owner, the oldest admin account
+// that isn't disabled: whose data the weekly review is about. Empty when
+// there is none.
+func (s *Store) OwnerProfile(ctx context.Context) (Profile, error) {
+	var p Profile
+	err := s.DB.QueryRowContext(ctx, `SELECT coalesce(p.sex, ''), coalesce(p.birth_date, '') FROM users u
+		LEFT JOIN profiles p ON p.user_id = u.id WHERE u.role_id = 1 AND u.disabled = 0 ORDER BY u.id LIMIT 1`).Scan(&p.Sex, &p.BirthDate)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Profile{}, nil
+	}
+	return p, err
 }
 
 // SetAvatar notes that u has a new picture, or none when has is false.

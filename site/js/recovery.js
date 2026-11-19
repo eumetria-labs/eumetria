@@ -11,6 +11,7 @@ import { state, store } from './state.js';
 import { timeChart, bucketTitle, drawStacks, fadeArea, smoothPath, valuePill } from './charts.js';
 import { t, tn } from './i18n.js';
 import { scoresChart, scoresPanel } from './scores.js';
+import { ALCOHOL_DAY } from './nutrients.js';
 
 export const hasRecovery = (d) => !!(d && (d.sleep || d.rhr || d.hrv));
 
@@ -58,6 +59,10 @@ function renderNightsAfter(s) {
   }
   const active = (r) => r.workouts?.length || r.activities?.length;
   pairs.push([[t('Workout days'), t('Rest days')], nightsAfter(rows, state.byDate, (r) => (active(r) ? 0 : logged(r) || r.sleep ? 1 : null))]);
+  // Days with a drink or more against days without any; a little in a
+  // sauce counts for neither.
+  const alcohol = (r) => r.nut?.alcohol?.[0] || 0;
+  pairs.push([[t('Alcohol {g} g or more', { g: fmt(ALCOHOL_DAY) }), t('No alcohol')], nightsAfter(rows, state.byDate, (r) => (!logged(r) ? null : alcohol(r) >= ALCOHOL_DAY ? 0 : alcohol(r) === 0 ? 1 : null))]);
 
   const shown = pairs.filter(([, c]) => c.ok);
   if (!shown.length) return false;

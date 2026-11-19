@@ -107,6 +107,8 @@ const PROFILE_ERRORS = {
   bad_person_name: () => t('Names can have up to 64 characters.'),
   bad_email: () => t('That isn’t an e-mail address.'),
   bad_instagram: () => t('Instagram handles have up to 30 letters, digits, dots and underscores.'),
+  bad_sex: () => t('Pick one of the choices.'),
+  bad_birth_date: () => t('That isn’t a date of birth from 1900 to today.'),
 };
 
 function aboutSection(p) {
@@ -150,6 +152,16 @@ function aboutSection(p) {
   showState(p);
   const instagram = field('instagram', t('Instagram handle'), { autocapitalize: 'none', spellcheck: 'false', maxlength: '31', placeholder: '@' },
     h('span', { class: 'muted set-hint' }, t('Shown on share cards.')));
+  // Sex and date of birth pick the reference values of vitamins and
+  // minerals (Calories → Nutrients); the date also brings a birthday greeting.
+  const sexRow = h('label', { class: 'set-field' });
+  const sex = h('select', { class: 'field' });
+  for (const [v, label] of [['', t('Not given')], ['female', t('Female')], ['male', t('Male')]]) sex.append(h('option', { value: v }, label));
+  sex.value = p.sex || '';
+  sexRow.append(h('span', { class: 'set-label' }, t('Sex')), sex, h('span', { class: 'muted set-hint' }, t('For the reference values of vitamins and minerals.')));
+  form.append(sexRow);
+  const birth = field('birth_date', t('Date of birth'), { type: 'date', min: '1900-01-01', max: new Date().toISOString().slice(0, 10) },
+    h('span', { class: 'muted set-hint' }, t('Some reference values change with age; and on your birthday the dashboard says so.')));
   const msg = message();
   const save = h('button', { class: 'pill-btn pf-save', type: 'submit' }, t('Save'));
   form.append(msg, save);
@@ -159,13 +171,16 @@ function aboutSection(p) {
     save.disabled = true;
     msg.hidden = true;
     try {
-      const res = await api('profile', 'PUT', { first_name: first.value, surname: surname.value, email: email.value, instagram: instagram.value });
+      const res = await api('profile', 'PUT', { first_name: first.value, surname: surname.value, email: email.value, instagram: instagram.value, sex: sex.value, birth_date: birth.value });
       if (res.ok) {
         const q = await res.json();
         instagram.value = q.instagram;
         email.value = q.email;
         showState(q);
         form.dispatchEvent(new Event('saved', { bubbles: true }));
+        // The greeting and the reference values follow at once.
+        await refreshUser();
+        document.dispatchEvent(new Event('phases-change'));
         return say(msg, q.email_pending ? t('Saved. A confirmation link went to the new address; until then mail goes to the old one.') : t('Saved.'));
       }
       const why = await reason(res);

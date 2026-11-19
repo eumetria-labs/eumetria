@@ -217,6 +217,22 @@ await fetch(base + '/api/profile', { method: 'PUT', headers: { 'content-type': '
 await browser.view(base + '/#range=30', { width: 1280, height: 900 });
 await wait(800);
 check('greeting with the first name', /^Good (morning|afternoon|evening), Bea$/.test(await ev(`document.getElementById('greeting').textContent`)), await ev(`document.getElementById('greeting').textContent`));
+// On a birthday (date of birth today, 30 years ago) the greeting says so,
+// and a woman's reference values come with /api/me.
+{
+  const d = new Date();
+  const born = `${d.getFullYear() - 30}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  await fetch(base + '/api/profile', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: adminSession.cookie, origin: base }, body: JSON.stringify({ first_name: 'Bea', sex: 'female', birth_date: born }) });
+  await browser.view(base + '/#range=30', { width: 1280, height: 900 });
+  await wait(800);
+  check('birthday greeting', await ev(`document.getElementById('greeting').textContent === 'Happy birthday, Bea! 🎂' && document.getElementById('greeting').classList.contains('birthday')`),
+    await ev(`document.getElementById('greeting').textContent`));
+  const me = await (await fetch(base + '/api/me', { headers: { cookie: adminSession.cookie } })).json();
+  check('reference values for the profile', me.nutrient_refs?.iron?.amount === 16 && me.sex === 'female', JSON.stringify(me.nutrient_refs?.iron));
+  await fetch(base + '/api/profile', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: adminSession.cookie, origin: base }, body: JSON.stringify({ first_name: 'Bea' }) });
+  await browser.view(base + '/#range=30', { width: 1280, height: 900 });
+  await wait(600);
+}
 check('sidebar: brand, sections, you at the foot', await ev(`getComputedStyle(document.getElementById('side')).display !== 'none' && document.getElementById('side-name').textContent === 'Bea' && !!document.querySelector('.side-me #account-btn') && document.querySelectorAll('#sections a:not([hidden])').length >= 5`));
 await ev(`document.getElementById('side-name').click()`);
 await wait(200);

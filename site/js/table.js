@@ -3,6 +3,7 @@
 // ZIP of CSV or JSON files.
 
 import { dfShort, fmt, fmtDuration, hasDetail, logged, parse } from './format.js';
+import { nutrientRefs } from './nutrients.js';
 import { $, download, h } from './dom.js';
 import { state, store } from './state.js';
 import { openDay } from './sheet.js';
@@ -142,7 +143,7 @@ function initExport() {
     const r = range();
     if (!r) return;
     const format = $('#export-format').value;
-    download(`eumetria-${r[0]}-to-${r[1]}-${format}.zip`, 'application/zip', zip(exportFiles(state.data, r[0], r[1], format, new Date(), { lifts: state.lifts, wods: state.wods, phases: state.phases, notes: state.notes })));
+    download(`eumetria-${r[0]}-to-${r[1]}-${format}.zip`, 'application/zip', zip(exportFiles({ ...state.data, nutrient_refs: nutrientRefs() }, r[0], r[1], format, new Date(), { lifts: state.lifts, wods: state.wods, phases: state.phases, notes: state.notes })));
   };
   // The report covers the same dates as the export.
   $('#report-print').onclick = () => {

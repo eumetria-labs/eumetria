@@ -45,6 +45,13 @@ const TABLES = [
     ['eumetria_readiness', d.scores?.readiness?.value], ['eumetria_sleep_score', d.scores?.sleep?.value],
     ['eumetria_recovery', d.scores?.recovery?.value], ['training_load_ratio', d.scores?.load?.ratio],
     ['foods', d.foods?.length], ['activities', d.activities?.length], ['workouts', d.workouts?.length],
+    ['alcohol_g', d.nut?.alcohol?.[0]],
+  ]],
+  // Alcohol, fibre, minerals and vitamins per day: the amount, the share of
+  // the day's kcal from foods that list it, and the daily reference value
+  // (DGE/ÖGE/SGE) when the person's sex is set.
+  ['nutrients', (days) => days.flatMap((d) => Object.entries(d.nut || {}).map(([k, [amount, known]]) => ({ d, k, amount, known }))), ({ d, k, amount, known }, data) => [
+    ['date', d.date], ['nutrient', k], ['amount', amount], ['unit', NUTRIENT_UNITS[k]], ['known_share', known], ['reference', data.nutrient_refs?.[k]?.amount],
   ]],
   ['foods', (days) => days.flatMap((d) => (d.foods || []).map((f) => ({ d, f }))), ({ d, f }, data) => {
     const p = data.products?.[f.x];
@@ -114,9 +121,15 @@ const TABLES = [
   ]],
 ];
 
+// The units of the nutrients (stats: nutrients.go).
+const NUTRIENT_UNITS = {
+  alcohol: 'g', fiber: 'g', sodium: 'mg', potassium: 'mg', magnesium: 'mg', calcium: 'mg', iron: 'mg', zinc: 'mg', iodine: 'µg',
+  vitamin_a: 'µg', folate: 'µg', vitamin_b12: 'µg', vitamin_c: 'mg', vitamin_d: 'µg', vitamin_e: 'mg',
+};
+
 // Numbers keep at most two decimals; missing values become null.
 const value = (v) => (v == null || v === '' || v === false || Number.isNaN(v) ? null : typeof v === 'number' ? Math.round(v * 100) / 100 : v);
-const EMPTY = { d: {}, f: {}, r: {}, it: {}, a: {}, w: {}, s: {} };
+const EMPTY = { d: {}, f: {}, r: {}, it: {}, a: {}, w: {}, s: {}, k: '', amount: null, known: null };
 
 // exportTables returns the tables of the days from..to (ISO dates,
 // inclusive) as [name, columns, rows], each row an object. The days table

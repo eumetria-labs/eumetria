@@ -34,6 +34,7 @@ function keyNumbers(y) {
     y.steps && [t('Steps a day'), fmt(y.steps.avg), ''],
     y.sleep && [t('Asleep a night'), fmtSleep(y.sleep.asleep), ''],
     y.nutrition && [t('Calories a day'), fmt(y.nutrition.kcal), 'kcal'],
+    y.alcohol && [t('Days without alcohol'), `${fmt(y.alcohol.free)} / ${fmt(y.alcohol.days)}`, ''],
     y.weight && y.weight.n > 1 && [t('Weight'), signedKg(y.weight.last - y.weight.first), ''],
   ].filter(Boolean);
 }

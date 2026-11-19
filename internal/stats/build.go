@@ -31,6 +31,12 @@ type Options struct {
 	PhotoPath    string        // URL prefix of photo files, e.g. "photos/"
 	SyncInterval time.Duration // how often syncs run, shown in the footer; 0 when unknown
 	SleepGoal    float64       // minutes, for the sleep score; 0: scores.DefaultSleepGoal
+	// The person the data is about, for the nutrients' reference values
+	// (nutrients.go): "male" or "female", and their date of birth. Only the
+	// weekly review and the demo set it; the page asks /api/me for the
+	// viewer's own.
+	PersonSex       string
+	PersonBirthDate string // "YYYY-MM-DD" or
 }
 
 // Everything returns o with every part of the data included.
@@ -73,6 +79,10 @@ type Food struct {
 	RecipeStale bool   `json:"rs,omitempty"`
 	// Barcode is the key of the food in Output.Products.
 	Barcode string `json:"x,omitempty"`
+	// NutrientFood is the food's place in Output.FoodNutrients (1-based; 0:
+	// none known) and NutrientScale the factor for this entry.
+	NutrientFood  int     `json:"nk,omitempty"`
+	NutrientScale float64 `json:"ns,omitempty"`
 }
 
 type Photo struct {
@@ -111,6 +121,10 @@ type Day struct {
 	Foods          []Food             `json:"foods,omitempty"`
 	Activities     []Activity         `json:"activities,omitempty"`
 	Photos         []Photo            `json:"photos,omitempty"`
+	// Nutrients are alcohol, fibre, minerals and vitamins (nutrients.go):
+	// per key the day's amount in its unit and the share of the day's kcal
+	// whose foods list it.
+	Nutrients map[string][2]float64 `json:"nut,omitempty"`
 
 	// Google Health (Fitbit). SkinTemp is the night's deviation from the
 	// personal baseline in °C.
@@ -167,6 +181,11 @@ type Output struct {
 	Recipes map[string]Recipe `json:"recipes,omitempty"`
 	// Products are the Open Food Facts data of foods, by barcode.
 	Products map[string]Product `json:"products,omitempty"`
+	// FoodNutrients are the tracked nutrients of the foods eaten, per g, ml
+	// or portion (Food.NutrientFood points here); NutrientRefs the daily
+	// reference values for the person the data is about (nutrients.go).
+	FoodNutrients []map[string]float64 `json:"food_nutrients,omitempty"`
+	NutrientRefs  map[string]Reference `json:"nutrient_refs,omitempty"`
 	// Reviews are the weekly reviews, newest first; ReviewStatus is set
 	// when the Anthropic credit needs attention.
 	Reviews      []Review      `json:"reviews,omitempty"`
@@ -213,6 +232,10 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 	var lastGoals map[string]float64 // the previous day's goals, rounded
 	prods := newProducts(h)
 	recs := newRecipes(h, opt, prods)
+	fns := &foodNutrients{index: map[*store.Food]int{}}
+	if opt.Nutrition {
+		out.NutrientRefs = References(opt.PersonSex, opt.PersonBirthDate, now)
+	}
 	seen := map[string]bool{}
 	for d := range h.Days {
 		seen[d] = true
@@ -256,6 +279,7 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 			d.EnergyGoal, d.EnergyBase = round(src.Goals["energy.energy"], 0), round(baseGoal(src), 0)
 			d.ProteinGoal, d.CarbGoal, d.FatGoal = round(src.Goals["nutrient.protein"], 1), round(src.Goals["nutrient.carb"], 1), round(src.Goals["nutrient.fat"], 1)
 			d.Water = round(src.Water, 0)
+			d.Nutrients = dayNutrients(h, src.Items)
 			if src.Weight != nil {
 				w := round(*src.Weight, 1)
 				d.Weight = &w
@@ -273,7 +297,9 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 		}
 		if opt.Foods {
 			for _, it := range src.Items {
+				nk, ns := fns.link(h, it)
 				d.Foods = append(d.Foods, Food{
+					NutrientFood: nk, NutrientScale: ns,
 					Name: it.Name, Daytime: it.Daytime, Energy: round(it.Energy, 0),
 					Protein: round(it.Protein, 1), Carb: round(it.Carb, 1), Fat: round(it.Fat, 1),
 					Fiber: roundPtr(it.Fiber, 1), Sugar: roundPtr(it.Sugar, 1), Saturated: roundPtr(it.Saturated, 1),
@@ -354,6 +380,7 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 	if len(recs.out) > 0 {
 		out.Recipes = recs.out
 	}
+	out.FoodNutrients = fns.list
 	if len(prods.out) > 0 {
 		out.Products = prods.out
 	}

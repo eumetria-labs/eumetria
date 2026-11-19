@@ -57,6 +57,10 @@ type Item struct {
 	RecipeStale   bool   `json:"recipe_stale,omitempty"`
 	// EAN is the product's barcode, to look it up on Open Food Facts.
 	EAN string `json:"ean,omitempty"`
+	// ProductID links a product entry to Foods["product:"+ProductID], whose
+	// nutrients (vitamins, minerals, alcohol) the entry has in proportion
+	// to its kcal (Nutrients).
+	ProductID string `json:"product_id,omitempty"`
 }
 
 // RecipeKey is the Foods key of one version of a recipe. Yazio edits
@@ -90,7 +94,7 @@ type Activity struct {
 
 // DayVersion is bumped whenever Day gains fields that need a re-fetch; older
 // days are then fetched again on the next run.
-const DayVersion = 6 // 4: macros per entry, 5: sugar, 6: activity start
+const DayVersion = 7 // 4: macros per entry, 5: sugar, 6: activity start, 7: product IDs
 
 type Day struct {
 	Version        int                `json:"version,omitempty"`

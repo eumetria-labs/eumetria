@@ -167,7 +167,7 @@ func (s *syncer) items(ctx context.Context, day time.Time) ([]store.Item, error)
 		}
 		it := store.Item{
 			Name: f.Name, Daytime: p.Daytime, Amount: p.Amount, Unit: f.Unit,
-			Serving: p.Serving, ServingQty: p.ServingQuantity, EntryID: p.ID, EAN: f.EAN,
+			Serving: p.Serving, ServingQty: p.ServingQuantity, EntryID: p.ID, EAN: f.EAN, ProductID: p.ProductID,
 		}
 		setNutrients(&it, f.Nutrients, p.Amount)
 		items = append(items, it)

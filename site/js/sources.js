@@ -6,11 +6,14 @@ import { MEALS, fmt } from './format.js';
 import { $, h, hbar, meter, tabButton, tabKeys } from './dom.js';
 import { state, store } from './state.js';
 import { historyLink, openFood } from './history.js';
-import { MACRO_TABS, macroSources, mealProteinTarget, proteinPerMeal, rankSources } from './query.js';
+import { MACRO_TABS, macroSources, mealProteinTarget, nutrientTab, proteinPerMeal, rankSources } from './query.js';
+import { NUTRIENTS, entryNutrients, nutrient } from './nutrients.js';
 import { t } from './i18n.js';
 
-const ICONS = { pr: '💪', c: '🍞', f: '🥑', fi: '🌾', su: '🍬' };
-let tab = MACRO_TABS.some((x) => x.key === store.get('macroTab')) ? store.get('macroTab') : 'pr';
+const ICONS = { pr: '💪', c: '🍞', f: '🥑', fi: '🌾', su: '🍬', 'n:alcohol': '🍺', micro: '🥦' };
+let tab = store.get('macroTab') || 'pr';
+// The mineral or vitamin the "Vitamins & minerals" tab shows.
+let micro = store.get('macroMicro') || 'magnesium';
 
 // The subtitle per tab ({g}: grams per logged day).
 const AVG = {
@@ -32,9 +35,18 @@ const BEST = {
 
 export function renderSources(s) {
   const card = $('#sources-card');
-  const { foods, totals } = macroSources(s.rows);
+  const { foods, totals } = macroSources(s.rows, entryNutrients);
   card.hidden = !totals.pr && !totals.c && !totals.f;
   if (card.hidden) return;
+  // Alcohol and the minerals and vitamins any food eaten lists.
+  const micros = NUTRIENTS.filter((n) => n.group === 'minerals' || n.group === 'vitamins').filter((n) => totals['nE:' + n.key] > 0);
+  if (!micros.some((n) => n.key === micro)) micro = micros[0]?.key;
+  const tabList = [
+    ...MACRO_TABS.map(({ key, label }) => [key, label]),
+    ...(totals['n:alcohol'] > 0 ? [['n:alcohol', t('Alcohol')]] : []),
+    ...(micros.length ? [['micro', t('Vitamins & minerals')]] : []),
+  ];
+  if (!tabList.some(([k]) => k === tab)) tab = 'pr';
 
   const days = s.rows.filter((r) => r.foods?.length).length;
   const tabs = $('#sources-tabs');
@@ -44,37 +56,55 @@ export function renderSources(s) {
       b.setAttribute('aria-selected', String(on));
       b.tabIndex = on ? 0 : -1;
     });
-    const def = MACRO_TABS.find((x) => x.key === tab);
+    const def = tab === 'micro' ? nutrientTab(micro) : tab === 'n:alcohol' ? nutrientTab('alcohol') : MACRO_TABS.find((x) => x.key === tab);
+    const key = def.key;
+    const n = def.nutrient && nutrient(def.nutrient);
+    const unit = n ? n.unit : 'g';
     const { top, best } = rankSources(foods, def);
-    const total = totals[tab];
-    const max = top[0]?.[1][tab] || 1;
+    const total = totals[key] || 0;
+    const max = top[0]?.[1][key] || 1;
     const perDay = total / Math.max(1, days);
+    const amount = (v) => `${fmt(v, v < 100 ? 1 : 0)} ${unit}`;
 
-    // Fibre and sugar are missing for AI entries: say how much is known.
-    const known = def.partial && totals.e ? totals[def.partial] / totals.e : 1;
-    $('#sources-sub').textContent = AVG[tab].replace('{g}', fmt(perDay, def.partial ? 1 : 0))
-      + (def.partial ? ' · ' + t('known for {pct} % of calories (AI entries have none)', { pct: fmt(known * 100) }) : '');
+    // Fibre, sugar, alcohol, minerals and vitamins are missing for some
+    // entries (AI ones, foods that don't list them): say how much is known.
+    const known = def.partial && totals.e ? (totals[def.partial] || 0) / totals.e : 1;
+    const avgText = n ? t('{name}: {amount} on average per logged day', { amount: amount(perDay), name: n.label() }) : AVG[key].replace('{g}', fmt(perDay, def.partial ? 1 : 0));
+    $('#sources-sub').textContent = avgText
+      + (def.partial ? ' · ' + t('known for {pct} % of calories', { pct: fmt(known * 100) }) : '');
+
+    const pick = $('#sources-micro');
+    pick.hidden = tab !== 'micro';
+    if (!pick.hidden) {
+      pick.replaceChildren(...micros.map((m) => h('option', { value: m.key }, m.label())));
+      pick.value = micro;
+      pick.onchange = () => { micro = pick.value; store.set('macroMicro', micro); draw(); };
+    }
 
     $('#sources-top').replaceChildren(...(top.length ? top.map(([name, c]) => historyLink(
-      hbar(name, `${fmt(c[tab], c[tab] < 100 ? 1 : 0)} g`, `${fmt((c[tab] / total) * 100)} % · ${fmt(c.n)}×`, c[tab] / max, def.cls),
+      hbar(name, amount(c[key]), `${fmt((c[key] / total) * 100)} % · ${fmt(c.n)}×`, c[key] / max, def.cls || 's3'),
       name, openFood,
     )) : [h('p', { class: 'empty-tab' }, t('Nothing logged'))]));
 
     renderProteinMeals(s, tab === 'pr');
 
-    const [title, unit, show] = BEST[tab];
+    // Alcohol has no "best" sources.
+    const bestBox = $('#sources-best').parentElement;
+    bestBox.hidden = tab === 'n:alcohol';
+    if (bestBox.hidden) return;
+    const [title, note, show] = n ? [t('Most per calorie'), t('{unit} per 100 kcal', { unit }), (v) => amount(v)] : BEST[key];
     $('#sources-best-title').textContent = title;
-    $('#sources-best-note').textContent = unit;
+    $('#sources-best-note').textContent = note;
     const vals = best.map(([, c]) => def.best(c));
     const bmax = Math.max(...vals, 0) || 1;
     $('#sources-best').replaceChildren(...(best.length ? best.map(([name, c], i) => historyLink(
       // Lower is better for saturated fat: the bar shows the unsaturated share.
-      hbar(name, show(vals[i]), `${fmt(c.n)}× · ${fmt(c[tab] / c.n, 1)} g ${t('per entry')}`, def.asc ? 1 - vals[i] : vals[i] / bmax, def.cls),
+      hbar(name, show(vals[i]), `${fmt(c.n)}× · ${amount(c[key] / c.n)} ${t('per entry')}`, def.asc ? 1 - vals[i] : vals[i] / bmax, def.cls || 's3'),
       name, openFood,
     )) : [h('p', { class: 'empty-tab' }, t('Too few foods eaten at least 3 times'))]));
   };
 
-  tabs.replaceChildren(...MACRO_TABS.map(({ key, label }) => {
+  tabs.replaceChildren(...tabList.map(([key, label]) => {
     const b = tabButton(key, label, ICONS[key]);
     b.setAttribute('aria-controls', 'sources-lists');
     return b;

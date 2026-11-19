@@ -42,10 +42,24 @@ type Week struct {
 	// week (a cut, a bulk, …) and the events in it or ahead.
 	Phases []Phase `json:"phases,omitempty"`
 	Events []Event `json:"events,omitempty"`
+	// Up to three minerals or vitamins furthest below their daily reference
+	// value this week, only where the foods' data cover most of the kcal.
+	NutrientsLow []NutrientLow `json:"nutrients_below_reference,omitempty"`
 
 	// The week's Fitbit workouts by id, as their activity rows name them
 	// ("CrossFit at 16:25"): where a linked lift or benchmark was done.
 	sessions map[string]string
+}
+
+// NutrientLow is a mineral or vitamin the week's logged foods brought less
+// of than the daily reference value (DGE/ÖGE/SGE).
+type NutrientLow struct {
+	Name      string  `json:"name"`
+	PerDay    float64 `json:"avg_per_logged_day"`
+	Unit      string  `json:"unit"`
+	Reference float64 `json:"reference_per_day"`
+	Percent   int     `json:"percent_of_reference"`
+	Known     float64 `json:"share_of_kcal_with_data"`
 }
 
 // Phase is a stretch of days with a purpose the person noted.
@@ -141,6 +155,8 @@ type Day struct {
 	Readiness  int      `json:"eumetria_readiness,omitempty"`
 	Flags      []string `json:"recovery_flags,omitempty"`
 	LoadRatio  float64  `json:"training_load_ratio,omitempty"`
+	// Alcohol in the foods logged, g.
+	AlcoholG float64 `json:"alcohol_g,omitempty"`
 }
 
 type Food struct {
@@ -248,6 +264,7 @@ func BuildWeek(out stats.Output, monday time.Time, today string) Week {
 		}
 	}
 	w.Summary = totals(complete, out)
+	w.NutrientsLow = nutrientsLow(complete, out.NutrientRefs)
 	var prev []stats.Day
 	for i := 7; i > 0; i-- {
 		if d, ok := byDate[monday.AddDate(0, 0, -i).Format(time.DateOnly)]; ok {
@@ -262,7 +279,7 @@ func day(d stats.Day, date time.Time, out stats.Output) Day {
 	o := Day{
 		Date: d.Date, Weekday: date.Weekday().String(), Logged: d.Energy > 0,
 		Kcal: d.Energy, KcalGoal: d.EnergyGoal, ProteinG: d.Protein, CarbsG: d.Carb, FatG: d.Fat,
-		Meals: d.Meals, Steps: d.Steps, WeightKg: d.Weight, BurnedKcal: d.FitbitKcal,
+		Meals: d.Meals, Steps: d.Steps, WeightKg: d.Weight, BurnedKcal: d.FitbitKcal, AlcoholG: d.Nutrients["alcohol"][0],
 		RestingHR: d.RestingHR, HRV: d.HRV, SleepHR: d.SleepHR,
 	}
 	// The app scales macro goals with the day's activity bonus.
@@ -623,4 +640,46 @@ func clip(s string, most int) string {
 		return string(r[:most-1]) + "…"
 	}
 	return s
+}
+
+// nutrientsLow lists the minerals and vitamins the logged days brought least
+// of against their references: at most three, below 100 %, and only where
+// the foods' data cover at least 70 % of the kcal (else a low number may
+// just be missing data).
+func nutrientsLow(days []stats.Day, refs map[string]stats.Reference) []NutrientLow {
+	var out []NutrientLow
+	for key, ref := range refs {
+		if key == "fiber" || ref.Amount <= 0 {
+			continue
+		}
+		var sum, kcal, known float64
+		var n int
+		for _, d := range days {
+			if d.Energy <= 0 {
+				continue
+			}
+			n++
+			v := d.Nutrients[key]
+			sum += v[0]
+			kcal += d.Energy
+			known += v[1] * d.Energy
+		}
+		if n == 0 || kcal == 0 || known/kcal < 0.7 {
+			continue
+		}
+		per := sum / float64(n)
+		pct := int(math.Round(per / ref.Amount * 100))
+		if pct >= 100 {
+			continue
+		}
+		out = append(out, NutrientLow{Name: strings.ReplaceAll(key, "_", " "), PerDay: round1(per), Unit: stats.NutrientUnit(key),
+			Reference: ref.Amount, Percent: pct, Known: math.Round(known/kcal*100) / 100})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Percent < out[j].Percent || out[i].Percent == out[j].Percent && out[i].Name < out[j].Name
+	})
+	if len(out) > 3 {
+		out = out[:3]
+	}
+	return out
 }

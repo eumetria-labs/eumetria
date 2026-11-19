@@ -15,6 +15,7 @@ import { closeShare } from './share.js';
 import { t } from './i18n.js';
 import { linkedNames, notedRows } from './wods.js';
 import { liftedNames } from './lifts.js';
+import { dayNutrientList } from './nutrients.js';
 
 let win = null;
 
@@ -65,9 +66,10 @@ export function openDay(date, tabKey, focusNav) {
 
   const sum = h('div', { class: 'sheet-sum' });
   const goal = day.energy_goal || day.energy_base;
-  [[t('Eaten'), day.energy], [t('Goal'), goal], [t('Burned'), day.activity_energy]].forEach(([k, v]) => {
-    const b = h('b', {}, v ? fmt(v) : '–');
-    if (v) b.append(h('small', {}, 'kcal'));
+  const alcohol = day.nut?.alcohol?.[0];
+  [[t('Eaten'), day.energy], [t('Goal'), goal], [t('Burned'), day.activity_energy], ...(alcohol > 0 ? [[t('Alcohol'), alcohol, 'g']] : [])].forEach(([k, v, unit = 'kcal']) => {
+    const b = h('b', {}, v ? fmt(v, unit === 'g' ? 1 : 0) : '–');
+    if (v) b.append(h('small', {}, unit));
     const d = h('div');
     d.append(h('span', {}, k), b);
     sum.append(d);
@@ -180,7 +182,9 @@ export function openDay(date, tabKey, focusNav) {
   }
   nav.addEventListener('keydown', (e) => tabKeys(e, nav));
 
-  sheet.append(head, sum);
+  sum.classList.toggle('four', alcohol > 0);
+  const nut = dayNutrientList(day);
+  sheet.append(head, sum, ...(nut ? [nut] : []));
   if (tabs.length) sheet.append(nav);
   sheet.append(panel);
 
