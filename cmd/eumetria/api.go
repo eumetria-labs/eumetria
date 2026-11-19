@@ -314,6 +314,7 @@ func (a *app) routes() []route {
 		{"POST", "/api/security/recovery", ownSession, a.recoveryCodes},
 		{"GET", "/api/profile", ownSession, a.profile},
 		{"PUT", "/api/profile", ownSession, a.profileSave},
+		{"PUT", "/api/profile/sleep", ownSession, a.profileSleep},
 		{"POST", "/api/profile/avatar", ownSession, a.avatarPost},
 		{"DELETE", "/api/profile/avatar", ownSession, a.avatarDelete},
 		{"PUT", "/api/profile/layout", ownSession, a.layoutSave},
@@ -653,8 +654,11 @@ type me struct {
 	Sex          string                     `json:"sex,omitempty"`
 	BirthDate    string                     `json:"birth_date,omitempty"`
 	NutrientRefs map[string]stats.Reference `json:"nutrient_refs,omitempty"`
-	Role         string                     `json:"role"`
-	Avatar       string                     `json:"avatar"` // the picture's address, if there is one
+	// Owner: the site's sleep data is this account's (the oldest admin):
+	// Profile → Sleep is theirs.
+	Owner  bool   `json:"owner,omitempty"`
+	Role   string `json:"role"`
+	Avatar string `json:"avatar"` // the picture's address, if there is one
 	// Scopes are every scope the role gives (admin spelled out).
 	Scopes       []string `json:"scopes"`
 	Sync         bool     `json:"sync"` // may start a sync: the page shows the button
@@ -704,7 +708,11 @@ func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User, 
 			scopes = append(scopes, sc)
 		}
 	}
-	writeJSON(w, http.StatusOK, me{Name: u.Name, FirstName: prof.FirstName, Sex: prof.Sex, BirthDate: prof.BirthDate,
+	owner, err := a.store.OwnerID(ctx)
+	if err != nil {
+		log.Printf("me: the owner: %v", err)
+	}
+	writeJSON(w, http.StatusOK, me{Name: u.Name, FirstName: prof.FirstName, Sex: prof.Sex, BirthDate: prof.BirthDate, Owner: owner == u.ID,
 		NutrientRefs: stats.References(prof.Sex, prof.BirthDate, time.Now()), Role: string(u.Role), Avatar: avatar, Scopes: scopes,
 		Sync: u.Can(auth.ScopeSync) && f.Any(), SecondFactor: f.Any(), NeedsSecondFactor: a.needsFactor(u) && !f.Any(), Demo: a.demo,
 		NeedsEnrolLink: !a.demo && a.needsFactor(u) && !f.Any(), Notices: notices, Remember: remember, Layout: layout})

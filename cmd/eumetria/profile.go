@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"image"
 	"log"
@@ -252,4 +253,47 @@ func (a *app) tokenDelete(w http.ResponseWriter, req *http.Request, p *principal
 	}
 	a.audit_(req.Context(), p.user, "", "token_deleted", name, clientIP(req))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// profileSleep answers PUT /api/profile/sleep: the owner's sleep settings
+// (the sleep on the site is theirs; nobody else's are used). The stats are
+// built again with them.
+func (a *app) profileSleep(w http.ResponseWriter, req *http.Request, p *principal) {
+	owner, err := a.store.OwnerID(req.Context())
+	if err != nil {
+		a.failed(w, "profile", err)
+		return
+	}
+	if owner != p.user.ID {
+		writeError(w, http.StatusForbidden, "not_owner")
+		return
+	}
+	var in auth.Sleep
+	if !readJSON(w, req, &in) {
+		return
+	}
+	sl, err := in.Clean()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_sleep")
+		return
+	}
+	if err := a.store.SaveSleep(req.Context(), p.user, sl); err != nil {
+		a.failed(w, "profile", err)
+		return
+	}
+	a.ownerChanged(req.Context())
+	writeJSON(w, http.StatusOK, sl)
+}
+
+// ownerChanged gives the stats the owner's sleep settings again.
+func (a *app) ownerChanged(ctx context.Context) {
+	if a.data == nil {
+		return
+	}
+	prof, err := a.store.OwnerProfile(ctx)
+	if err != nil {
+		log.Printf("profile: the owner's sleep settings: %v", err)
+		return
+	}
+	a.data.setOwner(prof.Sleep)
 }

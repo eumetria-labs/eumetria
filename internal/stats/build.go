@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"eumetria/internal/holidays"
 	"eumetria/internal/scores"
 	"eumetria/internal/store"
 )
@@ -31,6 +32,10 @@ type Options struct {
 	PhotoPath    string        // URL prefix of photo files, e.g. "photos/"
 	SyncInterval time.Duration // how often syncs run, shown in the footer; 0 when unknown
 	SleepGoal    float64       // minutes, for the sleep score; 0: scores.DefaultSleepGoal
+	// The sleeper's weekdays off (Sunday 0; nil: Saturday and Sunday) and
+	// the region of their public holidays: free nights (sleeptiming.go).
+	FreeDays      []int
+	HolidayRegion string
 	// The person the data is about, for the nutrients' reference values
 	// (nutrients.go): "male" or "female", and their date of birth. Only the
 	// weekly review and the demo set it; the page asks /api/me for the
@@ -173,8 +178,13 @@ type Output struct {
 	// SleepGoal is the sleep goal the sleep score uses, minutes; only with
 	// the health data.
 	SleepGoal float64 `json:"sleep_goal,omitempty"`
-	Goals     Goals   `json:"goals"`
-	Days      []Day   `json:"days"`
+	// FreeDays are the weekdays off (Sunday 0) and Holidays the public
+	// holidays from the first day to a year after the last, date to name:
+	// the nights before them are free (sleeptiming.js). Health data only.
+	FreeDays []int             `json:"sleep_free_days,omitempty"`
+	Holidays map[string]string `json:"holidays,omitempty"`
+	Goals    Goals             `json:"goals"`
+	Days     []Day             `json:"days"`
 	// Device is the Fitbit tracker with its battery and last sync.
 	Device *Device `json:"device,omitempty"`
 	// HealthSync tells the page when the Fitbit sync is failing.
@@ -389,6 +399,12 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 	}
 	if opt.Review {
 		out.Reviews = reviews(h)
+	}
+	if opt.Health && len(out.Days) > 0 {
+		out.FreeDays = freeDays(opt.FreeDays)
+		first, _ := time.Parse(time.DateOnly, out.Days[0].Date)
+		last, _ := time.Parse(time.DateOnly, out.Days[len(out.Days)-1].Date)
+		out.Holidays = holidays.Between(opt.HolidayRegion, first, last.AddDate(1, 0, 0))
 	}
 	if opt.CreditStatus {
 		out.ReviewStatus = reviewStatus(h, opt.CreditUSD)

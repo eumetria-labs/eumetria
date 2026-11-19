@@ -8,6 +8,7 @@
 import { MEALS, addDays, iso, parse } from './format.js';
 import { RESTLESS, STAGES, bestEntries, wodBestResults } from './health.js';
 import { goalChangesIn, macroGoal, weightTrendAt } from './insights.js';
+import { MIN_NIGHTS, chronotype, clockOf, freeNight, midMin, regularity } from './sleeptiming.js';
 
 // Sleep stage names by code; nights without stage tracking say "asleep" (4).
 const stageName = (code) => [...STAGES, RESTLESS].find((st) => st.code === code)?.key ?? 'asleep';
@@ -102,8 +103,10 @@ const TABLES = [
     ['date', d.date], ['workout_id', w.id], ['km', i + 1], ['distance_m', m], ['seconds', s],
   ]],
   // The night that ended on the date, with what Fitbit measured during it.
-  ['sleep', (days) => days.filter((d) => d.sleep || d.hrv || d.sleep_hr || d.resp || d.spo2 || d.temp != null).map((d) => ({ d, s: d.sleep || {} })), ({ d, s }) => [
+  ['sleep', (days) => days.filter((d) => d.sleep || d.hrv || d.sleep_hr || d.resp || d.spo2 || d.temp != null).map((d) => ({ d, s: d.sleep || {} })), ({ d, s }, all) => [
     ['date', d.date], ['start', s.start], ['end', s.end],
+    // The middle of the night, and whether it ended on a free day (sleeptiming.js).
+    ['mid_sleep', s.start && s.end ? clockOf(midMin(s)) : null], ['night', s.start ? ((all?.isFree || freeNight)(d.date) ? 'free' : 'work') : null],
     ['asleep_min', s.asleep], ['awake_min', s.awake], ['deep_min', s.deep], ['light_min', s.light], ['rem_min', s.rem],
     ['restless_moments', s.restless?.length], ['restless_min', s.restless_min],
     ['to_fall_asleep_min', s.to_sleep], ['awake_after_wakeup_min', s.after_wake],
@@ -137,12 +140,14 @@ const EMPTY = { d: {}, f: {}, r: {}, it: {}, a: {}, w: {}, s: {}, k: '', amount:
 // extras are what the page loads besides data, each table only with it:
 // { lifts, wods } (the lifts and benchmark tables), phases (the phases
 // table), notes (a Map of the workout notes, as state.notes) and checkins
-// (each day's check-in with its tags resolved, as checkinRows makes them).
+// (each day's check-in with its tags resolved, as checkinRows makes them)
+// and freeNight (the free-night test, sleeptiming.js; else Saturday and
+// Sunday mornings).
 export function exportTables(data, from, to, extras = null) {
   const byDate = new Map(data.days.map((d) => [d.date, d]));
   const days = [];
   for (let d = parse(from); d <= parse(to); d = addDays(d, 1)) days.push(byDate.get(iso(d)) || { date: iso(d) });
-  const withDates = { ...data, byDate };
+  const withDates = { ...data, byDate, isFree: extras?.freeNight };
   const tables = TABLES.map(([name, items, row]) => [
     name,
     row(EMPTY, {}).map(([k]) => k),
@@ -152,7 +157,26 @@ export function exportTables(data, from, to, extras = null) {
   if (extras?.lifts || extras?.wods) tables.push(...bestTables(extras, from, to));
   if (extras?.phases) tables.push(phaseTable(extras.phases, from, to));
   if (extras?.checkins) tables.push(checkinTable(extras.checkins, from, to));
+  const timing = timingTable(days, extras?.checkins, extras?.freeNight);
+  if (timing) tables.push(timing);
   return tables;
+}
+
+// The range's sleep regularity and chronotype in one row (sleeptiming.js),
+// without the travel nights the check-ins name; null without enough nights.
+function timingTable(days, checkins, isFree = freeNight) {
+  const reg = regularity(days);
+  if (reg.nights < MIN_NIGHTS) return null;
+  const travel = new Set((checkins || []).filter((c) => c.tags?.includes('travel')).map((c) => c.date));
+  const ch = chronotype(days, (d) => travel.has(d), isFree);
+  const row = {
+    nights: reg.nights, bedtime_sd_min: reg.onsetSD, wake_time_sd_min: reg.wakeSD, sleep_regularity_index: reg.sri,
+    free_nights: ch.free, work_nights: ch.work,
+    mid_sleep_free_days: ch.ok ? clockOf(ch.msf) : null, mid_sleep_free_days_corrected: ch.ok ? clockOf(ch.msfsc) : null,
+    mid_sleep_work_days: ch.ok ? clockOf(ch.msw) : null, social_jetlag_min: ch.ok ? ch.jetlag : null,
+  };
+  const columns = Object.keys(row);
+  return ['sleep_timing', columns, [Object.fromEntries(columns.map((k) => [k, value(row[k])]))]];
 }
 
 // The check-ins of the range: the answers from 1 to 5, the note, and the

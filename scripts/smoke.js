@@ -90,7 +90,7 @@ const views = [
   { hash: `range=30&lang=de&day=${day}`, expect: ['<dialog class="dlg sheet-overlay"', 'Vorheriger Tag'] },
   { hash: `range=30&day=${day}`, expect: ['class="sheet"', '<dialog class="dlg sheet-overlay"', 'class="sheet-checkin"'] },
   ...(workout ? [
-    { hash: 'range=30', expect: ['id="recovery-card"', 'mark-bar st-deep', 'Most calories', 'class="q-bar"'] },
+    { hash: 'range=30', expect: ['id="recovery-card"', 'mark-bar st-deep', 'Most calories', 'class="q-bar"', 'class="timing"', 'class="info-btn"'] },
     { hash: `range=30&day=${wday.date}&workout=${workout.id}`, expect: ['class="wo-panel"', 'class="hr-line"', 'class="wo-zones"'] },
   ] : []),
   ...(recipe ? [{ hash: `range=30&day=${rday.date}&tab=${recipe.m}&recipe=${recipe.r}`, expect: ['recipe-row', 'class="rc-photo"', 'rc-producer', 'class="q-badge'] }] : []),

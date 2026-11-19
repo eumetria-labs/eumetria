@@ -1,0 +1,731 @@
+{
+ "about": "Sleep timing cases shared by tests/sleeptiming.test.js and internal/stats/sleeptiming_test.go",
+ "cases": [
+  {
+   "name": "the same every night",
+   "days": [
+    {
+     "date": "2026-11-02",
+     "sleep": {
+      "start": "23:00",
+      "end": "07:00"
+     }
+    },
+    {
+     "date": "2026-11-03",
+     "sleep": {
+      "start": "23:00",
+      "end": "07:00"
+     }
+    },
+    {
+     "date": "2026-11-04",
+     "sleep": {
+      "start": "23:00",
+      "end": "07:00"
+     }
+    },
+    {
+     "date": "2026-11-05",
+     "sleep": {
+      "start": "23:00",
+      "end": "07:00"
+     }
+    },
+    {
+     "date": "2026-11-06",
+     "sleep": {
+      "start": "23:00",
+      "end": "07:00"
+     }
+    },
+    {
+     "date": "2026-11-07",
+     "sleep": {
+      "start": "23:00",
+      "end": "07:00"
+     }
+    }
+   ],
+   "travel": [],
+   "want": {
+    "nights": 6,
+    "onsetSD": 0,
+    "wakeSD": 0,
+    "pairs": 5,
+    "sri": 100,
+    "chrono": {
+     "ok": false,
+     "free": 1,
+     "work": 5
+    }
+   }
+  },
+  {
+   "name": "23:00 and 01:00 in turn, one night awake for 30 min",
+   "days": [
+    {
+     "date": "2026-11-02",
+     "sleep": {
+      "start": "23:00",
+      "end": "07:00"
+     }
+    },
+    {
+     "date": "2026-11-03",
+     "sleep": {
+      "start": "01:00",
+      "end": "09:00"
+     }
+    },
+    {
+     "date": "2026-11-04",
+     "sleep": {
+      "start": "23:00",
+      "end": "07:00",
+      "stages": [
+       [
+        0,
+        480,
+        1
+       ],
+       [
+        120,
+        30,
+        0
+       ]
+      ]
+     }
+    },
+    {
+     "date": "2026-11-05",
+     "sleep": {
+      "start": "01:00",
+      "end": "09:00"
+     }
+    },
+    {
+     "date": "2026-11-06",
+     "sleep": {
+      "start": "23:00",
+      "end": "07:00"
+     }
+    },
+    {
+     "date": "2026-11-07",
+     "sleep": {
+      "start": "01:00",
+      "end": "09:00"
+     }
+    }
+   ],
+   "travel": [],
+   "want": {
+    "nights": 6,
+    "onsetSD": 66,
+    "wakeSD": 66,
+    "pairs": 5,
+    "sri": 65,
+    "chrono": {
+     "ok": false,
+     "free": 1,
+     "work": 5
+    }
+   }
+  },
+  {
+   "name": "two weeks: work nights 23:00–06:30, free nights 00:30–09:30",
+   "days": [
+    {
+     "date": "2026-11-02",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-03",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-04",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-05",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-06",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-07",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-08",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-09",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-10",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-11",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-12",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-13",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-14",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-15",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    }
+   ],
+   "travel": [],
+   "want": {
+    "nights": 14,
+    "pairs": 13,
+    "chrono": {
+     "ok": true,
+     "free": 4,
+     "work": 10,
+     "msf": 1020,
+     "msw": 885,
+     "msfsc": 988,
+     "jetlag": 135
+    }
+   }
+  },
+  {
+   "name": "the same with a trip on the first Saturday",
+   "days": [
+    {
+     "date": "2026-11-02",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-03",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-04",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-05",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-06",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-07",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-08",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-09",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-10",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-11",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-12",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-13",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-14",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-15",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    }
+   ],
+   "travel": [
+    "2026-11-07"
+   ],
+   "want": {
+    "nights": 14,
+    "pairs": 13,
+    "chrono": {
+     "ok": false,
+     "free": 2,
+     "work": 10
+    }
+   }
+  },
+  {
+   "name": "the two weeks with a public holiday on Monday 9 November",
+   "days": [
+    {
+     "date": "2026-11-02",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-03",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-04",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-05",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-06",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-07",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-08",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-09",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-10",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-11",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-12",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-13",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-14",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-15",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    }
+   ],
+   "travel": [],
+   "holidays": [
+    "2026-11-09"
+   ],
+   "want": {
+    "nights": 14,
+    "pairs": 13,
+    "chrono": {
+     "ok": true,
+     "free": 5,
+     "work": 9,
+     "msf": 993,
+     "msw": 885,
+     "msfsc": 967,
+     "jetlag": 108
+    }
+   }
+  },
+  {
+   "name": "the two weeks for someone off on Monday and Tuesday",
+   "days": [
+    {
+     "date": "2026-11-02",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-03",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-04",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-05",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-06",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-07",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-08",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-09",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-10",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-11",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-12",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-13",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-14",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-15",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    }
+   ],
+   "travel": [],
+   "free_days": [
+    1,
+    2
+   ],
+   "want": {
+    "nights": 14,
+    "pairs": 13,
+    "chrono": {
+     "ok": true,
+     "free": 4,
+     "work": 10,
+     "msf": 885,
+     "msw": 939,
+     "msfsc": 885,
+     "jetlag": -54
+    }
+   }
+  },
+  {
+   "name": "the two weeks with a vacation or day off on Thursday and Friday 12–13 November",
+   "days": [
+    {
+     "date": "2026-11-02",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-03",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-04",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-05",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-06",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-07",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-08",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-09",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-10",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-11",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-12",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-13",
+     "sleep": {
+      "start": "23:00",
+      "end": "06:30"
+     }
+    },
+    {
+     "date": "2026-11-14",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    },
+    {
+     "date": "2026-11-15",
+     "sleep": {
+      "start": "00:30",
+      "end": "09:30"
+     }
+    }
+   ],
+   "travel": [],
+   "off": [
+    "2026-11-12",
+    "2026-11-13"
+   ],
+   "want": {
+    "nights": 14,
+    "pairs": 13,
+    "chrono": {
+     "ok": true,
+     "free": 6,
+     "work": 8,
+     "msf": 975,
+     "msw": 885,
+     "msfsc": 954,
+     "jetlag": 90
+    }
+   }
+  }
+ ]
+}

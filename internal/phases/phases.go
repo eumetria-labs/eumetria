@@ -30,9 +30,12 @@ const (
 	Maintain = "maintain"
 	Other    = "other"
 	Event    = "event"
+	// Vacation is time off: its days are free days for the chronotype
+	// (stats/sleeptiming.go), shaded on the charts like the other phases.
+	Vacation = "vacation"
 )
 
-var Kinds = []string{Cut, Bulk, Maintain, Other, Event}
+var Kinds = []string{Cut, Bulk, Maintain, Other, Event, Vacation}
 
 // The limits of an entry.
 const (
@@ -94,7 +97,12 @@ func (in Input) Clean(now time.Time) (Input, error) {
 		in.End = in.Start
 		return in, nil
 	}
-	if start.After(today.AddDate(0, 0, 1)) {
+	// A vacation is planned: it may lie ahead, and it ends.
+	if in.Kind == Vacation {
+		if start.After(today.AddDate(0, 0, MaxDays)) || in.End == "" {
+			return in, fmt.Errorf("%w: a vacation at most two years ahead, with an end", ErrInvalid)
+		}
+	} else if start.After(today.AddDate(0, 0, 1)) {
 		return in, fmt.Errorf("%w: a phase starts today at the latest", ErrInvalid)
 	}
 	if in.End == "" {

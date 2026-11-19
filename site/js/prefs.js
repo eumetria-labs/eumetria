@@ -20,7 +20,7 @@ import { openDialog } from './dialog.js';
 import { account, api } from './account.js';
 import { icon } from './kit.js';
 import { t, tn } from './i18n.js';
-import { renderAccount, renderDevices } from './profile.js';
+import { renderAccount, renderDevices, renderSleep } from './profile.js';
 import { renderSignIn } from './security.js';
 import { renderManage } from './manage.js';
 import { renderSettings, stopSettings } from './settings.js';
@@ -36,6 +36,9 @@ const seesPhases = () => can('view.nutrition') || can('view.health');
 const SECTIONS = [
   { side: 'profile', group: () => t('You'), key: 'account', label: () => t('Account'), icon: 'user', color: '#2a78d6',
     desc: () => t('How you appear in Eumetria, and where security alerts go.'), draw: renderAccount },
+  // The site's sleep data is the owner's: only they set its goal and days off.
+  { side: 'profile', group: () => t('You'), key: 'sleep', label: () => t('Sleep'), icon: 'moon', color: '#5e6ad2', when: () => !!account.user?.owner && can('view.health'),
+    desc: () => t('Your sleep goal, days off and public holidays.'), draw: renderSleep },
   { side: 'profile', group: () => t('Dashboard'), key: 'layout', label: () => t('Customize Dashboard'), icon: 'layout', color: '#1baf7a',
     desc: () => t('The order of the cards and which ones you see, on all your devices.'), draw: renderLayout },
   { side: 'profile', group: () => t('Dashboard'), key: 'phases', label: () => t('Phases & Events'), icon: 'flag', color: '#eb6834', when: seesPhases,
@@ -57,7 +60,7 @@ const SECTIONS = [
     ['sync', () => t('Sync'), 'sync', '#2a78d6', () => t('When and how far back the data is fetched.')],
   ].map(([key, label, ic, color, desc]) => ({ side: 'settings', group: () => t('Data sources'), key, label, icon: ic, color, desc, when: admin,
     draw: (host, result) => renderSettings(host, key, result) })),
-  ...[['general', () => t('General'), 'sliders', '#6b7280', () => t('The site’s name, address, language and time zone, and the scores.')],
+  ...[['general', () => t('General'), 'sliders', '#6b7280', () => t('The site’s name, address, language and time zone.')],
     ['review', () => t('Weekly review'), 'spark', '#a24bc4', () => t('A review of each week, written by Claude.')],
     ['mail', () => t('E-mail'), 'mail', '#eb6834', () => t('Security alerts and links by e-mail.')],
     ['backups', () => t('Backups'), 'archive', '#4b5563', () => t('A daily archive on this server, and on Google Drive if you like.')],

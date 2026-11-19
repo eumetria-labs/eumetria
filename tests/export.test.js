@@ -239,3 +239,24 @@ test('the check-ins of the range, with their tags, only when given', () => {
   ]);
   assert.ok(!exportTables(data, '2026-10-11', '2026-10-14').some(([n]) => n === 'checkins'));
 });
+
+test('sleep timing: mid-sleep per night and the range in one row', () => {
+  const nights = [];
+  for (let i = 0; i < 14; i++) {
+    const date = `2026-11-${String(2 + i).padStart(2, '0')}`;
+    const free = [0, 6].includes(new Date(date + 'T00:00:00Z').getUTCDay());
+    nights.push({ date, sleep: free ? { start: '00:30', end: '09:30', asleep: 520 } : { start: '23:00', end: '06:30', asleep: 430 } });
+  }
+  const tables = exportTables({ ...data, days: nights }, '2026-11-02', '2026-11-15');
+  const [, , sleep] = tables.find(([n]) => n === 'sleep');
+  assert.equal(sleep[0].mid_sleep, '02:45');
+  assert.equal(sleep[5].night, 'free');
+  const [, , [row]] = tables.find(([n]) => n === 'sleep_timing');
+  assert.equal(row.social_jetlag_min, 135);
+  assert.equal(row.mid_sleep_free_days_corrected, '04:28');
+  // A trip on two weekends leaves too few free nights.
+  const away = [{ date: '2026-11-07', tags: ['travel'] }];
+  const [, , [few]] = exportTables({ ...data, days: nights }, '2026-11-02', '2026-11-15', { checkins: away }).find(([n]) => n === 'sleep_timing');
+  assert.equal(few.free_nights, 2);
+  assert.equal(few.social_jetlag_min, null);
+});

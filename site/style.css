@@ -2236,3 +2236,41 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 @media (max-width: 640px) {
   .sheet-checkin { margin: 0 20px 12px; }
 }
+
+/* ---------- sleep timing (js/sleeptiming.js, the Sleep tab) ---------- */
+.timing-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 18px; }
+.timing-row[hidden] { display: none; }
+.timing { display: flex; flex-direction: column; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-2); }
+.timing .k { font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
+.timing .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.timing .v small { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+.timing .sub { font-size: 12px; line-height: 1.35; margin-top: 2px; max-height: none; overflow: visible; }
+.timing-spark { padding-top: 6px; height: 40px; }
+.timing-spark .end { fill: var(--st, var(--s2)); }
+@media (max-width: 640px) {
+  .timing-row { grid-template-columns: 1fr; }
+}
+
+/* Profile → Sleep */
+.pf-pair { display: flex; gap: 8px; }
+.pf-pair .field { flex: 1; min-width: 0; }
+.pf-days { display: flex; flex-wrap: wrap; gap: 6px; }
+.pf-sleep .pf-wide { grid-column: 1 / -1; }
+.pf-sleep .ci-tag[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.ph-vacation { --ph: var(--s3); }
+.timing .k { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.info-btn {
+  flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0;
+  border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--ink-2);
+  font: 600 12px/1 Georgia, 'Times New Roman', serif; font-style: italic; cursor: pointer;
+}
+.info-btn[aria-expanded="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.timing-info { margin: 8px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
+.timing-info[hidden] { display: none; }
+/* The chronotype's scale, early bird to night owl */
+.timing .v { overflow-wrap: anywhere; }
+.chrono-scale { margin-top: 10px; }
+.cs-bar { position: relative; height: 6px; border-radius: 3px; background: linear-gradient(90deg, color-mix(in oklab, var(--s2) 70%, var(--surface)), var(--grid) 50%, color-mix(in oklab, var(--s1) 70%, var(--surface))); }
+.cs-avg { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--muted); border-radius: 1px; }
+.cs-you { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--ink); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--ink); }
+.cs-ends { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11.5px; color: var(--muted); }

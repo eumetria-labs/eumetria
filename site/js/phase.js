@@ -12,6 +12,8 @@ export const KINDS = {
   maintain: { label: t('Maintain|phase'), icon: '⚖️' },
   other: { label: t('Other|phase'), icon: '📌' },
   event: { label: t('Event'), icon: '🏁' },
+  // Time off: its days count as days off for the chronotype (sleeptiming.js).
+  vacation: { label: t('Vacation|phase'), icon: '🏖️' },
 };
 
 export const isEvent = (p) => p.kind === 'event';

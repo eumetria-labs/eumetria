@@ -341,3 +341,40 @@ func TestProfileSexAndBirthDate(t *testing.T) {
 		t.Errorf("owner = %+v", p)
 	}
 }
+
+func TestProfileSleepIsTheOwners(t *testing.T) {
+	e := newTestEnv(t, true)
+	pat := e.signIn(t, "patrick", adminPassword, true)
+	res, body := e.do(t, pat, "PUT", "/api/profile/sleep", `{"goal":450,"free_days":[6,0,5],"holidays":"DE-BY"}`, sameSite)
+	if res.StatusCode != 200 || !strings.Contains(body, `"free_days":[0,5,6]`) {
+		t.Fatalf("saved = %d %s", res.StatusCode, body)
+	}
+	if e.data.owner.Goal != 450 || e.data.owner.Holidays != "DE-BY" {
+		t.Errorf("the stats got %+v", e.data.owner)
+	}
+	_, body = e.do(t, pat, "GET", "/api/me", "")
+	if !strings.Contains(body, `"owner":true`) {
+		t.Errorf("me = %s", body)
+	}
+	_, body = e.do(t, pat, "GET", "/api/profile", "")
+	if !strings.Contains(body, `"sleep":{"goal":450,"free_days":[0,5,6],"holidays":"DE-BY"}`) {
+		t.Errorf("profile = %s", body)
+	}
+	// None off at all is kept as such, not as the default.
+	e.do(t, pat, "PUT", "/api/profile/sleep", `{"goal":0,"free_days":[],"holidays":""}`, sameSite)
+	if _, body = e.do(t, pat, "GET", "/api/profile", ""); !strings.Contains(body, `"free_days":[]`) {
+		t.Errorf("no days off = %s", body)
+	}
+	for _, in := range []string{`{"goal":100}`, `{"goal":800}`, `{"free_days":[7]}`, `{"holidays":"DE-XX"}`} {
+		if res, body := e.do(t, pat, "PUT", "/api/profile/sleep", in, sameSite); res.StatusCode != 400 || !strings.Contains(body, "bad_sleep") {
+			t.Errorf("%s = %d %s", in, res.StatusCode, body)
+		}
+	}
+	anna := e.signIn(t, "anna", viewerPassword, false)
+	if res, body := e.do(t, anna, "PUT", "/api/profile/sleep", `{"goal":480}`, sameSite); res.StatusCode != 403 || !strings.Contains(body, "not_owner") {
+		t.Errorf("anna = %d %s", res.StatusCode, body)
+	}
+	if _, body := e.do(t, anna, "GET", "/api/me", ""); strings.Contains(body, `"owner"`) {
+		t.Errorf("anna's me = %s", body)
+	}
+}

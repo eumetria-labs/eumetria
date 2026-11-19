@@ -178,6 +178,7 @@ func withOwner(ctx context.Context, path string, opts stats.Options) stats.Optio
 	if p.Sex != "" {
 		opts.PersonSex, opts.PersonBirthDate = p.Sex, p.BirthDate
 	}
+	opts = withSleep(opts, p.Sleep)
 	if opts.SkipBaseline, err = (&checkins.Store{DB: d}).SkipDays(ctx); err != nil {
 		log.Printf("weekly review: the sick and travel days: %v", err)
 	}

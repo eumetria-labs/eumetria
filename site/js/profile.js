@@ -6,6 +6,7 @@
 
 import { LOCALE, deviceName } from './format.js';
 import { h } from './dom.js';
+import { state } from './state.js';
 import { account, api, reason, refreshUser } from './account.js';
 import { confirmNote } from './stepup.js';
 import { imageForUpload } from './upload.js';
@@ -294,4 +295,92 @@ function sessionsSection(list, again) {
     sec.append(row);
   }
   return sec;
+}
+
+/* ---------- sleep (the site owner's) ---------- */
+
+// The regions whose public holidays the server knows (internal/holidays).
+const REGIONS = [
+  ['', () => t('None')], ['DE', () => t('Germany (nationwide only)')],
+  ...[['BW', 'Baden-Württemberg'], ['BY', 'Bayern'], ['BE', 'Berlin'], ['BB', 'Brandenburg'], ['HB', 'Bremen'], ['HH', 'Hamburg'],
+    ['HE', 'Hessen'], ['MV', 'Mecklenburg-Vorpommern'], ['NI', 'Niedersachsen'], ['NW', 'Nordrhein-Westfalen'], ['RP', 'Rheinland-Pfalz'],
+    ['SL', 'Saarland'], ['SN', 'Sachsen'], ['ST', 'Sachsen-Anhalt'], ['SH', 'Schleswig-Holstein'], ['TH', 'Thüringen']]
+    .map(([c, name]) => ['DE-' + c, () => name]),
+  ['AT', () => t('Austria')],
+];
+// Monday first, as the week is shown; the numbers are Sunday 0.
+const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0];
+const weekdayName = (d) => new Intl.DateTimeFormat(LOCALE, { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 10, 15 + d)));
+
+// renderSleep draws the owner's sleep settings into body: the goal of the
+// Sleep score, the days off and the public holidays of the chronotype.
+export async function renderSleep(body) {
+  const res = await api('profile').catch(() => null);
+  if (!res?.ok) return failed(body);
+  const sl = (await res.json()).sleep || {};
+  const sec = section(t('Sleep'), t('Yours: the sleep this site shows is your Fitbit’s.'));
+  const form = h('form', { class: 'set-form pf-form pf-sleep', 'data-save': '' });
+
+  // The goal in hours and minutes, from 4 to 12 hours.
+  const goal = sl.goal || state?.data?.sleep_goal || 480;
+  const hours = h('select', { class: 'field', 'aria-label': t('Hours') });
+  for (let v = 4; v <= 12; v++) hours.append(h('option', { value: v }, `${v} h`));
+  const mins = h('select', { class: 'field', 'aria-label': t('Minutes') });
+  for (let v = 0; v < 60; v += 5) mins.append(h('option', { value: v }, `${String(v).padStart(2, '0')} min`));
+  hours.value = String(Math.floor(goal / 60));
+  mins.value = String(Math.round((goal % 60) / 5) * 5);
+  const keep = () => { if (hours.value === '12') mins.value = '0'; mins.disabled = hours.value === '12'; };
+  hours.onchange = keep;
+  keep();
+  const goalRow = h('div', { class: 'set-field' });
+  const pair = h('div', { class: 'pf-pair' });
+  pair.append(hours, mins);
+  goalRow.append(h('span', { class: 'set-label' }, t('Sleep goal')), pair, h('span', { class: 'muted set-hint' }, t('How long you want to sleep: the Sleep score measures against it.')));
+  form.append(goalRow);
+
+  // The weekdays off: the nights before them are free nights.
+  const off = new Set(sl.free_days ?? [0, 6]);
+  const days = h('div', { class: 'pf-days', role: 'group', 'aria-label': t('Days off') });
+  for (const d of WEEKDAYS) {
+    const b = h('button', { type: 'button', class: 'ci-tag', 'aria-pressed': String(off.has(d)) }, weekdayName(d));
+    b.onclick = () => { off.has(d) ? off.delete(d) : off.add(d); b.setAttribute('aria-pressed', String(off.has(d))); };
+    days.append(b);
+  }
+  const daysRow = h('div', { class: 'set-field pf-wide' });
+  daysRow.append(h('span', { class: 'set-label' }, t('Days off')), days,
+    h('span', { class: 'muted set-hint' }, t('Your usual days without work. The nights before them are free nights, for your chronotype and social jetlag. Shifts that change don’t fit a week; leave the usual ones.')));
+  form.append(daysRow);
+
+  const region = h('select', { class: 'field' });
+  for (const [code, name] of REGIONS) region.append(h('option', { value: code }, name()));
+  region.value = sl.holidays || '';
+  const regionRow = h('label', { class: 'set-field' });
+  regionRow.append(h('span', { class: 'set-label' }, t('Public holidays')), region,
+    h('span', { class: 'muted set-hint' }, t('Their nights count as free too. Only holidays of the whole state.')));
+  form.append(regionRow);
+  form.append(h('p', { class: 'muted set-hint pf-wide' }, t('Vacation: add it under Phases & Events. A single day off: tag it “Day off” in the check-in.')));
+
+  const msg = message();
+  const save = h('button', { class: 'pill-btn pf-save', type: 'submit' }, t('Save'));
+  form.append(msg, save);
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    save.disabled = true;
+    msg.hidden = true;
+    try {
+      const body = { goal: Number(hours.value) * 60 + Number(mins.value), free_days: [...off].sort(), holidays: region.value };
+      const r = await api('profile/sleep', 'PUT', body);
+      if (!r.ok) return say(msg, t('That didn’t work. Try again.'), true);
+      form.dispatchEvent(new Event('saved', { bubbles: true }));
+      // The scores and the chronotype are worked out again.
+      document.dispatchEvent(new CustomEvent('checkins-change', { detail: { scores: true } }));
+      say(msg, t('Saved.'));
+    } catch {
+      say(msg, t('Server not reachable.'), true);
+    } finally {
+      save.disabled = false;
+    }
+  };
+  sec.append(form);
+  body.replaceChildren(sec);
 }

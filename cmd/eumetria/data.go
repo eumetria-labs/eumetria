@@ -22,6 +22,7 @@ type published struct {
 
 	mu     sync.Mutex
 	skip   map[string]bool // the days tagged sick or travel (check-ins)
+	owner  auth.Sleep      // the owner's sleep settings (their profile)
 	hist   *store.History
 	at     time.Time // when hist was synced: the stats' generated_at
 	builds map[string]*build
@@ -45,6 +46,13 @@ func (p *published) setOptions(opts stats.Options) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.opts, p.builds = opts, map[string]*build{}
+}
+
+// setOwner takes the owner's sleep settings; the stats are built again.
+func (p *published) setOwner(sl auth.Sleep) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.owner, p.builds = sl, map[string]*build{}
 }
 
 // setSkip takes the days tagged sick or travel; the stats are built again.
@@ -83,6 +91,7 @@ func (p *published) get(scopes []string, admin bool) (*build, error) {
 	opts.Review = slices.Contains(scopes, auth.ViewReview)
 	opts.CreditStatus = admin
 	opts.SkipBaseline = p.skip
+	opts = withSleep(opts, p.owner)
 	out := stats.Build(p.hist, opts, p.at)
 	out.Scopes = scopes
 	b := &build{photos: map[string]bool{}, workouts: map[string]string{}}
@@ -113,4 +122,15 @@ func (p *published) get(scopes []string, admin bool) (*build, error) {
 	b.etag = contentTag(b.stats)
 	p.builds[key] = b
 	return b, nil
+}
+
+// withSleep gives opts the owner's sleep settings: their goal over the
+// site's old setting, their days off and holidays.
+func withSleep(opts stats.Options, sl auth.Sleep) stats.Options {
+	if sl.Goal > 0 {
+		opts.SleepGoal = float64(sl.Goal)
+	}
+	opts.FreeDays = sl.FreeDays
+	opts.HolidayRegion = sl.Holidays
+	return opts
 }

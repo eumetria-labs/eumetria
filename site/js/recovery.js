@@ -2,14 +2,15 @@
 // tab of the day sheet. The measurements are Fitbit's; the scores above them
 // are Eumetria's own (scores.js), never named after Fitbit's.
 
-import { addDays, avgOf, fmt, iso, logged, parse, signed } from './format.js';
-import { TAGS, dayTags, tagName } from './checkin.js';
+import { addDays, avgOf, fmt, fmtDuration, iso, logged, parse, signed } from './format.js';
+import { AVERAGE_MSF, MIN_FREE, MIN_NIGHTS, MIN_WORK, chronoType, chronotype, clockOf, regularity } from './sleeptiming.js';
+import { TAGS, dayTags, pageFreeNight, tagName } from './checkin.js';
 import { median, nightsAfter } from './insights.js';
 import { RESTLESS, STAGES, fmtSleep, nightBreaks, stageRow } from './health.js';
 import { legendToggles } from './legend.js';
 import { $, h, svg, showTip, hideTip, panelTabs } from './dom.js';
 import { state, store } from './state.js';
-import { timeChart, bucketTitle, drawStacks, fadeArea, smoothPath, valuePill } from './charts.js';
+import { sparkline, timeChart, bucketTitle, drawStacks, fadeArea, smoothPath, valuePill } from './charts.js';
 import { t, tn } from './i18n.js';
 import { scoresChart, scoresPanel } from './scores.js';
 import { ALCOHOL_DAY } from './nutrients.js';
@@ -33,6 +34,7 @@ export function renderRecovery(s) {
   $('#recovery-sub').textContent = (parts.join(' · ') || t('No sleep data in this range')) + (weekly ? ' · ' + t('weekly averages') : '');
 
   scoresChart(s);
+  renderSleepTiming(s);
   sleepChart(s);
   // Second lines: the heart rate while asleep (outside REM) and the HRV of
   // deep sleep, both measured by Fitbit like the first.
@@ -46,6 +48,105 @@ export function renderRecovery(s) {
     ['heart', t('Heart'), '❤️'],
     patterns && ['patterns', t('Patterns'), '🔍'],
   ].filter(Boolean), store.get('recoveryTab'), (key) => store.set('recoveryTab', key));
+}
+
+/* ---------- when you sleep: regularity and chronotype ---------- */
+
+// renderSleepTiming fills the Sleep tab's row of three: how regular the
+// nights were (the SRI, with its weekly course), the chronotype and the
+// social jetlag (sleeptiming.js).
+function renderSleepTiming(s) {
+  const host = $('#sleep-timing');
+  const rows = s.complete;
+  const reg = regularity(rows);
+  host.hidden = reg.nights < MIN_NIGHTS;
+  if (host.hidden) return;
+  const ch = chronotype(rows, (d) => dayTags(d).includes('travel'), pageFreeNight());
+  // Each tile explains itself behind an ⓘ: a tap on a phone, a click here.
+  const tile = (label, value, unit, sub, info) => {
+    const el = h('div', { class: 'timing' });
+    const head = h('div', { class: 'k' });
+    head.append(h('span', {}, label));
+    const text = h('p', { class: 'timing-info', hidden: '' }, info);
+    if (info) {
+      const b = h('button', { class: 'info-btn', type: 'button', 'aria-expanded': 'false', 'aria-label': t('What is {name}?', { name: label }) }, 'i');
+      b.onclick = () => {
+        text.hidden = !text.hidden;
+        b.setAttribute('aria-expanded', String(!text.hidden));
+      };
+      head.append(b);
+    }
+    const v = h('div', { class: 'v' }, value);
+    if (unit) v.append(h('small', {}, unit));
+    el.append(head, v, h('div', { class: 'sub muted' }, sub), text);
+    return el;
+  };
+  const spread = t('bedtime ±{a} · waking ±{b}', { a: fmtDuration(reg.onsetSD), b: fmtDuration(reg.wakeSD) });
+  const regTile = reg.sri != null
+    ? tile(t('Regularity'), String(reg.sri), '/100', `${sriWord(reg.sri)} · ${spread}`,
+      t('Sleep Regularity Index: how likely you are asleep or awake at the same time as 24 hours before, minute by minute. 100 is the same every day; 80 or more is regular.'))
+    : tile(t('Regularity'), '±' + fmtDuration(reg.onsetSD), '', spread, t('How much bedtime and wake time vary (standard deviation).'));
+  // The SRI week by week, when the range holds a few.
+  const weeks = weeklySRI(rows);
+  if (weeks.filter((v) => v != null).length >= 3) {
+    const spark = h('div', { class: 'spark timing-spark', 'aria-hidden': 'true' });
+    regTile.append(spark);
+    requestAnimationFrame(() => sparkline(spark, weeks));
+  }
+  const type = ch.ok ? CHRONO[chronoType(ch.msfsc)] : null;
+  const chTile = ch.ok
+    ? tile(t('Chronotype'), `${type.icon} ${type.label()}`, '', t('mid-sleep {time} on free days', { time: clockOf(ch.msfsc) }),
+      t('Not a time you do anything: the middle of your sleep on free nights, when no alarm rings and your body decides. Asleep at 23:00 and awake at 7:30 is a middle of 3:15. Adults lie around 4:00 on average; earlier is an early bird (morning person), later a night owl. Sleeping longer on free days to catch up isn’t counted (MSFsc). Free nights are those before your days off, holidays and vacation days (Profile → Sleep).'))
+    : tile(t('Chronotype'), '–', '', notEnough(ch), t('Needs at least {free} free and {work} work nights in the range; travel days don’t count.', { free: MIN_FREE, work: MIN_WORK }));
+  if (ch.ok) chTile.querySelector('.timing-info').before(chronoScale(ch.msfsc));
+  const jl = ch.ok ? Math.abs(ch.jetlag) : null;
+  const jlTile = ch.ok
+    ? tile(t('Social jetlag'), fmtDuration(jl), '', jl < 15 ? t('about the same on all days') : ch.jetlag > 0 ? t('later on free days') : t('earlier on free days'),
+      t('How far the middle of your sleep moves between work and free days ({work} → {free}). Like flying across time zones each weekend; under an hour is mild.', { work: clockOf(ch.msw), free: clockOf(ch.msf) }))
+    : tile(t('Social jetlag'), '–', '', notEnough(ch), t('How far the middle of your sleep moves between work and free days. Needs at least {free} free and {work} work nights in the range.', { free: MIN_FREE, work: MIN_WORK }));
+  host.replaceChildren(regTile, chTile, jlTile);
+}
+
+const sriWord = (v) => (v >= 80 ? t('regular') : v >= 60 ? t('fairly regular') : t('irregular'));
+const CHRONO = {
+  lark2: { icon: '🐦', label: () => t('Clear early bird') },
+  lark: { icon: '🐦', label: () => t('Slight early bird') },
+  mid: { icon: '⚖️', label: () => t('In between') },
+  owl: { icon: '🦉', label: () => t('Slight night owl') },
+  owl2: { icon: '🦉', label: () => t('Clear night owl') },
+};
+
+// chronoScale is the scale from early bird to night owl (1:00 to 7:00),
+// with the average at 4:00 and msfsc marked.
+function chronoScale(msfsc) {
+  const from = 13 * 60, to = 19 * 60;
+  const at = (m) => `${(Math.min(to, Math.max(from, m)) - from) / (to - from) * 100}%`;
+  const box = h('div', { class: 'chrono-scale', 'aria-hidden': 'true' });
+  const bar = h('div', { class: 'cs-bar' });
+  const avg = h('span', { class: 'cs-avg' });
+  avg.style.left = at(AVERAGE_MSF);
+  const you = h('span', { class: 'cs-you' });
+  you.style.left = at(msfsc);
+  bar.append(avg, you);
+  const ends = h('div', { class: 'cs-ends' });
+  const mid = h('span', {}, t('Ø 4:00'));
+  ends.append(h('span', {}, '🐦 ' + t('early')), mid, h('span', {}, t('late') + ' 🦉'));
+  box.append(bar, ends);
+  return box;
+}
+const notEnough = (ch) => tn(ch.free, '{n} of {need} free nights', '{n} of {need} free nights', { need: MIN_FREE });
+
+// weeklySRI is the SRI of each week (Monday to Sunday) of rows, null for a
+// week with too few pairs of nights.
+function weeklySRI(rows) {
+  const weeks = new Map();
+  for (const r of rows) {
+    const d = parse(r.date);
+    const monday = iso(addDays(d, -((d.getUTCDay() + 6) % 7)));
+    if (!weeks.has(monday)) weeks.set(monday, []);
+    weeks.get(monday).push(r);
+  }
+  return [...weeks.values()].map((w) => regularity(w).sri);
 }
 
 // The night after high- vs. lower-calorie days and after workout vs. rest

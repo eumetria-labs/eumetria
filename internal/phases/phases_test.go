@@ -27,6 +27,9 @@ func TestClean(t *testing.T) {
 		{Input{Kind: Cut, Start: "01.10.2026"}, false, Input{}},
 		{Input{Kind: Event, Label: "far", Start: "2029-01-01"}, false, Input{}},
 		{Input{Kind: Cut, Label: "a\x00b", Start: "2026-10-01"}, false, Input{}},
+		// A vacation may lie ahead, and needs an end.
+		{Input{Kind: Vacation, Start: "2027-07-01", End: "2027-07-14"}, true, Input{Kind: Vacation, Start: "2027-07-01", End: "2027-07-14"}},
+		{Input{Kind: Vacation, Start: "2027-07-01"}, false, Input{}},
 	} {
 		got, err := c.in.Clean(now)
 		if c.ok != (err == nil) {

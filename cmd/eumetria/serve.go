@@ -134,6 +134,12 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 			data.set(hist, at)
 		}
 	}
+	// The owner's sleep settings: the sleep goal, days off, holidays.
+	if prof, err := accounts.OwnerProfile(ctx); err != nil {
+		log.Printf("profile: the owner's sleep settings: %v", err)
+	} else {
+		data.setOwner(prof.Sleep)
+	}
 	// The days tagged sick or travel stay out of the scores' baselines.
 	if skip, err := (&checkins.Store{DB: database}).SkipDays(ctx); err != nil {
 		log.Printf("checkins: the sick and travel days: %v", err)

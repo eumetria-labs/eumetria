@@ -47,10 +47,27 @@ type Week struct {
 	// Up to three minerals or vitamins furthest below their daily reference
 	// value this week, only where the foods' data cover most of the kcal.
 	NutrientsLow []NutrientLow `json:"nutrients_below_reference,omitempty"`
+	// When the person slept: the week's regularity, and the chronotype
+	// from the four weeks up to its end.
+	SleepTiming *SleepTiming `json:"sleep_timing,omitempty"`
 
 	// The week's Fitbit workouts by id, as their activity rows name them
 	// ("CrossFit at 16:25"): where a linked lift or benchmark was done.
 	sessions map[string]string
+	// The four weeks up to the week's end, for the chronotype again once
+	// the days away and off are known (AddPhases, AddCheckins): the weekdays
+	// off and holidays (free), vacation and day-off days (off), travel.
+	recent []stats.Day
+	free   stats.Output
+	off    map[string]bool
+	travel map[string]bool
+}
+
+// SleepTiming is the week's sleep regularity and the chronotype of the
+// last four weeks (stats/sleeptiming.go).
+type SleepTiming struct {
+	Regularity stats.Regularity  `json:"this_week"`
+	Chronotype *stats.Chronotype `json:"last_4_weeks,omitempty"`
 }
 
 // NutrientLow is a mineral or vitamin the week's logged foods brought less
@@ -286,7 +303,40 @@ func BuildWeek(out stats.Output, monday time.Time, today string) Week {
 		}
 	}
 	w.Previous = totals(prev, out)
+	// The nights ending this morning count, today's too.
+	for i := 27; i >= 0; i-- {
+		date := monday.AddDate(0, 0, 6-i).Format(time.DateOnly)
+		if d, ok := byDate[date]; ok && date <= today {
+			w.recent = append(w.recent, d)
+		}
+	}
+	w.free = stats.Output{FreeDays: out.FreeDays, Holidays: out.Holidays}
+	w.off, w.travel = map[string]bool{}, map[string]bool{}
+	w.sleepTiming(days)
 	return w
+}
+
+// sleepTiming sets SleepTiming from the week's days; nil without nights.
+func (w *Week) sleepTiming(days []stats.Day) {
+	r := stats.SleepRegularity(days)
+	if r.Nights == 0 {
+		w.SleepTiming = nil
+		return
+	}
+	w.SleepTiming = &SleepTiming{Regularity: r}
+	w.chronotype()
+}
+
+// chronotype sets the chronotype of the last four weeks from what is known
+// of the days off and away.
+func (w *Week) chronotype() {
+	if w.SleepTiming == nil {
+		return
+	}
+	w.SleepTiming.Chronotype = nil
+	if c := stats.SleepChronotype(w.recent, w.travel, stats.FreeNightOf(w.free, w.off)); c.OK {
+		w.SleepTiming.Chronotype = &c
+	}
 }
 
 func day(d stats.Day, date time.Time, out stats.Output) Day {
@@ -518,10 +568,19 @@ func (w *Week) AddPhases(all []phases.Phase) {
 	if err != nil {
 		return
 	}
+	if w.off == nil {
+		w.off = map[string]bool{}
+	}
 	for _, p := range all {
 		start, err := time.Parse(time.DateOnly, p.Start)
 		if err != nil {
 			continue
+		}
+		// A vacation's days are days off for the chronotype.
+		if p.Kind == phases.Vacation {
+			for d := start; d.Format(time.DateOnly) <= last && (p.End == "" || d.Format(time.DateOnly) <= p.End); d = d.AddDate(0, 0, 1) {
+				w.off[d.Format(time.DateOnly)] = true
+			}
 		}
 		if p.Kind == phases.Event {
 			days := int(math.Round(start.Sub(lastDay).Hours() / 24))
@@ -540,6 +599,7 @@ func (w *Week) AddPhases(all []phases.Phase) {
 		week := int(at.Sub(start).Hours()/24)/7 + 1
 		w.Phases = append(w.Phases, Phase{Kind: p.Kind, Name: clip(p.Label, nameMax), Start: p.Start, End: p.End, Week: week, Note: clip(p.Note, noteMax)})
 	}
+	w.chronotype()
 }
 
 // AddLifts adds the week's results from all noted ones, each compared with
@@ -722,4 +782,17 @@ func (w *Week) AddCheckins(all []checkins.Checkin) {
 		}
 		d.Tags = tags
 	}
+	// The chronotype again without the nights away, and with the days off.
+	if w.off == nil {
+		w.off, w.travel = map[string]bool{}, map[string]bool{}
+	}
+	for _, c := range all {
+		if slices.Contains(c.Tags, "travel") {
+			w.travel[c.Date] = true
+		}
+		if slices.Contains(c.Tags, "day_off") {
+			w.off[c.Date] = true
+		}
+	}
+	w.chronotype()
 }

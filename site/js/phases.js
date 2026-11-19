@@ -206,7 +206,7 @@ export function openPhaseForm({ entry, kind, returnFocus, after }) {
   let kindSel = null;
   if (!event) {
     kindSel = h('select', { class: 'field' });
-    kindSel.append(...['cut', 'bulk', 'maintain', 'other'].map((k) => {
+    kindSel.append(...['cut', 'bulk', 'maintain', 'other', 'vacation'].map((k) => {
       const o = h('option', { value: k }, `${KINDS[k].icon} ${KINDS[k].label}`);
       o.selected = k === v.kind;
       return o;
@@ -220,6 +220,14 @@ export function openPhaseForm({ entry, kind, returnFocus, after }) {
     max: event ? iso(addDays(parse(today), 730)) : today }));
   let end = null;
   if (!event) end = field(t('End'), h('input', { class: 'field', type: 'date', value: v.end || '' }), t('Leave empty while it runs'));
+  // A vacation is planned ahead, and ends.
+  const vacation = () => {
+    const on = kindSel?.value === 'vacation';
+    start.max = on ? iso(addDays(parse(today), 730)) : today;
+    if (end) end.required = on;
+  };
+  if (kindSel) kindSel.addEventListener('change', vacation);
+  vacation();
   const note = field(t('Note'), h('input', { class: 'field', type: 'text', maxlength: '200', value: v.note || '', placeholder: t('optional') }));
 
   const error = h('p', { class: 'lock-error', role: 'alert', hidden: '' });

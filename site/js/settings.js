@@ -203,11 +203,7 @@ function generalTab(body, data) {
     back.onclick = () => send(body, back, () => api('admin/settings', 'PUT', { reset: ['timezone'] }));
     sec.append(back);
   }
-  const scores = section(t('Scores'), t('Eumetria’s own sleep, recovery and readiness scores.'));
-  scores.append(form(body, data, [
-    { key: 'sleep_goal', label: t('Sleep goal (minutes)'), hint: t('How long you want to sleep, for the sleep score: 480 is 8 h, between 240 and 720.'), type: 'number' },
-  ]));
-  return [sec, scores];
+  return [sec];
 }
 
 /* ---------- sync ---------- */

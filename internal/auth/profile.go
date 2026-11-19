@@ -7,10 +7,14 @@ import (
 	"fmt"
 	"net/mail"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"eumetria/internal/holidays"
 )
 
 // Profile is what a user says about themselves; all of it is optional.
@@ -23,6 +27,79 @@ type Profile struct {
 	// ""): the nutrients' reference values, and the birthday greeting.
 	Sex       string `json:"sex"`
 	BirthDate string `json:"birth_date"`
+	// Sleep is saved on its own (SaveSleep); only the owner's is used.
+	Sleep Sleep `json:"sleep"`
+}
+
+// Sleep are the sleep settings: the goal in minutes (0 for the site's
+// default), the weekdays off (Sunday 0 … Saturday 6, in order; nil for
+// Saturday and Sunday) and the region of the public holidays ("" none).
+type Sleep struct {
+	Goal     int    `json:"goal"`
+	FreeDays []int  `json:"free_days"`
+	Holidays string `json:"holidays"`
+}
+
+var ErrBadSleep = errors.New("sleep: a goal from 4 to 12 hours, weekdays 0 to 6, a known region")
+
+// Clean checks s and returns it tidied: the weekdays once each, in order.
+func (s Sleep) Clean() (Sleep, error) {
+	if s.Goal != 0 && (s.Goal < 240 || s.Goal > 720) || !holidays.Known(s.Holidays) {
+		return s, ErrBadSleep
+	}
+	var days []int
+	for d := range 7 {
+		if slices.Contains(s.FreeDays, d) {
+			days = append(days, d)
+		}
+	}
+	for _, d := range s.FreeDays {
+		if d < 0 || d > 6 {
+			return s, ErrBadSleep
+		}
+	}
+	s.FreeDays = days
+	if s.FreeDays == nil {
+		s.FreeDays = []int{} // every day a work day
+	}
+	return s, nil
+}
+
+// FreeWeekdays are the weekdays off; Saturday and Sunday when not set.
+func (s Sleep) FreeWeekdays() []int {
+	if s.FreeDays == nil {
+		return []int{0, 6}
+	}
+	return s.FreeDays
+}
+
+// joinDays stores the weekdays off: "" not set (Saturday and Sunday), "-"
+// none, else "0,6".
+func joinDays(days []int) string {
+	if days == nil {
+		return ""
+	}
+	if len(days) == 0 {
+		return "-"
+	}
+	parts := make([]string, len(days))
+	for i, d := range days {
+		parts[i] = strconv.Itoa(d)
+	}
+	return strings.Join(parts, ",")
+}
+
+func splitDays(s string) []int {
+	if s == "" {
+		return nil
+	}
+	out := []int{}
+	for _, p := range strings.Split(s, ",") {
+		if d, err := strconv.Atoi(p); err == nil {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 var (
@@ -82,11 +159,13 @@ func AvatarURL(userID, version int64) string {
 func (s *Store) Profile(ctx context.Context, u *User) (Profile, string, error) {
 	var p Profile
 	var avatar int64
-	err := s.DB.QueryRowContext(ctx, "SELECT first_name, surname, email, instagram, sex, birth_date, avatar FROM profiles WHERE user_id = ?", u.ID).
-		Scan(&p.FirstName, &p.Surname, &p.Email, &p.Instagram, &p.Sex, &p.BirthDate, &avatar)
+	var free string
+	err := s.DB.QueryRowContext(ctx, "SELECT first_name, surname, email, instagram, sex, birth_date, sleep_goal, free_days, holidays, avatar FROM profiles WHERE user_id = ?", u.ID).
+		Scan(&p.FirstName, &p.Surname, &p.Email, &p.Instagram, &p.Sex, &p.BirthDate, &p.Sleep.Goal, &free, &p.Sleep.Holidays, &avatar)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Profile{}, "", nil
 	}
+	p.Sleep.FreeDays = splitDays(free)
 	return p, AvatarURL(u.ID, avatar), err
 }
 
@@ -100,16 +179,36 @@ func (s *Store) SaveProfile(ctx context.Context, u *User, p Profile) error {
 	return err
 }
 
+// SaveSleep stores u's sleep settings (from Sleep.Clean).
+func (s *Store) SaveSleep(ctx context.Context, u *User, sl Sleep) error {
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO profiles (user_id, sleep_goal, free_days, holidays) VALUES (?, ?, ?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET sleep_goal = excluded.sleep_goal, free_days = excluded.free_days, holidays = excluded.holidays`,
+		u.ID, sl.Goal, joinDays(sl.FreeDays), sl.Holidays)
+	return err
+}
+
+// OwnerID is the id of the site's owner (OwnerProfile), 0 for none.
+func (s *Store) OwnerID(ctx context.Context) (int64, error) {
+	var id int64
+	err := s.DB.QueryRowContext(ctx, `SELECT id FROM users WHERE role_id = 1 AND disabled = 0 ORDER BY id LIMIT 1`).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return id, err
+}
+
 // OwnerProfile is the profile of the site's owner, the oldest admin account
 // that isn't disabled: whose data the weekly review is about. Empty when
 // there is none.
 func (s *Store) OwnerProfile(ctx context.Context) (Profile, error) {
 	var p Profile
-	err := s.DB.QueryRowContext(ctx, `SELECT coalesce(p.sex, ''), coalesce(p.birth_date, '') FROM users u
-		LEFT JOIN profiles p ON p.user_id = u.id WHERE u.role_id = 1 AND u.disabled = 0 ORDER BY u.id LIMIT 1`).Scan(&p.Sex, &p.BirthDate)
+	var free string
+	err := s.DB.QueryRowContext(ctx, `SELECT coalesce(p.sex, ''), coalesce(p.birth_date, ''), coalesce(p.sleep_goal, 0), coalesce(p.free_days, ''), coalesce(p.holidays, '') FROM users u
+		LEFT JOIN profiles p ON p.user_id = u.id WHERE u.role_id = 1 AND u.disabled = 0 ORDER BY u.id LIMIT 1`).Scan(&p.Sex, &p.BirthDate, &p.Sleep.Goal, &free, &p.Sleep.Holidays)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Profile{}, nil
 	}
+	p.Sleep.FreeDays = splitDays(free)
 	return p, err
 }
 

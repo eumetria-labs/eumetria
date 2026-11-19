@@ -179,6 +179,34 @@ await ev(`${pw}.form.dispatchEvent(new Event('submit', { cancelable: true, bubbl
 await wait(300);
 check('submitting masks it again', await ev(`[...document.querySelectorAll('.pf-content .secret input')].every((i) => i.type === 'password')`));
 
+/* ---------- Profile → Sleep (the owner's) ---------- */
+// The owner is the oldest admin: with -demo the "demo" account, not boss.
+const ownerSession = await signIn('demo', 'demo');
+await useSession(ownerSession);
+await open('profile=sleep', { width: 1280, height: 900 });
+check('sleep: the owner has it', await ev(`location.hash.includes('profile=sleep')`), await ev('location.hash'));
+check('sleep: goal in hours and minutes, seven days, holidays', await ev(`document.querySelectorAll('.pf-sleep select').length === 3 && document.querySelectorAll('.pf-days .ci-tag').length === 7`));
+check('sleep: Saturday and Sunday off at first', await ev(`[...document.querySelectorAll('.pf-days .ci-tag')].map((b) => b.getAttribute('aria-pressed')).join() === 'false,false,false,false,false,true,true'`));
+await ev(`(() => {
+  const [hours, mins, region] = document.querySelectorAll('.pf-sleep select');
+  hours.value = '7'; mins.value = '30'; region.value = 'DE-BY';
+  document.querySelectorAll('.pf-days .ci-tag')[4].click(); // Friday
+  document.querySelector('.pf-sleep .pf-save').click();
+})()`);
+await wait(1200);
+{
+  const prof = await (await fetch(base + '/api/profile', { headers: { cookie: ownerSession.cookie } })).json();
+  check('sleep: saved', prof.sleep?.goal === 450 && prof.sleep.free_days.join() === '0,5,6' && prof.sleep.holidays === 'DE-BY', JSON.stringify(prof.sleep));
+  const stats = await (await fetch(base + '/api/stats', { headers: { cookie: ownerSession.cookie } })).json();
+  check('sleep: the stats follow', stats.sleep_goal === 450 && stats.sleep_free_days?.join() === '0,5,6' && Object.values(stats.holidays || {}).includes('Fronleichnam'), JSON.stringify([stats.sleep_goal, stats.sleep_free_days]));
+}
+await browser.view(base + '/#range=90', { width: 1280, height: 900 });
+await wait(800);
+await ev(`document.querySelector('#sleep-timing .info-btn')?.click()`);
+await wait(150);
+check('sleep timing: ⓘ opens the explanation', await ev(`(() => { const b = document.querySelector('#sleep-timing .info-btn'); return b?.getAttribute('aria-expanded') === 'true' && !b.closest('.timing').querySelector('.timing-info').hidden; })()`));
+await useSession(adminSession);
+
 await open('settings=general', { width: 1280, height: 900 });
 const title = `document.querySelector('.pf-content input.field')`;
 const type = (v) => ev(`(() => { const i = ${title}; i.value = ${JSON.stringify(v)}; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);

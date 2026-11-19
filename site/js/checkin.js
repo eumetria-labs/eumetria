@@ -14,6 +14,7 @@ import { openDialog } from './dialog.js';
 import { account, api, reason } from './account.js';
 import { state } from './state.js';
 import { ALCOHOL_DAY } from './nutrients.js';
+import { freeNightTest } from './sleeptiming.js';
 import { t } from './i18n.js';
 
 // The tags, in the server's order (checkins.Tags).
@@ -21,6 +22,8 @@ export const TAGS = {
   alcohol: { icon: '🍺', label: () => t('Alcohol') },
   sick: { icon: '🤒', label: () => t('Sick') },
   travel: { icon: '✈️', label: () => t('Travel') },
+  // A day without work: the night before it is a free night (sleeptiming.js).
+  day_off: { icon: '🛋️', label: () => t('Day off') },
   late_meal: { icon: '🌙', label: () => t('Late meal') },
   caffeine_late: { icon: '☕', label: () => t('Late caffeine') },
   work_stress: { icon: '💼', label: () => t('Work stress') },
@@ -348,4 +351,17 @@ export function tagSpans() {
 export function checkinRows() {
   const dates = new Set([...(state.checkins?.keys() || []), ...(state.data?.days || []).filter((d) => dayTags(d.date).length).map((d) => d.date)]);
   return [...dates].map((date) => ({ ...(state.checkins?.get(date) || { date }), tags: dayTags(date) }));
+}
+
+// pageFreeNight is the test whether the night ending on a date's morning
+// is a free one: a weekday off of the owner's (the stats' sleep_free_days), a public
+// holiday, a vacation day (Phases & Events) or a day tagged "day off".
+export function pageFreeNight() {
+  const off = new Set();
+  for (const p of state.phases || []) {
+    if (p.kind !== 'vacation') continue;
+    for (let d = parse(p.start); iso(d) <= (p.end || state.today); d = addDays(d, 1)) off.add(iso(d));
+  }
+  for (const [date, c] of state.checkins || []) if (c.tags?.includes('day_off')) off.add(date);
+  return freeNightTest({ freeDays: state.data?.sleep_free_days || [0, 6], holidays: state.data?.holidays || {}, off });
 }

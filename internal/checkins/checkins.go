@@ -24,7 +24,7 @@ var ErrInvalid = errors.New("invalid check-in")
 // comparable. Auto are those the page also sets by itself (alcohol from the
 // foods logged); removing one keeps it away (Dismissed).
 var (
-	Tags = []string{"alcohol", "sick", "travel", "late_meal", "caffeine_late", "work_stress", "bad_room", "injury"}
+	Tags = []string{"alcohol", "sick", "travel", "day_off", "late_meal", "caffeine_late", "work_stress", "bad_room", "injury"}
 	Auto = []string{"alcohol"}
 	// Skip are the tags that keep a day out of the scores' baselines.
 	Skip = []string{"sick", "travel"}
