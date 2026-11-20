@@ -15,7 +15,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/claude-runner ./cm
 
 # Claude Code needs Node. Its version is pinned here and raised on purpose:
 # the runner parses its stream-json output (internal/ai/claudecode.go).
-FROM node:22-bookworm-slim
+FROM node:26-bookworm-slim
 ARG CLAUDE_CODE_VERSION=2.1.329
 RUN npm install -g --no-fund --no-audit @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
  && npm cache clean --force
