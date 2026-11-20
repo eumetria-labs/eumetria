@@ -56,6 +56,12 @@ type def struct {
 	boundTo []string
 }
 
+// Models are the models to pick from; Efforts the effort levels.
+var (
+	Models  = []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"}
+	Efforts = []string{"low", "medium", "high", "xhigh", "max"}
+)
+
 var defs = []def{
 	{key: "title", env: "STATS_TITLE", fallback: "Eumetria", valid: text(64, false)},
 	{key: "language", valid: oneOf("", "en", "de")},
@@ -72,17 +78,23 @@ var defs = []def{
 	{key: "google_client_secret", env: "GOOGLE_CLIENT_SECRET", secret: true},
 	{key: "review", fallback: "true", valid: boolean},
 	{key: "anthropic_key", env: "ANTHROPIC_API_KEY", secret: true},
-	{key: "ai_model", env: "AI_MODEL", fallback: review.DefaultModel, valid: text(64, false)},
-	{key: "ai_effort", env: "AI_EFFORT", fallback: "medium", valid: oneOf("low", "medium", "high", "xhigh", "max")},
+	// The model and effort for everything Claude writes (ai_model, ai_effort);
+	// the coach and the weekly review may each have their own (*_own). Both
+	// backends take them: the API and Claude Code (--model, --effort).
+	{key: "ai_model", env: "AI_MODEL", fallback: review.DefaultModel, valid: oneOf(Models...)},
+	{key: "ai_effort", env: "AI_EFFORT", fallback: "medium", valid: oneOf(Efforts...)},
 	{key: "ai_credit_usd", env: "AI_CREDIT_USD", valid: money},
 	// The coach chat: off, on the Anthropic API, or on Claude Code (the
 	// owner's subscription through the runner container).
 	{key: "coach", fallback: "off", valid: oneOf("off", "api", "claude")},
-	{key: "coach_model", fallback: "claude-sonnet-5-5", valid: text(64, false)},
-	{key: "coach_effort", fallback: "medium", valid: oneOf("low", "medium", "high", "xhigh", "max")},
+	{key: "coach_own", fallback: "false", valid: boolean},
+	{key: "coach_model", fallback: "claude-sonnet-5-5", valid: oneOf(Models...)},
+	{key: "coach_effort", fallback: "medium", valid: oneOf(Efforts...)},
 	// Who writes the weekly review, and Claude Code's model and runner.
 	{key: "review_backend", fallback: "api", valid: oneOf("api", "claude")},
-	{key: "claude_model", fallback: "opus", valid: oneOf("opus", "sonnet", "haiku")},
+	{key: "review_own", fallback: "false", valid: boolean},
+	{key: "review_model", fallback: review.DefaultModel, valid: oneOf(Models...)},
+	{key: "review_effort", fallback: "medium", valid: oneOf(Efforts...)},
 	{key: "claude_fallback_api", fallback: "false", valid: boolean},
 	{key: "runner_url", env: "RUNNER_URL", fallback: "http://claude-runner:8080", valid: text(256, false)},
 	{key: "runner_key", env: "RUNNER_KEY", secret: true},
@@ -448,12 +460,15 @@ type Values struct {
 	Review            bool
 	AnthropicKey      string
 	Model, Effort     string
-	// The coach: Coach is "off", "api" or "claude".
+	// The coach: Coach is "off", "api" or "claude"; with CoachOwn its own
+	// model and effort, else Model and Effort (CoachAI).
 	Coach, CoachModel, CoachEffort string
-	// ReviewBackend is "api" or "claude"; ClaudeModel the alias Claude Code
-	// uses; ClaudeFallbackAPI answers on the API while its limit is reached.
-	ReviewBackend, ClaudeModel string
-	ClaudeFallbackAPI          bool
+	CoachOwn                       bool
+	// ReviewBackend is "api" or "claude"; with ReviewOwn the review's own
+	// model and effort (ReviewAI). ClaudeFallbackAPI answers on the API
+	// while Claude Code's limit is reached.
+	ReviewBackend, ReviewModel, ReviewEffort string
+	ReviewOwn, ClaudeFallbackAPI             bool
 	// The runner container (cmd/claude-runner) and where it reaches /api/mcp.
 	RunnerURL, RunnerKey, RunnerMCPURL string
 	CreditUSD                          float64
@@ -505,7 +520,7 @@ func resolve(get func(key string) string) Values {
 		GoogleClientID: get("google_client_id"), GoogleSecret: get("google_client_secret"),
 		AnthropicKey: get("anthropic_key"), Model: get("ai_model"), Effort: get("ai_effort"),
 		Coach: get("coach"), CoachModel: get("coach_model"), CoachEffort: get("coach_effort"),
-		ReviewBackend: get("review_backend"), ClaudeModel: get("claude_model"),
+		ReviewBackend: get("review_backend"), ReviewModel: get("review_model"), ReviewEffort: get("review_effort"),
 		RunnerURL: get("runner_url"), RunnerKey: get("runner_key"), RunnerMCPURL: get("runner_mcp_url"),
 		BackupTime: get("backup_time"), BackupPassphrase: get("backup_passphrase"), BackupPassphraseAt: get("backup_passphrase_at"),
 		BackupFolder: get("backup_folder"),
@@ -535,7 +550,7 @@ func resolve(get func(key string) string) Values {
 		return err != nil || b
 	}
 	v.Review, v.OpenFoodFacts = onOff("review"), onOff("openfoodfacts")
-	v.ClaudeFallbackAPI = onOff("claude_fallback_api")
+	v.ClaudeFallbackAPI, v.CoachOwn, v.ReviewOwn = onOff("claude_fallback_api"), onOff("coach_own"), onOff("review_own")
 	v.Backups = onOff("backups")
 	v.BackupDrive, _ = strconv.ParseBool(get("backup_drive"))
 	v.BackupKeepDays, _ = strconv.Atoi(get("backup_keep_days"))
@@ -667,4 +682,21 @@ func (s *Store) View(ctx context.Context) (map[string]Item, error) {
 		out[d.key] = it
 	}
 	return out, nil
+}
+
+// CoachAI is the coach's model and effort: its own, or the general ones.
+func (v Values) CoachAI() (model, effort string) {
+	if v.CoachOwn {
+		return v.CoachModel, v.CoachEffort
+	}
+	return v.Model, v.Effort
+}
+
+// ReviewAI is the weekly review's model and effort: its own, or the
+// general ones.
+func (v Values) ReviewAI() (model, effort string) {
+	if v.ReviewOwn {
+		return v.ReviewModel, v.ReviewEffort
+	}
+	return v.Model, v.Effort
 }

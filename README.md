@@ -239,7 +239,7 @@ Both live under **Settings → AI** and use the Anthropic API key entered there.
 **Coach.** A chat on the dashboard (the speech-bubble button in the top bar, or **More → Coach** on phones). You ask about your data ("How did I sleep this week compared to last week?", "Where does my protein come from?") and Claude looks it up with the same read-only tools as the MCP server before it answers. The answer streams in, with a line for each lookup ("sleep · Nov 9 – Nov 20"). Claude sees only what the asker's role sees.
 - Off by default. Switch it on under **Settings → AI → Coach**: Anthropic API, or Claude Code (see below).
 - Only roles with **Ask the coach** (`use.coach`) can use it; admins always can.
-- The model is a setting. Claude Sonnet 5.5 (the default) costs about $0.10 per question, Opus 5.5 about $0.20, and Haiku 5.5 under a cent, for simple questions. Admins see each answer's cost under it.
+- **Model and effort:** one choice under **Settings → AI → Model and effort** for everything Claude writes, on the API and on Claude Code (default Claude Opus 5.5, effort medium). The coach and the weekly review can each tick **Own model and effort** and pick their own (off by default). On the API a coach question costs about $0.20 with Opus, $0.10 with Sonnet and under a cent with Haiku. Admins see each answer's cost under it.
 - The instructions and tools are cached, so follow-up questions in the same chat cost less.
 - Chats are their asker's alone, kept in `app.db`, and can be deleted. A follow-up question sends the last 10 questions and answers of the chat along.
 - No diagnoses, and the data is treated as data: text in food names or notes is never followed as an instruction.
@@ -255,7 +255,7 @@ Setting it up:
 2. Create `/srv/eumetria/claude-runner.env` (mode 600) from [`deploy/claude-runner.env.example`](deploy/claude-runner.env.example): the token as `CLAUDE_CODE_OAUTH_TOKEN`, and a random `RUNNER_KEY` (`openssl rand -hex 32`).
 3. Add the same `RUNNER_KEY=` line to `eumetria.env`.
 4. Add the `claude-runner` service from [`deploy/compose.yaml`](deploy/compose.yaml) to yours, then run `docker compose --profile claude up -d`. Without `--profile claude` the runner isn't started.
-5. **Settings → AI:** the Claude Code section should say **Ready**. Pick **Claude Code (your subscription)** for the coach and/or under **Weekly review → Written by**, and a model. Opus is the default; Sonnet and Haiku use your limit more slowly.
+5. **Settings → AI:** the Claude Code section should say **Ready**. Pick **Claude Code (your subscription)** for the coach and/or under **Weekly review → Written by**. Claude Code uses the same model and effort as the API (**Model and effort**, or a part's own); Opus uses your limit fastest, Sonnet and Haiku more slowly.
 
 The token expires after a year: run `claude setup-token` again and restart the runner. To switch back, pick **Anthropic API**; to remove it, `docker compose --profile claude down claude-runner`.
 

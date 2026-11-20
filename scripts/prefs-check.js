@@ -243,6 +243,12 @@ check('Settings → AI has the coach, Claude Code and the weekly review', await 
   const coach = [...document.querySelectorAll('.pf-content select option')].some((o) => o.value === 'claude');
   return /Coach/.test(heads) && /Claude Code/.test(heads) && /Not set up/.test(heads) && /Weekly review/.test(heads) && coach;
 })()`), await ev(`[...document.querySelectorAll('.pf-content .wo-sec-head')].map((e) => e.textContent).join(' | ')`));
+// The weekly review has no model of its own by default; ticking it shows two fields.
+const reviewOwn = `[...document.querySelectorAll('.pf-content .set-check')].filter((l) => /Own model/.test(l.textContent)).at(-1)`;
+const shown = `[...${reviewOwn}.closest('form').querySelectorAll('label.set-field')].filter((l) => !l.hidden && l.querySelector('select')).length`;
+const before = await ev(shown);
+await ev(`${reviewOwn}.querySelector('input').click()`);
+check('Settings → AI: a model of its own shows model and effort', /Model and effort/.test(await ev(`document.querySelector('.pf-content').textContent`)) && (await ev(shown)) === before + 2, `${before} → ${await ev(shown)}`);
 await open('settings=general', { width: 1280, height: 900 });
 
 await ev(`document.querySelector('.pf-switch a:first-child').click()`);

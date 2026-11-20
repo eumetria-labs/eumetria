@@ -56,7 +56,7 @@ func debugReview(ctx context.Context, cfg config, date string, dryRun bool) erro
 	if cfg.values.AnthropicKey == "" {
 		return fmt.Errorf("no Anthropic API key in the settings (use -dry-run to see the data without it)")
 	}
-	model, effort := cfg.values.Model, cfg.values.Effort
+	model, effort := cfg.values.ReviewAI()
 	fmt.Fprintf(os.Stderr, "asking %s (effort %s) for the review of %s to %s…\n", model, effort, week.From, week.To)
 	start := time.Now()
 	r, err := review.Generate(ctx, cfg.values.AnthropicKey, model, effort, week)
@@ -99,7 +99,7 @@ func rewriteReviews(ctx context.Context, cfg config, write writeFunc, progress f
 	now := cfg.now()
 	today := now.Format(time.DateOnly)
 	out := stats.Build(hist, withOwner(ctx, cfg.dbPath, baseOptions(cfg).Everything()), now)
-	model, effort := cfg.values.Model, cfg.values.Effort
+	model, effort := cfg.values.ReviewAI()
 	noted := loadNoted(ctx, cfg.dbPath)
 	var total float64
 	progress(0, len(weeks))

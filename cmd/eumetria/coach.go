@@ -240,7 +240,8 @@ func (a *app) answer(ctx context.Context, v settings.Values, backend string, job
 			return queue(limit)
 		}
 	}
-	apiJob := ai.Job{APIKey: v.AnthropicKey, Model: v.CoachModel, Effort: v.CoachEffort, System: coach.Instructions, BaseURL: coachAPIURL,
+	model, effort := v.CoachAI()
+	apiJob := ai.Job{APIKey: v.AnthropicKey, Model: model, Effort: effort, System: coach.Instructions, BaseURL: coachAPIURL,
 		History: coach.APIHistory(turns), Question: question, Tools: coach.AITools(data)}
 	ans, err := ai.AskAPI(jctx, apiJob, emit)
 	return finish("api", ans, err)
@@ -264,12 +265,13 @@ func (a *app) askClaude(ctx context.Context, v settings.Values, u *auth.User, tu
 			a.store.DeleteAPIToken(ctx, u, t.ID)
 		}
 	}()
+	model, effort := v.CoachAI()
 	prompt := question
 	if t := coach.Transcript(turns); t != "" {
 		prompt = "Earlier in this chat:\n\n" + t + "Now:\n\n" + question
 	}
 	return coachRunner(v).Ask(ctx, ai.RunRequest{
-		System: coach.Instructions, Prompt: prompt, Model: v.ClaudeModel,
+		System: coach.Instructions, Prompt: prompt, Model: model, Effort: effort,
 		MCPURL: v.RunnerMCPURL, MCPToken: token, Timeout: int(coachTimeout / time.Second),
 	}, emit)
 }

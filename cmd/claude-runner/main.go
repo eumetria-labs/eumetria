@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -106,13 +107,19 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"version": s.version, "token": s.token})
 }
 
-var models = map[string]bool{"opus": true, "sonnet": true, "haiku": true}
+// A model is an alias or a model's name; nothing else reaches the command line.
+var modelName = regexp.MustCompile(`^(opus|sonnet|haiku|fable|claude-[a-z0-9.-]{1,60})$`)
+
+var efforts = map[string]bool{"": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true}
 
 // args are the command line for a job.
 func args(req ai.RunRequest, mcpFile string) []string {
 	a := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
 		"--model", req.Model, "--tools", "", "--restricted", "--strict-mcp-config", "--no-session-persistence",
 		"--system-prompt", req.System}
+	if req.Effort != "" {
+		a = append(a, "--effort", req.Effort)
+	}
 	if mcpFile != "" {
 		a = append(a, "--mcp-config", mcpFile, "--allowedTools", ai.MCPPrefix+"*")
 	}
@@ -121,8 +128,8 @@ func args(req ai.RunRequest, mcpFile string) []string {
 
 func (s *server) runJob(w http.ResponseWriter, r *http.Request) {
 	var req ai.RunRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || req.Prompt == "" || !models[req.Model] {
-		http.Error(w, "bad request: {system, prompt, model: opus|sonnet|haiku, mcp_url?, mcp_token?}", http.StatusBadRequest)
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || req.Prompt == "" || !modelName.MatchString(req.Model) || !efforts[req.Effort] {
+		http.Error(w, "bad request: {system, prompt, model, effort?, mcp_url?, mcp_token?}", http.StatusBadRequest)
 		return
 	}
 	select {

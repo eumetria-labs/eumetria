@@ -71,7 +71,8 @@ func sources(cfg config, opts stats.Options) []Source {
 	// Last: the weekly review reads what the others brought in.
 	if v := cfg.values; v.Review {
 		if write, model, err := reviewWriter(cfg); err == nil {
-			srcs = append(srcs, reviewSource{opts: opts, dbPath: cfg.dbPath, model: model, effort: v.Effort, write: write})
+			_, effort := v.ReviewAI()
+			srcs = append(srcs, reviewSource{opts: opts, dbPath: cfg.dbPath, model: model, effort: effort, write: write})
 		}
 	}
 	return srcs
@@ -271,9 +272,11 @@ func reviewWriter(cfg config) (writeFunc, string, error) {
 	r := ai.Runner{URL: v.RunnerURL, Key: v.RunnerKey}
 	switch {
 	case v.ReviewBackend == "claude" && r.Ready():
-		return claudeWriter(cfg.dbPath, r, v.ClaudeModel), v.ClaudeModel, nil
+		model, _ := v.ReviewAI()
+		return claudeWriter(cfg.dbPath, r), model, nil
 	case v.AnthropicKey != "":
-		return writer(v.AnthropicKey), v.Model, nil
+		model, _ := v.ReviewAI()
+		return writer(v.AnthropicKey), model, nil
 	}
 	return nil, "", errors.New("no Anthropic API key and no Claude Code runner in the settings")
 }
@@ -281,8 +284,8 @@ func reviewWriter(cfg config) (writeFunc, string, error) {
 // claudeWriter has Claude Code write the review: the same instructions and
 // data as on the API, in one turn without tools. While its usage limit is
 // reached (shared with the coach, in app.db) it doesn't ask.
-func claudeWriter(dbPath string, r ai.Runner, model string) writeFunc {
-	return func(ctx context.Context, _, _ string, w review.Week) (*review.Result, error) {
+func claudeWriter(dbPath string, r ai.Runner) writeFunc {
+	return func(ctx context.Context, model, effort string, w review.Week) (*review.Result, error) {
 		d, err := db.Open(ctx, dbPath)
 		if err != nil {
 			return nil, err
@@ -296,7 +299,7 @@ func claudeWriter(dbPath string, r ai.Runner, model string) writeFunc {
 		if err != nil {
 			return nil, err
 		}
-		ans, err := r.Ask(ctx, ai.RunRequest{System: review.Instructions(), Prompt: prompt, Model: model, Timeout: 600}, func(ai.Event) {})
+		ans, err := r.Ask(ctx, ai.RunRequest{System: review.Instructions(), Prompt: prompt, Model: model, Effort: effort, Timeout: 600}, func(ai.Event) {})
 		if err != nil {
 			var le *ai.LimitError
 			if errors.As(err, &le) {

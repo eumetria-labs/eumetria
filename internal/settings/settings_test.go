@@ -352,3 +352,21 @@ func TestSMTPPasswordFromEnvFollowsTheServer(t *testing.T) {
 		t.Errorf("the env's password still goes to the new host")
 	}
 }
+
+func TestModelPerPart(t *testing.T) {
+	v := Values{Model: "claude-opus-5-5", Effort: "medium", CoachModel: "claude-haiku-5-5", CoachEffort: "low", ReviewModel: "claude-sonnet-5-5", ReviewEffort: "high"}
+	if m, e := v.CoachAI(); m != "claude-opus-5-5" || e != "medium" {
+		t.Errorf("coach without its own = %s %s", m, e)
+	}
+	v.CoachOwn = true
+	if m, e := v.CoachAI(); m != "claude-haiku-5-5" || e != "low" {
+		t.Errorf("coach with its own = %s %s", m, e)
+	}
+	if m, e := v.ReviewAI(); m != "claude-opus-5-5" || e != "medium" {
+		t.Errorf("review without its own = %s %s", m, e)
+	}
+	v.ReviewOwn = true
+	if m, e := v.ReviewAI(); m != "claude-sonnet-5-5" || e != "high" {
+		t.Errorf("review with its own = %s %s", m, e)
+	}
+}

@@ -31,7 +31,8 @@ import (
 type RunRequest struct {
 	System   string `json:"system"`
 	Prompt   string `json:"prompt"`
-	Model    string `json:"model"`               // opus, sonnet or haiku
+	Model    string `json:"model"`               // a model's name (claude-opus-5-5) or alias (opus)
+	Effort   string `json:"effort,omitempty"`    // low … max; empty: Claude Code's default
 	MCPURL   string `json:"mcp_url,omitempty"`   // empty: no tools
 	MCPToken string `json:"mcp_token,omitempty"` // a short-lived "mcp" API token
 	Timeout  int    `json:"timeout,omitempty"`   // seconds; 0: 300

@@ -50,16 +50,18 @@ func TestRun(t *testing.T) {
 	if res, _ := post("wrong", `{}`); res.StatusCode != 401 {
 		t.Errorf("wrong key = %d", res.StatusCode)
 	}
-	if res, _ := post(s.key, `{"prompt":"x","model":"gpt"}`); res.StatusCode != 400 {
-		t.Errorf("unknown model = %d", res.StatusCode)
+	for _, bad := range []string{`{"prompt":"x","model":"gpt"}`, `{"prompt":"x","model":"opus --tools Bash"}`, `{"prompt":"x","model":"opus","effort":"insane"}`} {
+		if res, _ := post(s.key, bad); res.StatusCode != 400 {
+			t.Errorf("%s = %d, want 400", bad, res.StatusCode)
+		}
 	}
-	res, body := post(s.key, `{"system":"Be a coach.","prompt":"How did I sleep?","model":"opus","mcp_url":"http://eumetria:8080/api/mcp","mcp_token":"eum_job"}`)
+	res, body := post(s.key, `{"system":"Be a coach.","prompt":"How did I sleep?","model":"opus","effort":"low","mcp_url":"http://eumetria:8080/api/mcp","mcp_token":"eum_job"}`)
 	if res.StatusCode != 200 || !strings.Contains(body, `{"kind":"tool","tool":"sleep"`) || !strings.Contains(body, `"kind":"done"`) {
 		t.Fatalf("run = %d %s", res.StatusCode, body)
 	}
 	// No built-in tools, no settings files, only Eumetria's MCP tools.
 	joined := strings.Join(gotArgs, " ")
-	for _, want := range []string{"-p", "--tools  --restricted", "--strict-mcp-config", "--allowedTools mcp__eumetria__*", "--model opus", "--no-session-persistence", "--system-prompt Be a coach."} {
+	for _, want := range []string{"-p", "--tools  --restricted", "--strict-mcp-config", "--allowedTools mcp__eumetria__*", "--model opus", "--effort low", "--no-session-persistence", "--system-prompt Be a coach."} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("args lack %q: %s", want, joined)
 		}

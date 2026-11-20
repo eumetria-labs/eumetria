@@ -47,7 +47,7 @@ func (f *fakeClaude) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		toolTurn = blocks[0].(map[string]any)["type"] == "tool_result"
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
-	sse(w, "message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5-5","content":[],"stop_reason":null,"usage":{"input_tokens":1000,"output_tokens":1,"cache_read_input_tokens":500}}}`)
+	sse(w, "message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"`+body["model"].(string)+`","content":[],"stop_reason":null,"usage":{"input_tokens":1000,"output_tokens":1,"cache_read_input_tokens":500}}}`)
 	if !toolTurn {
 		sse(w, "content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"phases","input":{}}}`)
 		sse(w, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}`)
@@ -145,7 +145,7 @@ func TestCoachAsk(t *testing.T) {
 	if strings.Join(kinds, " ") != "thread tool text text done" || text != "You are in a cut." {
 		t.Fatalf("events = %v, text %q", kinds, text)
 	}
-	if done["status"] != "done" || done["backend"] != "api" || done["model"] != "claude-sonnet-5-5" || done["cost_usd"].(float64) <= 0 {
+	if done["status"] != "done" || done["backend"] != "api" || done["model"] != "claude-opus-5-5" || done["cost_usd"].(float64) <= 0 {
 		t.Errorf("done = %v", done)
 	}
 
@@ -155,7 +155,7 @@ func TestCoachAsk(t *testing.T) {
 	first := fake.requests[0]
 	n := len(fake.requests)
 	fake.mu.Unlock()
-	if n != 2 || first["model"] != "claude-sonnet-5-5" || first["cache_control"] == nil {
+	if n != 2 || first["model"] != "claude-opus-5-5" || first["output_config"].(map[string]any)["effort"] != "medium" || first["cache_control"] == nil {
 		t.Errorf("requests = %d, first %v", n, first["model"])
 	}
 	sys := first["system"].([]any)[0].(map[string]any)
@@ -287,7 +287,9 @@ func TestCoachClaudeCode(t *testing.T) {
 		coachWorkerEvery = 30 * time.Second
 	})
 	if err := e.runner.settings.Save(ctx, map[string]string{"coach": "claude", "anthropic_key": "sk-test",
-		"runner_mcp_url": e.srv.URL + "/api/mcp", "claude_model": "opus"}, nil); err != nil {
+		"runner_mcp_url": e.srv.URL + "/api/mcp",
+		// No own model for the coach: the general one, on Claude Code too.
+		"coach_own": "false", "ai_model": "claude-opus-5-5", "ai_effort": "high"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	patrick := e.signIn(t, "patrick", adminPassword, false) // the owner: the oldest admin
@@ -318,7 +320,7 @@ func TestCoachClaudeCode(t *testing.T) {
 	job := runner.jobs[0]
 	code := runner.mcpCode
 	runner.mu.Unlock()
-	if code != 200 || job["model"] != "opus" || !strings.HasPrefix(job["system"].(string), "You are the coach") || !strings.Contains(job["prompt"].(string), "What phase am I in?") {
+	if code != 200 || job["model"] != "claude-opus-5-5" || job["effort"] != "high" || !strings.HasPrefix(job["system"].(string), "You are the coach") || !strings.Contains(job["prompt"].(string), "What phase am I in?") {
 		t.Errorf("job = %v, mcp answered %d", job, code)
 	}
 	// The job's token is gone afterwards.

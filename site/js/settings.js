@@ -143,8 +143,16 @@ function form(body, data, fields) {
     if (f.hint) label.append(h('span', { class: 'muted set-hint' }, f.hint));
     if (f.list) label.append(f.list);
     el.append(label);
-    return { f, item, input };
+    return { f, item, input, label };
   });
+  // A field with showIf shows only while that checkbox is ticked.
+  for (const { f, label } of inputs) {
+    const box = f.showIf && inputs.find((x) => x.f.key === f.showIf)?.input;
+    if (!box) continue;
+    const sync = () => { label.hidden = !box.checked; };
+    box.addEventListener('change', sync);
+    sync();
+  }
   const row = h('div', { class: 'sec-row' });
   const save = h('button', { class: 'pill-btn pf-save', type: 'submit' }, t('Save'));
   row.append(save);
@@ -417,7 +425,17 @@ function googleTab(body, data, result) {
 
 /* ---------- weekly review ---------- */
 
-const MODELS = () => [['claude-sonnet-5-5', 'Claude Sonnet 5.5'], ['claude-opus-5-5', 'Claude Opus 5.5'], ['claude-haiku-5-5', 'Claude Haiku 5.5']];
+const MODELS = () => [['claude-opus-5-5', 'Claude Opus 5.5'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5'], ['claude-haiku-5-5', 'Claude Haiku 5.5']];
+const EFFORTS = () => ['low', 'medium', 'high', 'xhigh', 'max'].map((e) => [e, e]);
+const BACKENDS = () => [['api', t('Anthropic API')], ['claude', t('Claude Code (your subscription)')]];
+
+// The fields of a part with its own model and effort: a checkbox, and the
+// two selects shown while it's ticked.
+const ownModel = (part) => [
+  { key: part + '_own', label: t('Own model and effort'), type: 'checkbox' },
+  { key: part + '_model', label: t('Model'), options: MODELS(), showIf: part + '_own' },
+  { key: part + '_effort', label: t('Effort'), options: EFFORTS(), showIf: part + '_own' },
+];
 
 function reviewTab(body, data) {
   const key = section(t('Anthropic API'), t('Used by the weekly review and the coach. Billed to the key’s account; prepaid credit with auto-reload off keeps the cost in hand.'));
@@ -425,11 +443,15 @@ function reviewTab(body, data) {
     { key: 'anthropic_key', label: t('Anthropic API key') },
     { key: 'ai_credit_usd', label: t('Credit bought (USD)'), hint: t('Warns admins when it runs low. Empty: no warning.'), type: 'number' },
   ]));
+  const model = section(t('Model and effort'), t('For everything Claude writes, on the API and on Claude Code. The coach and the weekly review can each have their own.'));
+  model.append(form(body, data, [
+    { key: 'ai_model', label: t('Model'), options: MODELS(), hint: t('On the API, about per coach question: Opus $0.20, Sonnet $0.10, Haiku under a cent. On Claude Code only your limit counts: Opus uses it fastest.') },
+    { key: 'ai_effort', label: t('Effort'), options: EFFORTS() },
+  ]));
   const coach = section(t('Coach'), t('A chat on the dashboard: Claude answers questions about the data the asker’s role sees. Roles need “Ask the coach”.'));
   coach.append(form(body, data, [
-    { key: 'coach', label: t('Coach'), options: [['off', t('Off')], ['api', t('Anthropic API')], ['claude', t('Claude Code (your subscription)')]] },
-    { key: 'coach_model', label: t('Model'), options: MODELS(), hint: t('Sonnet: about $0.10 per question; Opus: about $0.20; Haiku: under a cent, for simple questions.') },
-    { key: 'coach_effort', label: t('Effort'), options: ['low', 'medium', 'high', 'xhigh', 'max'].map((e) => [e, e]) },
+    { key: 'coach', label: t('Coach'), options: [['off', t('Off')], ...BACKENDS()] },
+    ...ownModel('coach'),
   ]));
   const cc = data.claude || {};
   const claude = section(t('Claude Code'), t('Your Claude subscription instead of the API, through the runner container (README: “Claude Code”). Only for your own account: everyone else is answered on the API.'));
@@ -439,15 +461,13 @@ function reviewTab(body, data) {
       : cc.reachable ? badge('ok', t('Ready')) : badge('warn', t('Not reachable')));
   if (cc.set_up && (cc.version || cc.error)) claude.append(h('p', { class: 'muted set-hint' }, cc.error ? cc.error : cc.version));
   claude.append(form(body, data, [
-    { key: 'claude_model', label: t('Model'), options: [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']], hint: t('Only your 5-hour limit counts: Opus uses it fastest.') },
     { key: 'claude_fallback_api', label: t('Answer on the API while the limit is reached'), type: 'checkbox' },
   ]));
   const sec = section(t('Weekly review'), t('Written by Claude after each week.'));
   sec.append(form(body, data, [
     { key: 'review', label: t('Write a review every week'), type: 'checkbox' },
-    { key: 'review_backend', label: t('Written by'), options: [['api', t('Anthropic API')], ['claude', t('Claude Code (your subscription)')]] },
-    { key: 'ai_model', label: t('Model') },
-    { key: 'ai_effort', label: t('Effort'), options: ['low', 'medium', 'high', 'xhigh', 'max'].map((e) => [e, e]) },
+    { key: 'review_backend', label: t('Written by'), options: BACKENDS() },
+    ...ownModel('review'),
   ]));
   const again = section(t('Write all reviews again'), t('In English and German, one after the other.'));
   const line = h('p', { class: 'muted' }, data.status.job_error || '');
@@ -473,7 +493,7 @@ function reviewTab(body, data) {
   };
   if (data.status.running) poll(body, line, () => load(body, 'review'));
   again.append(line, run);
-  return [...noKeyNote(data), key, coach, claude, sec, again];
+  return [...noKeyNote(data), key, model, coach, claude, sec, again];
 }
 
 /* ---------- backups ---------- */
