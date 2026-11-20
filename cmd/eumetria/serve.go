@@ -146,7 +146,6 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 	} else {
 		data.setSkip(skip)
 	}
-	cfg.secrets = conf
 	r := newRunner(cfg, cfg.interval, data)
 	r.settings = conf
 	srv := &http.Server{

@@ -173,13 +173,6 @@ export function syncNotices(data, now = Date.now()) {
     if (hs.auth) out.push(t("Fitbit data isn't syncing: Google access has to be renewed (Settings → Google → Connect again).") + last);
     else if (!hs.last_success || now - new Date(hs.last_success) > limit) out.push(t("Fitbit data isn't syncing.") + last);
   }
-  // The Withings scale, the same way.
-  const bs = data.body_sync;
-  if (bs?.failing) {
-    const last = bs.last_success ? ' ' + t('Last Withings sync {ago}.', { ago: syncAgo(bs.last_success, now) }) : '';
-    if (bs.auth) out.push(t("Weigh-ins aren't syncing: Withings access has to be renewed (Settings → Withings → Connect again).") + last);
-    else if (!bs.last_success || now - new Date(bs.last_success) > limit) out.push(t("Weigh-ins from Withings aren't syncing.") + last);
-  }
   return out;
 }
 

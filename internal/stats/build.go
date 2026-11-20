@@ -126,13 +126,9 @@ type Day struct {
 	Water          float64            `json:"water,omitempty"`
 	ActivityEnergy float64            `json:"activity_energy,omitempty"`
 	Weight         *float64           `json:"weight,omitempty"`
-	// WeightSource is "withings" when the weight is the scale's; else it
-	// is Yazio's. Body is the scale's body composition that morning.
-	WeightSource string     `json:"weight_src,omitempty"`
-	Body         *Body      `json:"body,omitempty"`
-	Foods        []Food     `json:"foods,omitempty"`
-	Activities   []Activity `json:"activities,omitempty"`
-	Photos       []Photo    `json:"photos,omitempty"`
+	Foods          []Food             `json:"foods,omitempty"`
+	Activities     []Activity         `json:"activities,omitempty"`
+	Photos         []Photo            `json:"photos,omitempty"`
 	// Nutrients are alcohol, fibre, minerals and vitamins (nutrients.go):
 	// per key the day's amount in its unit and the share of the day's kcal
 	// whose foods list it.
@@ -191,10 +187,8 @@ type Output struct {
 	Days     []Day             `json:"days"`
 	// Device is the Fitbit tracker with its battery and last sync.
 	Device *Device `json:"device,omitempty"`
-	// HealthSync tells the page when the Fitbit sync is failing; BodySync
-	// the same for the Withings scale.
+	// HealthSync tells the page when the Fitbit sync is failing.
 	HealthSync *HealthSync `json:"health_sync,omitempty"`
-	BodySync   *HealthSync `json:"body_sync,omitempty"`
 	// Recipes are the recipe versions behind food entries, by version hash
 	// (or recipe ID for entries synced before versions were kept).
 	Recipes map[string]Recipe `json:"recipes,omitempty"`
@@ -279,12 +273,6 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 		}
 	}
 	sort.Strings(dates)
-	// The scale's first weigh-in of each day (the morning one).
-	var bodies map[string]*store.Body
-	if opt.Nutrition {
-		bodies = firstWeighIns(h.Body)
-		out.BodySync = healthSync(h.BodySync)
-	}
 
 	for _, date := range dates {
 		src := h.Days[date]
@@ -308,14 +296,6 @@ func Build(h *store.History, opt Options, now time.Time) Output {
 			if src.Weight != nil {
 				w := round(*src.Weight, 1)
 				d.Weight = &w
-			}
-			// A weigh-in on the scale wins over Yazio's weight, often a copy.
-			if b := bodies[date]; b != nil {
-				if w, ok := b.Measure("weight"); ok {
-					w = round(w, 1)
-					d.Weight, d.WeightSource = &w, "withings"
-				}
-				d.Body = bodyOf(b)
 			}
 			if len(src.Meals) > 0 {
 				d.Meals = map[string]float64{}

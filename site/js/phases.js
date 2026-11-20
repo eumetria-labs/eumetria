@@ -14,7 +14,6 @@ import { state } from './state.js';
 import { openPrefs } from './prefs.js';
 import { KINDS, isEvent, phaseName, phaseOn, phaseSummary } from './phase.js';
 import { t, tn } from './i18n.js';
-import { compositionChange } from './body.js';
 
 const readable = (scopes) => !scopes || scopes.includes('view.nutrition') || scopes.includes('view.health');
 
@@ -147,10 +146,8 @@ export function renderPhases(body) {
         const s = phaseSummary(p, byDate, today, noted);
         const kind = p.label ? KINDS[p.kind]?.label : '';
         const when = p.end ? `${day(p.start)} – ${day(p.end)}` : t('since {date}', { date: day(p.start) });
-        // With the scale, the weight change split into fat and lean mass.
-        const comp = compositionChange(p.start, p.end || today);
         const facts = [
-          s.weight && (comp ? t('{kg} kg, of which fat {fat} kg, lean {lean} kg', { kg: signed(s.weight.change, 1), fat: signed(comp.fat, 1), lean: signed(comp.lean, 1) }) : `${signed(s.weight.change, 1)} kg`),
+          s.weight && `${signed(s.weight.change, 1)} kg`,
           s.energy != null && t('Ø {kcal} kcal', { kcal: fmt(s.energy) }),
           s.protein != null && t('Ø {g} g protein', { g: fmt(s.protein) }),
           s.perWeek != null && t('{n} training days a week', { n: fmt(s.perWeek, 1) }),

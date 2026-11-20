@@ -24,11 +24,3 @@ test('a site with nothing synced isn\'t late', () => {
   assert.deepEqual(syncNotices({ days: [], generated_at: '0001-01-01T00:00:00Z', sync_interval_minutes: 30 }, now), []);
   assert.equal(syncNotices({ days: [{}], generated_at: hoursAgo(5), sync_interval_minutes: 30 }, now).length, 1);
 });
-
-test('syncNotices: Withings like Fitbit, an expired grant always', () => {
-  const now = Date.parse('2026-11-19T10:00:00Z');
-  const base = { days: [{}], generated_at: '2026-11-19T09:50:00Z', sync_interval_minutes: 30 };
-  assert.match(syncNotices({ ...base, body_sync: { failing: true, auth: true, last_success: '2026-11-19T09:00:00Z' } }, now).join(), /Withings access has to be renewed/);
-  assert.deepEqual(syncNotices({ ...base, body_sync: { failing: true, last_success: '2026-11-19T09:30:00Z' } }, now), []);
-  assert.match(syncNotices({ ...base, body_sync: { failing: true, last_success: '2026-11-18T09:30:00Z' } }, now).join(), /Weigh-ins from Withings/);
-});

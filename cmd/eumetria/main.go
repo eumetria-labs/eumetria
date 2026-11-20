@@ -98,7 +98,6 @@ type config struct {
 	googleToken   string        // Google Health token file
 	backupDir     string        // where archives go
 	values        settings.Values
-	secrets       secretStore     // the server's own secrets (the Withings token); nil without a database
 	flags         map[string]bool // the flags given: they win over the settings
 }
 

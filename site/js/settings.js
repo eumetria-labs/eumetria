@@ -50,7 +50,7 @@ async function load(body, tab, result) {
   }
   // tab comes from the URL (#settings=…): only the object's own tabs count,
   // not what every object has, such as "constructor" (pentest F8).
-  const tabs = { general: generalTab, sync: syncTab, yazio: yazioTab, google: googleTab, withings: withingsTab, review: reviewTab, backups: backupsTab, mail: mailTab };
+  const tabs = { general: generalTab, sync: syncTab, yazio: yazioTab, google: googleTab, review: reviewTab, backups: backupsTab, mail: mailTab };
   body.replaceChildren(...(Object.hasOwn(tabs, tab) ? tabs[tab] : generalTab)(body, data, result));
   // The save bar saves every form of the section in one request.
   body._saveAll = () => {
@@ -408,63 +408,6 @@ function googleTab(body, data, result) {
     const off = h('button', { class: 'pill-btn danger-btn', type: 'button' }, t('Disconnect'));
     off.onclick = () => {
       if (confirm(t('Disconnect Google? Syncing Fitbit data stops until you connect again.'))) send(body, off, () => api('google', 'DELETE'));
-    };
-    zone.append(off);
-    danger.push(zone);
-  }
-  return [...parts, conn, client, ...danger];
-}
-
-/* ---------- Withings (a scale) ---------- */
-
-const WITHINGS_RESULTS = {
-  connected: () => [t('Withings is connected. The next sync brings the weigh-ins.'), false],
-  denied: () => [t('Withings wasn’t given access.'), true],
-  expired: () => [t('That took too long or came from elsewhere. Try again.'), true],
-  failed: () => [t('Withings refused. Check the client ID and secret, and the callback URL.'), true],
-};
-
-function withingsTab(body, data, result) {
-  const w = data.withings || { connected: false, callback: '' };
-  const parts = noKeyNote(data);
-  const said = Object.hasOwn(WITHINGS_RESULTS, result) ? WITHINGS_RESULTS[result]() : undefined;
-  if (said) parts.push(h('p', { class: said[1] ? 'lock-error' : 'sec-msg', role: 'status' }, said[0]));
-  const client = section(t('App'), t('Register an app at developer.withings.com (Public Health Data API) with a Withings account of its own.'));
-  client.append(form(body, data, [
-    { key: 'withings_client_id', label: t('Client ID') },
-    { key: 'withings_client_secret', label: t('Client secret') },
-  ]));
-  const uri = h('div', { class: 'pf-code' });
-  const copy = h('button', { class: 'pill-btn small', type: 'button' }, t('Copy'));
-  copy.onclick = () => navigator.clipboard?.writeText(w.callback).then(() => { copy.textContent = t('Copied'); });
-  uri.append(h('code', { class: 'sec-secret pf-secret' }, w.callback), copy);
-  client.append(h('p', { class: 'muted set-hint' }, t('Callback URL of the app, character for character:')), uri);
-  const conn = section(t('Connection'), w.user_id ? t('Withings user {id}', { id: w.user_id }) : '');
-  conn.querySelector('.wo-sec-head').append(w.connected ? badge('ok', t('Connected')) : badge('off', t('Not connected')));
-  const row = h('div', { class: 'sec-row' });
-  const connect = h('button', { class: 'pill-btn', type: 'button' }, w.connected ? t('Connect again') : t('Connect Withings'));
-  connect.onclick = async () => {
-    connect.disabled = true;
-    body.querySelector('.adm-error')?.remove();
-    const res = await api('withings/connect', 'POST').catch(() => null);
-    if (res?.ok) {
-      location.href = (await res.json()).url;
-      return;
-    }
-    connect.disabled = false;
-    const why = res ? await reason(res) : '';
-    if (why === 'reauth') return body.prepend(confirmNote());
-    showError(body, why === 'no_client' ? t('Save the client ID and secret first.')
-      : why === 'no_key' ? t('The token needs SETTINGS_KEY to be stored.') : t('That didn’t work. Try again.'));
-  };
-  row.append(connect);
-  conn.append(row, h('p', { class: 'muted set-hint' }, t('Each sync fetches the weigh-ins since the last one. On a day with a weigh-in, its weight counts instead of Yazio’s.')));
-  const danger = [];
-  if (w.connected) {
-    const zone = section(t('Disconnect Withings'), t('Syncing weigh-ins stops until you connect again. What was synced stays.'), 'danger');
-    const off = h('button', { class: 'pill-btn danger-btn', type: 'button' }, t('Disconnect'));
-    off.onclick = () => {
-      if (confirm(t('Disconnect Withings? Syncing weigh-ins stops until you connect again.'))) send(body, off, () => api('withings', 'DELETE'));
     };
     zone.append(off);
     danger.push(zone);

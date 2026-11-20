@@ -39,7 +39,7 @@ const TABLES = [
     ['carbs_g', d.carb], ['carbs_goal_g', macroGoal(d, 'carb')],
     ['fat_g', d.fat], ['fat_goal_g', macroGoal(d, 'fat')],
     ...MEALS.map(([m]) => [`kcal_${m}`, d.meals?.[m]]),
-    ['water_ml', d.water], ['steps', d.steps], ['weight_kg', d.weight], ['weight_source', d.weight == null ? null : d.weight_src || 'yazio'], ['weight_trend_kg', d.date && data.byDate ? weightTrendAt(data.byDate, d.date) : null],
+    ['water_ml', d.water], ['steps', d.steps], ['weight_kg', d.weight], ['weight_trend_kg', d.date && data.byDate ? weightTrendAt(data.byDate, d.date) : null],
     ['kcal_activities', d.activity_energy], ['kcal_burned_fitbit', d.kcal_burned], ['resting_hr', d.rhr],
     ['zone_min_fat_burn', d.azm?.[0]], ['zone_min_cardio', d.azm?.[1]], ['zone_min_peak', d.azm?.[2]],
     ['zone_minutes', d.azm && sum(d.azm)], ['vo2max', d.vo2max], ['vo2max_rating', d.vo2_level],
@@ -103,12 +103,6 @@ const TABLES = [
     ['date', d.date], ['workout_id', w.id], ['km', i + 1], ['distance_m', m], ['seconds', s],
   ]],
   // The night that ended on the date, with what Fitbit measured during it.
-  // Each day's first weigh-in on the Withings scale, with the body composition.
-  ['body', (days) => days.filter((d) => d.body).map((d) => ({ d })), ({ d }) => [
-    ['date', d.date], ['time', d.body?.time], ['weight_kg', d.weight_src === 'withings' ? d.weight : null],
-    ['fat_pct', d.body?.fat_pct], ['fat_kg', d.body?.fat_kg], ['lean_kg', d.body?.lean_kg], ['muscle_kg', d.body?.muscle_kg],
-    ['water_kg', d.body?.water_kg], ['bone_kg', d.body?.bone_kg], ['visceral_fat', d.body?.visceral],
-  ]],
   ['sleep', (days) => days.filter((d) => d.sleep || d.hrv || d.sleep_hr || d.resp || d.spo2 || d.temp != null).map((d) => ({ d, s: d.sleep || {} })), ({ d, s }, all) => [
     ['date', d.date], ['start', s.start], ['end', s.end],
     // The middle of the night, and whether it ended on a free day (sleeptiming.js).

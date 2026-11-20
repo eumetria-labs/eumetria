@@ -203,19 +203,7 @@ function weightSection(rows, sum) {
   const items = [['dot', t('Weigh-in')], ['s1', t('7-day average')]];
   if (shown.some((v) => v != null)) items.push(['base', t('Weight goal')]);
   if (f) items.push(['forecast', t('Forecast')]);
-  // With the scale: the body composition at the end, and how it changed.
-  const comp = rows.filter((r) => r.body?.fat_pct);
-  const extra = [];
-  if (comp.length) {
-    const a = comp[0].body, b = comp.at(-1).body;
-    const change = (k, unit) => (comp.length > 1 && a[k] && b[k] ? ` (${signed(b[k] - a[k], 1)}${unit})` : '');
-    extra.push(h('p', { class: 'rp-note' }, [
-      t('Body fat {pct} %', { pct: fmt(b.fat_pct, 1) }) + change('fat_pct', ' %'),
-      b.fat_kg && t('fat mass {kg} kg', { kg: fmt(b.fat_kg, 1) }) + change('fat_kg', ' kg'),
-      b.lean_kg && t('lean mass {kg} kg', { kg: fmt(b.lean_kg, 1) }) + change('lean_kg', ' kg'),
-    ].filter(Boolean).join(' · ')));
-  }
-  return section(t('Weight'), tn(sum.weighIns, '{n} weigh-in', '{n} weigh-ins'), legend(items), svgEl, ...extra);
+  return section(t('Weight'), tn(sum.weighIns, '{n} weigh-in', '{n} weigh-ins'), legend(items), svgEl);
 }
 
 // Average macros and meals as two stacked bars with their numbers.

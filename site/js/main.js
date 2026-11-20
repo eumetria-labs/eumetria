@@ -2,7 +2,6 @@
 
 import { addDays, iso, logged, parse, syncEvery, todayISO } from './format.js';
 import { renderInsightsCard } from './insightscard.js';
-import { renderBody } from './body.js';
 import { $, emoji, hashParam, setHashParam } from './dom.js';
 import { DATE_LOCALE, LANG, setLang, t, tn, translatePage } from './i18n.js';
 import { can, state, store } from './state.js';
@@ -380,7 +379,6 @@ function render() {
   renderMeals(s);
   renderWeekdays(s);
   renderWeight(s);
-  renderBody(s);
   renderInsights();
   renderMacros(s);
   renderNutrients(s);

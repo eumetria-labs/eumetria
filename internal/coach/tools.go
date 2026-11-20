@@ -241,7 +241,7 @@ func init() {
 			Name: "daily_metrics",
 			Description: "One row per day that has data, oldest first. Days without any data are left out; a field that is " +
 				"missing on a day was not measured or logged (not zero). Units: energy and goals kcal; protein, carb, fat, " +
-				"alcohol, fiber g; water ml; weight kg (weight_src 'withings' = scale, else Yazio); steps; activity_energy " +
+				"alcohol, fiber g; water ml; weight kg (from Yazio); steps; activity_energy " +
 				"kcal (Yazio); sleep_min minutes asleep; sleep_score, recovery, readiness 0–100 (Eumetria's own scores, ~80 " +
 				"is a usual morning); load = acute:chronic training load ratio (0.8–1.3 usual); rhr bpm; hrv ms; resp " +
 				"breaths/min; spo2 %; skin_temp °C deviation from baseline; vo2max ml/kg/min; azm active zone minutes; " +
@@ -293,9 +293,8 @@ func init() {
 		},
 		{
 			Name: "body",
-			Description: "Weigh-ins: weight kg and its source (withings = the scale, yazio = typed in), and with the " +
-				"scale the first weigh-in's body composition: fat_pct, fat_kg, lean_kg, muscle_kg, water_kg, bone_kg, " +
-				"visceral (index). At most 120 days.",
+			Description: "Weigh-ins: the weight in kg on each day one was logged in Yazio, oldest first. Single " +
+				"weigh-ins swing with water and food; compare weekly averages. At most 120 days.",
 			Schema: rangeSchema(90, ""),
 			Needs:  []string{auth.ViewNutrition},
 			run:    body,
@@ -430,15 +429,6 @@ var fields = []field{
 			return nil, false
 		}
 		return r1(*d.Weight), true
-	}},
-	{"weight_src", auth.ViewNutrition, func(d *stats.Day) (any, bool) {
-		if d.Weight == nil {
-			return nil, false
-		}
-		if d.WeightSource == "" {
-			return "yazio", true
-		}
-		return d.WeightSource, true
 	}},
 	{"steps", auth.ViewActivity, func(d *stats.Day) (any, bool) { return num(d.Steps, r0) }},
 	{"activity_energy", auth.ViewActivity, func(d *stats.Day) (any, bool) { return num(d.ActivityEnergy, r0) }},
@@ -842,20 +832,12 @@ func body(_ context.Context, d *Data, args json.RawMessage) (any, error) {
 	type row struct {
 		Date   string  `json:"date"`
 		Weight float64 `json:"weight"`
-		Source string  `json:"source"`
-		*stats.Body
 	}
 	rows := []row{}
 	for _, day := range d.days(s) {
-		if day.Weight == nil {
-			continue
+		if day.Weight != nil {
+			rows = append(rows, row{Date: day.Date, Weight: r1(*day.Weight)})
 		}
-		r := row{Date: day.Date, Weight: r1(*day.Weight), Source: "yazio"}
-		if day.WeightSource != "" {
-			r.Source = day.WeightSource
-		}
-		r.Body = day.Body
-		rows = append(rows, r)
 	}
 	return result(s, "weigh_ins", rows), nil
 }

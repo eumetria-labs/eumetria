@@ -73,7 +73,6 @@ const (
 	pendingKeyAdd                              // a key being added to a signed-in account
 	pendingTOTPAdd                             // an authenticator app being set up
 	pendingGoogle                              // the state of a Google sign-in
-	pendingWithings                            // the state of Connect Withings
 	pendingReauth                              // a key confirming who a signed-in user is
 )
 

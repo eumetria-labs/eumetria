@@ -274,15 +274,3 @@ test('training sessions and their sets, only when given', () => {
   assert.deepEqual(sets.map((s) => [s.set, s.lift, s.type, s.reps, s.kg]), [[1, 'Back Squat', 'warmup', 5, 60], [2, 'Back Squat', 'work', 5, 100], [3, 'Pull-up', 'work', 8, 0]]);
   assert.ok(!exportTables(data, '2026-10-11', '2026-10-14').some(([n]) => n === 'training_sessions'));
 });
-
-test('weigh-ins on the scale: the source per day and the body table', () => {
-  const days = [
-    { date: '2026-10-12', weight: 78.4, weight_src: 'withings', body: { time: '07:10', fat_pct: 18.2, fat_kg: 14.3, lean_kg: 64.1, muscle_kg: 60.3, visceral: 7 } },
-    { date: '2026-10-13', weight: 78.9 },
-  ];
-  const tables = exportTables({ ...data, days }, '2026-10-12', '2026-10-13');
-  const [, , dayRows] = tables.find(([n]) => n === 'days');
-  assert.deepEqual(dayRows.map((r) => r.weight_source), ['withings', 'yazio']);
-  const [, , body] = tables.find(([n]) => n === 'body');
-  assert.deepEqual(body, [{ date: '2026-10-12', time: '07:10', weight_kg: 78.4, fat_pct: 18.2, fat_kg: 14.3, lean_kg: 64.1, muscle_kg: 60.3, water_kg: null, bone_kg: null, visceral_fat: 7 }]);
-});

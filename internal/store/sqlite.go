@@ -80,20 +80,8 @@ func records(h *History) ([]record, error) {
 			return nil, err
 		}
 	}
-	for k, v := range h.Body {
-		if err := add("body", k, v); err != nil {
-			return nil, err
-		}
-	}
 	// The rest is kept only when set, as history.json leaves it out.
-	meta := map[string]any{"health_from": h.HealthFrom, "devices": h.Devices, "health_sync": h.HealthSync, "review_state": h.ReviewState,
-		"body_sync": h.BodySync, "body_update": h.BodyUpdate}
-	if h.BodySync == nil {
-		delete(meta, "body_sync")
-	}
-	if h.BodyUpdate == 0 {
-		delete(meta, "body_update")
-	}
+	meta := map[string]any{"health_from": h.HealthFrom, "devices": h.Devices, "health_sync": h.HealthSync, "review_state": h.ReviewState}
 	if h.HealthFrom == "" {
 		delete(meta, "health_from")
 	}
@@ -118,7 +106,6 @@ func records(h *History) ([]record, error) {
 var tables = map[string][2]string{
 	"day": {"yazio_days", "date"}, "food": {"foods", "key"}, "health": {"health_days", "date"},
 	"off": {"off_products", "ean"}, "review": {"weekly_reviews", "week"}, "meta": {"synced_meta", "key"},
-	"body": {"body_measures", "grpid"},
 }
 
 // savedAtKey is the synced_meta row with the time of the last save.
@@ -312,17 +299,6 @@ func write(ctx context.Context, tx *sql.Tx, r record) error {
 		return exec(`INSERT INTO off_products (ean, nutriscore, nova, not_found, data) VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT (ean) DO UPDATE SET nutriscore = excluded.nutriscore, nova = excluded.nova, not_found = excluded.not_found, data = excluded.data`,
 			r.key, v.NutriScore, v.NOVA, v.NotFound, data)
-	case *Body:
-		var weight, fat any
-		if v, ok := v.Measure("weight"); ok {
-			weight = v
-		}
-		if v, ok := v.Measure("fat_ratio"); ok {
-			fat = v
-		}
-		return exec(`INSERT INTO body_measures (grpid, date, measured_at, weight, fat_ratio, data) VALUES (?, ?, ?, ?, ?, ?)
-			ON CONFLICT (grpid) DO UPDATE SET date = excluded.date, measured_at = excluded.measured_at, weight = excluded.weight,
-				fat_ratio = excluded.fat_ratio, data = excluded.data`, r.key, v.Date, timeText(v.Time), weight, fat, data)
 	case *Review:
 		return exec(`INSERT INTO weekly_reviews (week, model, cost_usd, created_at, data) VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT (week) DO UPDATE SET model = excluded.model, cost_usd = excluded.cost_usd, created_at = excluded.created_at, data = excluded.data`,
@@ -381,14 +357,6 @@ func LoadDB(ctx context.Context, db *sql.DB) (*History, error) {
 			h.Reviews[k] = v
 			return json.Unmarshal(b, v)
 		}),
-		read("body_measures", "grpid", func(k string, b []byte) error {
-			if h.Body == nil {
-				h.Body = map[string]*Body{}
-			}
-			v := &Body{}
-			h.Body[k] = v
-			return json.Unmarshal(b, v)
-		}),
 		read("synced_meta", "key", func(k string, b []byte) error {
 			switch k {
 			case "health_from":
@@ -399,10 +367,6 @@ func LoadDB(ctx context.Context, db *sql.DB) (*History, error) {
 				return json.Unmarshal(b, &h.HealthSync)
 			case "review_state":
 				return json.Unmarshal(b, &h.ReviewState)
-			case "body_sync":
-				return json.Unmarshal(b, &h.BodySync)
-			case "body_update":
-				return json.Unmarshal(b, &h.BodyUpdate)
 			}
 			return nil // a key a newer version wrote
 		}),

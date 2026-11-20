@@ -224,7 +224,6 @@ func History(today time.Time, n int) *store.History {
 	addRecipes(h)
 	addProducts(h, today)
 	addNutrients(h, today)
-	addBody(h, today)
 	addReviews(h, today)
 	return h
 }
