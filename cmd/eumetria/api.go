@@ -114,6 +114,7 @@ import (
 //	POST   /api/admin/backups/test-drive  uploads and deletes a small file         admin
 //	GET    /api/google/callback  where Google sends the browser back               admin
 //	DELETE /api/google        disconnects                                          admin, recent sign-in
+//	POST   /api/mcp           the MCP server: JSON-RPC, read-only tools (mcp.go)   mcp token
 //	GET    /api/status        sync state                                           sync
 //	POST   /api/sync          starts a sync now (?all=1 re-fetches everything)     sync
 //
@@ -124,7 +125,8 @@ import (
 // with them, count only once the user has a second factor. API tokens
 // are sent as "Authorization: Bearer eum_…" and made in the profile or with
 // -create-token;
-// with "read" they see what the user's role sees.
+// with "read" they see what the user's role sees; with "mcp" they may use
+// /api/mcp (and only that), which shows the same.
 
 type access int
 
@@ -137,6 +139,7 @@ const (
 	noteWriter                      // a session with the edit.notes scope
 	liftWriter                      // a session with the edit.lifts scope (lifts and benchmark workouts)
 	checkinWriter                   // a session with the edit.checkin scope (check-ins and day tags)
+	mcpToken                        // an API token with the mcp scope (mcp.go)
 )
 
 type route struct {
@@ -211,6 +214,8 @@ type app struct {
 	nameGate      gates
 	// Note images each user uploaded within the last hour (notes.go).
 	uploads *auth.Limiter
+	// mcpCalls counts each MCP token's tool calls per minute (mcp.go).
+	mcpCalls *auth.Limiter
 	// E-mail (email.go): the queue, and how much went out per hour and day.
 	outbox               *mail.Outbox
 	mailLimit, mailDaily *auth.Limiter
@@ -246,6 +251,7 @@ func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, a
 		nameLoad:      auth.NewLimiter(0, 15*time.Minute, 0, 0),
 		unknownDevice: auth.NewLimiter(unknownBudget, time.Hour, time.Hour, 24*time.Hour),
 		uploads:       auth.NewLimiter(0, time.Hour, 0, 0),
+		mcpCalls:      auth.NewLimiter(0, time.Minute, 0, 0),
 	}
 	a.startMail()
 	mux := http.NewServeMux()
@@ -356,6 +362,9 @@ func (a *app) routes() []route {
 		{"POST", "/api/withings/connect", adminOnly, a.withingsConnect},
 		{"GET", "/api/withings/callback", adminOnly, a.withingsCallbackRoute},
 		{"DELETE", "/api/withings", adminOnly, a.withingsDisconnect},
+		{"POST", "/api/mcp", mcpToken, a.mcp},
+		{"GET", "/api/mcp", mcpToken, a.mcpOther},
+		{"DELETE", "/api/mcp", mcpToken, a.mcpOther},
 		{"GET", "/api/status", syncAccess, a.status},
 		{"POST", "/api/sync", syncAccess, a.sync},
 	}
@@ -409,6 +418,8 @@ func (a *app) guard(rt route) http.Handler {
 			ok = p.can(auth.EditLifts)
 		case checkinWriter:
 			ok = p.can(auth.EditCheckin)
+		case mcpToken:
+			ok = p.token != nil && p.token.Has(auth.TokenMCP)
 		}
 		if !ok {
 			writeError(w, http.StatusForbidden, "forbidden")

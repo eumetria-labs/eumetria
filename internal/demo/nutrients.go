@@ -126,8 +126,11 @@ func addNutrients(h *store.History, today time.Time) {
 			continue
 		}
 		weekend := day.Weekday() == time.Friday || day.Weekday() == time.Saturday
-		// Always on the day before yesterday's evening out, else now and then.
-		if !(weekend && r.Float64() < 0.55) && date != today.AddDate(0, 0, -1).Format(time.DateOnly) {
+		// Always on the day before yesterday's evening out, else now and then;
+		// never today, whose evening hasn't come (and whose check-in the
+		// prefs check expects without an alcohol tag, on Fridays too).
+		if date == today.Format(time.DateOnly) ||
+			!(weekend && r.Float64() < 0.55) && date != today.AddDate(0, 0, -1).Format(time.DateOnly) {
 			continue
 		}
 		ml := 500.0

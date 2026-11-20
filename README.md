@@ -15,7 +15,7 @@ Eumetria puts the data of the apps you already use onto one page on your own ser
 - 🎉 A year in review: the year's numbers, new bests and favourite foods, as a picture to share too
 - 🔍 Search across your whole history, food and activity histories, a sortable data table
 - 🏋️ Workout details: heart rate by zone, splits, route map, elevation
-- 🤖 An optional weekly review written by Claude
+- 🤖 An optional weekly review written by Claude, and an MCP server so Claude Code (or another AI app) can answer questions about your data
 - 🥫 Nutri-Score and NOVA badges from Open Food Facts
 - 📤 Export as CSV/JSON (with workout notes, lifts, benchmark workouts, phases, weekly reviews and goal changes), a printable report with scores and training, share cards for Instagram & co.
 - 🌗 Light and dark mode, English and German, installable on your phone, works offline (when you sign in with "Keep me signed in")
@@ -179,7 +179,7 @@ Admins manage all of this in the page: **Settings** → **Users & Roles**. There
 - **E-mail (optional):** with a mail server under **Settings** → **E-mail** (or `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`), every change to how an account signs in (a key, an app, recovery codes, a token, the password, a refused copied key, many failed sign-ins) also goes by mail to its owner, which someone holding their session can't dismiss. Admins hear when someone gets admin or sync rights or sets up a first second factor, and enrolment links can be sent by mail (**Enrolment link** → **Send by e-mail**, or `-enrol-link <name> -mail`). Mail goes only to an address its user confirmed with a link sent there (**Profile** → **Account**); changing it needs you to confirm it's you, and the old address is told. The connection is always encrypted (STARTTLS on 587 or TLS on 465): a server that offers neither gets nothing. There is no password reset by mail. Mail needs the public URL (**Settings** → **General**): links in mails only ever point there. Changing the mail server's host, port, encryption or user name removes its stored password, so enter it again in the same step. Security alerts have a budget of their own and go first; confirmation mails and invitations share a smaller one (30 an hour, 3 per account). **Use a sender address your mail provider may send for**: with SPF and DKIM for its domain (or a parent domain's `p=reject` DMARC policy), Gmail and GMX refuse mail from anything else after the server accepted it, so the log says "sent" and nothing arrives; a test mail to the provider's own domain can still get through. `-demo` never sends mail.
 - **Passkey or security key:** **Add passkey** stores a passkey that signs in on its own; **Add security key** registers a key only as the second step after the password, with nothing stored on it, as most sites do: its PIN once when adding it, then a touch when signing in. Use the latter when a key can't take a passkey, e.g. a YubiKey through the CTAP proxy of Qubes OS.
 - **Passkeys only work on the real domain over HTTPS** (and on `http://localhost` for development), not on an IP address.
-- **Scripts** use an API token instead of a password (see the table below). It carries scopes, `read` (the data the account's role sees) and/or `sync` (if the role may sync), and an expiry, and is shown only once.
+- **Scripts** use an API token instead of a password (see the table below). It carries scopes, `read` (the data the account's role sees), `sync` (if the role may sync) and/or `mcp` (only the MCP server, see "Ask Claude about your data"), and an expiry, and is shown only once.
 
 The same from the command line, e.g. for the first admin or when nobody can sign in:
 
@@ -245,6 +245,22 @@ Put the client ID and secret into **Settings → Google**, press **Connect Googl
 With an API key in **Settings → Weekly review**, the first sync after a calendar week has Claude write a short review of it: nutrition, training, sleep and recovery, compared with the week before, in English and German. It's written once per week and stored, about $0.10 per week with Claude Opus 5.5. Claude sees all of the data; who reads the review is up to the `view.review` scope.
 
 The Anthropic API is prepaid: buy credit at [console.anthropic.com](https://console.anthropic.com) and leave auto-reload off, so nothing more can be charged. Enter what you bought under **Credit bought**; the page warns admins when it covers fewer than 4 more reviews.
+
+## 🧠 Ask Claude about your data (MCP)
+
+Eumetria is an [MCP](https://modelcontextprotocol.io) server at `https://eumetria.example.com/api/mcp`. An AI app connected to it can look your data up while it answers: "How did my sleep change since the cut started?", "Where does my sodium come from?", "Compare my squat sessions this month". The tools are read-only: `overview`, `daily_metrics`, `entries`, `food_sources`, `workouts`, `sleep`, `body`, `checkins`, `lifts`, `sessions`, `wods` and `phases`.
+
+0. **nginx:** a server set up before the MCP server came needs the `location = /api/mcp` block from [`deploy/nginx.conf`](deploy/nginx.conf) (or `nginx-tls.conf`); without it, nginx refuses MCP messages over 1 KB with a 413. Then `nginx -t && systemctl reload nginx`.
+1. Make a token with **Claude and other AI apps (MCP)** ticked under **Settings → Devices & API tokens** (or `-create-token <name> -token-name claude -scopes mcp`). An `mcp` token works only on `/api/mcp`, not on the rest of the API. It shows what the account's role may see: a token of a role without `view.foods` gets no food names, and without `view.health` no Fitbit tools.
+2. **Claude Code:**
+   ```sh
+   claude mcp add --transport http --scope user eumetria https://eumetria.example.com/api/mcp \
+     --header "Authorization: Bearer eum_…"
+   ```
+   `claude mcp list` should then say `✔ Connected`. In a project's `.mcp.json` the entry is `{"type": "http", "url": "…/api/mcp", "headers": {"Authorization": "Bearer ${EUMETRIA_TOKEN}"}}`.
+3. **claude.ai, Claude Desktop and the phone apps** connect to remote servers through **Customize → Connectors** on claude.ai, which needs OAuth; Eumetria doesn't offer OAuth (yet). Only if your account shows a **Request headers** field there (a beta Anthropic offers to some accounts) can you add `Authorization` with the value `Bearer eum_…`.
+
+Each tool call counts against the token (60 a minute) and is written to the audit log with its arguments, never with its result. Revoking the token cuts the app off at once. What the app does with the answers depends on the app; with Claude, it's covered by your Claude plan's terms, not by this server.
 
 ## 💾 Backups
 

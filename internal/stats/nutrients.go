@@ -193,3 +193,12 @@ func roundSig(v float64, n int) float64 {
 	p := math.Pow(10, float64(n)-math.Ceil(math.Log10(math.Abs(v))))
 	return math.Round(v*p) / p
 }
+
+// NutrientKeys are the tracked nutrients' keys, in a fixed order.
+func NutrientKeys() []string {
+	keys := make([]string, len(tracked))
+	for i, n := range tracked {
+		keys[i] = n.Key
+	}
+	return keys
+}

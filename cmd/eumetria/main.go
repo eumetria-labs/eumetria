@@ -175,7 +175,7 @@ func run() error {
 	flag.StringVar(&accounts.enrolLink, "enrol-link", "", "make a new link with which this account sets up its first second factor (admins, sync and writers need one) and exit")
 	flag.StringVar(&accounts.createToken, "create-token", "", "make an API token for this account for scripts and exit (-token-name, -scopes, -expires)")
 	flag.StringVar(&accounts.tokenName, "token-name", "script", "with -create-token: what the token is for")
-	flag.StringVar(&accounts.scopes, "scopes", "", "with -create-token: read (the data the account's role sees) and/or sync, comma-separated (default sync); with -create-role: the role's scopes (see -list-roles)")
+	flag.StringVar(&accounts.scopes, "scopes", "", "with -create-token: read (the data the account's role sees), sync and/or mcp (the MCP server only), comma-separated (default sync); with -create-role: the role's scopes (see -list-roles)")
 	flag.IntVar(&accounts.expiresDays, "expires", 365, "with -create-token: days until it expires, 0 for never")
 	flag.Parse()
 	cfg.inData()

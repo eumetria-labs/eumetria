@@ -65,7 +65,7 @@ const ACTIONS = {
   key_added: () => t('added a passkey or key'), key_removed: () => t('removed a passkey or key'),
   totp_added: () => t('set up an authenticator app'), totp_removed: () => t('removed the authenticator app'),
   recovery_codes_made: () => t('made recovery codes'), recovery_code_used: () => t('used a recovery code'),
-  token_created: () => t('made an API token'),
+  token_created: () => t('made an API token'), mcp_call: () => t('AI app read data (MCP)'),
   enrol_link_made: () => t('made an enrolment link'), factors_dropped: () => t('lost second factors set up without a link (new rights)'), first_factor_enrolled: () => t('set up their first second factor'),
   reauth: () => t('confirmed it’s them'), reauth_failed: () => t('failed to confirm it’s them'),
   login_pressure: () => t('was guessed at often (sign-ins slowed down)'),

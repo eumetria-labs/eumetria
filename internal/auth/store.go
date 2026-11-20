@@ -94,8 +94,11 @@ const (
 	touchEvery = 5 * time.Minute
 )
 
-// Scopes an API token can carry.
-var Scopes = []string{"read", "sync"}
+// Scopes an API token can carry: "read" the data routes, "sync" starting
+// a sync, TokenMCP the MCP server (and nothing else).
+var Scopes = []string{"read", "sync", TokenMCP}
+
+const TokenMCP = "mcp"
 
 var (
 	ErrNotFound  = errors.New("not found")

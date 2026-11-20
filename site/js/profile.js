@@ -200,7 +200,7 @@ function aboutSection(p) {
 /* ---------- API tokens ---------- */
 
 function tokensSection(body, tokens, newToken) {
-  const sec = section(t('API tokens'), t('For scripts. A token reads what you may read.'));
+  const sec = section(t('API tokens'), t('For scripts and AI apps. A token reads what you may read.'));
   if (newToken) sec.append(tokenShown(newToken));
   const now = Date.now();
   for (const k of tokens) {
@@ -243,6 +243,7 @@ function tokenForm(body) {
   form.append(name, expiry);
   const boxes = [check('read', t('Read the data'))];
   boxes[0].checked = true;
+  boxes.push(check('mcp', t('Claude and other AI apps (MCP)')));
   if (account.user?.scopes?.includes('sync')) boxes.push(check('sync', t('Start a sync')));
   form.append(add, msg);
   form.onsubmit = async (e) => {

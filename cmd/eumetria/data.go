@@ -35,6 +35,9 @@ type build struct {
 	files    map[string][]byte // "routes/<hash>.json" and "days/<hash>.json"
 	photos   map[string]bool   // the photo files these stats show
 	workouts map[string]string // the workouts they show: ID → day
+	// out is the whole stats, every day in it (no year files), for the
+	// MCP tools; built on their first call (output).
+	out *stats.Output
 }
 
 func newPublished(opts stats.Options) *published {
@@ -72,15 +75,39 @@ func (p *published) set(h *store.History, at time.Time) {
 // get returns the stats for the scopes a user's role (or token) gives,
 // building them on first use. Admins also get the Anthropic credit status.
 func (p *published) get(scopes []string, admin bool) (*build, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.getLocked(scopes, admin)
+}
+
+// output returns the whole stats for scopes, as the MCP tools read them:
+// the same parts as get's, but every day and no credit status. The
+// caller must not change it.
+func (p *published) output(scopes []string) (*stats.Output, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	b, err := p.getLocked(scopes, false)
+	if err != nil {
+		return nil, err
+	}
+	if b.out == nil {
+		out := stats.Build(p.hist, p.optionsFor(scopes, false), p.at)
+		out.Scopes = scopes
+		b.out = &out
+	}
+	return b.out, nil
+}
+
+func buildKey(scopes []string, admin bool) string {
 	key := strings.Join(scopes, " ")
 	if admin {
 		key += " +status"
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if b := p.builds[key]; b != nil {
-		return b, nil
-	}
+	return key
+}
+
+// optionsFor are the settings with the parts scopes allow.
+func (p *published) optionsFor(scopes []string, admin bool) stats.Options {
 	opts := p.opts
 	opts.Nutrition = slices.Contains(scopes, auth.ViewNutrition)
 	opts.Foods = slices.Contains(scopes, auth.ViewFoods)
@@ -91,7 +118,16 @@ func (p *published) get(scopes []string, admin bool) (*build, error) {
 	opts.Review = slices.Contains(scopes, auth.ViewReview)
 	opts.CreditStatus = admin
 	opts.SkipBaseline = p.skip
-	opts = withSleep(opts, p.owner)
+	return withSleep(opts, p.owner)
+}
+
+// getLocked is get with p.mu held.
+func (p *published) getLocked(scopes []string, admin bool) (*build, error) {
+	key := buildKey(scopes, admin)
+	if b := p.builds[key]; b != nil {
+		return b, nil
+	}
+	opts := p.optionsFor(scopes, admin)
 	out := stats.Build(p.hist, opts, p.at)
 	out.Scopes = scopes
 	b := &build{photos: map[string]bool{}, workouts: map[string]string{}}
