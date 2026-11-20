@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"eumetria/internal/ai"
 	"eumetria/internal/google"
 	"eumetria/internal/settings"
 )
@@ -103,7 +104,27 @@ func (a *app) settingsGet(w http.ResponseWriter, req *http.Request, _ *principal
 		"google":      gs,
 		"status":      a.runner.status(),
 		"mail":        a.outbox.Status(), // how sending went lately (email.go)
+		"claude":      a.claudeStatus(ctx, v),
 	})
+}
+
+// claudeStatus is the Claude Code runner as Settings → AI shows it: set up
+// (address and key), reachable with its version, and the usage limit.
+func (a *app) claudeStatus(ctx context.Context, v settings.Values) map[string]any {
+	r := coachRunner(v)
+	st := map[string]any{"set_up": r.Ready()}
+	if r.Ready() {
+		version, err := r.Health(ctx)
+		st["version"] = version
+		st["reachable"] = err == nil
+		if err != nil {
+			st["error"] = err.Error()
+		}
+	}
+	if until := ai.LimitUntil(ctx, a.store.DB, a.store.Now()); !until.IsZero() {
+		st["limit_until"] = until.UTC()
+	}
+	return st
 }
 
 func (a *app) settingsSave(w http.ResponseWriter, req *http.Request, p *principal) {

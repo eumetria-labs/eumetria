@@ -1,9 +1,17 @@
 package main
 
-// The coach chat (phase 12a): a person asks about their data, Claude looks
+// The coach chat (phase 12): a person asks about their data, Claude looks
 // it up with the coach tools (internal/coach, the same as the MCP server's)
-// and answers. Only on the Anthropic API for now (Settings → AI → Coach);
-// phase 12b adds the Claude Code runner.
+// and answers. Two backends, picked under Settings → AI → Coach:
+//
+//   - api: the Anthropic API, the tools called in-process (internal/ai).
+//   - claude: Claude Code on the owner's subscription, in the runner
+//     container (cmd/claude-runner), the tools through /api/mcp with a
+//     token made for the one job. Only the owner may use it (Anthropic's
+//     terms: the subscription is for its subscriber); everyone else is
+//     answered on the API when a key is set. While the subscription's limit
+//     is reached, questions wait ("queued") and a worker answers them after
+//     the reset, unless "fall back to the API" is on.
 //
 //	GET    /api/coach                 whether it's on, and the user's threads
 //	GET    /api/coach/threads/{id}    one thread's messages
@@ -12,7 +20,7 @@ package main
 //	                                  back as server-sent events
 //
 // All of them need a session of a role with use.coach. Threads are their
-// user's alone. The answer is written to the end even when the page goes
+// user's alone. An answer is written to the end even when the page goes
 // away meanwhile; it is there on the next visit.
 
 import (
@@ -27,7 +35,9 @@ import (
 	"time"
 
 	"eumetria/internal/ai"
+	"eumetria/internal/auth"
 	"eumetria/internal/coach"
+	"eumetria/internal/settings"
 )
 
 // coachTimeout is the longest an answer may take.
@@ -36,31 +46,67 @@ const coachTimeout = 5 * time.Minute
 // coachState is what the coach routes share.
 type coachState struct {
 	busy sync.Map // user id → struct{}: one question at a time each
+
+	mu      sync.Mutex
+	working bool // the queue worker runs
 }
 
 // coachAPIURL is the Anthropic API's address in tests; empty: the real one.
 var coachAPIURL string
 
-// coachConfig is the coach's setting: its backend ("off" or "api") and
-// whether that backend can answer (an API key is set).
-func (a *app) coachConfig(ctx context.Context) (backend string, ready bool, job ai.Job) {
+// coachRunner is the runner the coach uses (tests replace it).
+var coachRunner = func(v settings.Values) ai.Runner {
+	return ai.Runner{URL: v.RunnerURL, Key: v.RunnerKey}
+}
+
+// coachWorkerEvery is how often the queue worker looks for due answers.
+var coachWorkerEvery = 30 * time.Second
+
+func (a *app) settingsValues(ctx context.Context) (settings.Values, bool) {
 	v, err := a.runner.settings.Values(ctx)
 	if err != nil {
 		log.Printf("coach: settings: %v", err)
-		return "off", false, job
+		return v, false
 	}
-	job = ai.Job{APIKey: v.AnthropicKey, Model: v.CoachModel, Effort: v.CoachEffort, System: coach.Instructions, BaseURL: coachAPIURL}
-	return v.Coach, v.Coach == "api" && v.AnthropicKey != "", job
+	return v, true
+}
+
+// coachBackend is the backend that answers u: "api", "claude", or "" when
+// none can.
+func (a *app) coachBackend(ctx context.Context, v settings.Values, u *auth.User) string {
+	api := ""
+	if v.AnthropicKey != "" {
+		api = "api"
+	}
+	switch v.Coach {
+	case "api":
+		return api
+	case "claude":
+		if owner, err := a.store.OwnerID(ctx); err == nil && owner == u.ID && coachRunner(v).Ready() {
+			return "claude"
+		}
+		return api
+	}
+	return ""
 }
 
 func (a *app) coachHome(w http.ResponseWriter, req *http.Request, p *principal) {
-	backend, ready, _ := a.coachConfig(req.Context())
-	threads, err := a.chats.Threads(req.Context(), p.user.ID)
+	ctx := req.Context()
+	v, _ := a.settingsValues(ctx)
+	backend := a.coachBackend(ctx, v, p.user)
+	threads, err := a.chats.Threads(ctx, p.user.ID)
 	if err != nil {
 		a.failed(w, "coach", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"backend": backend, "ready": ready, "threads": threads})
+	out := map[string]any{"backend": v.Coach, "ready": backend != "", "uses": backend, "threads": threads}
+	if backend == "claude" {
+		if until := ai.LimitUntil(ctx, a.store.DB, a.store.Now()); !until.IsZero() {
+			out["limit_until"] = until.UTC()
+		}
+	}
+	a.startCoachWorker()
+	writeJSON(w, http.StatusOK, out)
 }
 
 func threadID(w http.ResponseWriter, req *http.Request) (int64, bool) {
@@ -107,7 +153,7 @@ func (a *app) coachDelete(w http.ResponseWriter, req *http.Request, p *principal
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// errorCode is what the page is told about a failed answer.
+// coachErrorCode is what the page is told about a failed answer.
 func coachErrorCode(err error) string {
 	switch {
 	case errors.Is(err, ai.ErrBilling):
@@ -116,10 +162,116 @@ func coachErrorCode(err error) string {
 		return "refused"
 	case errors.Is(err, ai.ErrTooLong):
 		return "too_long"
+	case errors.Is(err, ai.ErrRunnerDown):
+		return "runner_down"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout"
 	}
 	return "failed"
+}
+
+// coachJob is one question to answer.
+type coachJob struct {
+	user     *auth.User
+	thread   int64
+	msgID    int64 // the queued answer's row; 0 for a new question
+	question string
+}
+
+// answer answers job on backend and stores the answer, or queues it when
+// Claude Code's limit is reached. A failure is a stored answer with an
+// error code; the error is only for failing to store it.
+func (a *app) answer(ctx context.Context, v settings.Values, backend string, job coachJob, emit func(ai.Event)) (coach.Message, error) {
+	store := context.WithoutCancel(ctx)
+	finish := func(backend string, ans *ai.Answer, err error) (coach.Message, error) {
+		errText := ""
+		if err != nil {
+			log.Printf("coach (%s): %v", backend, err)
+			errText = coachErrorCode(err)
+		}
+		if job.msgID != 0 {
+			return a.chats.Finish(store, job.thread, job.msgID, backend, ans, errText)
+		}
+		return a.chats.Answered(store, job.thread, backend, ans, errText)
+	}
+	queue := func(until time.Time) (coach.Message, error) {
+		if job.msgID != 0 {
+			if err := a.chats.Requeue(store, job.msgID, until); err != nil {
+				return coach.Message{}, err
+			}
+			u := until.UTC()
+			return coach.Message{ID: job.msgID, Role: "assistant", Status: "queued", Backend: "claude", QueuedUntil: &u}, nil
+		}
+		m, err := a.chats.Queue(store, job.thread, until)
+		a.startCoachWorker()
+		return m, err
+	}
+
+	// The earlier questions of the thread; this one isn't answered yet, so
+	// it isn't among them.
+	turns, err := a.chats.Turns(store, job.user.ID, job.thread)
+	if err != nil {
+		return finish(backend, nil, err)
+	}
+	data, err := a.mcpData(store, &principal{user: job.user})
+	if err != nil {
+		return finish(backend, nil, err)
+	}
+	day, _ := time.Parse(time.DateOnly, data.Today)
+	question := coach.Question(data.Today, day.Weekday().String(), job.question)
+
+	jctx, cancel := context.WithTimeout(store, coachTimeout)
+	defer cancel()
+	if backend == "claude" {
+		now := a.store.Now()
+		limit := ai.LimitUntil(store, a.store.DB, now)
+		if limit.IsZero() {
+			ans, err := a.askClaude(jctx, v, job.user, turns, question, emit)
+			if err == nil || !isLimit(err) {
+				return finish("claude", ans, err)
+			}
+			limit = ai.ResetAt(err, now)
+			if serr := ai.SetLimit(store, a.store.DB, limit); serr != nil {
+				log.Printf("coach: storing the limit: %v", serr)
+			}
+			log.Printf("coach: Claude Code's limit is reached until %s", limit.Format(time.RFC3339))
+		}
+		if !(v.ClaudeFallbackAPI && v.AnthropicKey != "") {
+			return queue(limit)
+		}
+	}
+	apiJob := ai.Job{APIKey: v.AnthropicKey, Model: v.CoachModel, Effort: v.CoachEffort, System: coach.Instructions, BaseURL: coachAPIURL,
+		History: coach.APIHistory(turns), Question: question, Tools: coach.AITools(data)}
+	ans, err := ai.AskAPI(jctx, apiJob, emit)
+	return finish("api", ans, err)
+}
+
+func isLimit(err error) bool {
+	var le *ai.LimitError
+	return errors.As(err, &le)
+}
+
+// askClaude asks Claude Code, with an "mcp" token of u's for this one job:
+// the tools see what u's role sees.
+func (a *app) askClaude(ctx context.Context, v settings.Values, u *auth.User, turns []coach.Turn, question string, emit func(ai.Event)) (*ai.Answer, error) {
+	token, err := a.store.CreateAPIToken(ctx, u, "Claude Code (coach, one answer)", []string{auth.TokenMCP}, a.store.Now().Add(coachTimeout+time.Minute))
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		ctx := context.WithoutCancel(ctx)
+		if t, _, err := a.store.APIToken(ctx, token); err == nil {
+			a.store.DeleteAPIToken(ctx, u, t.ID)
+		}
+	}()
+	prompt := question
+	if t := coach.Transcript(turns); t != "" {
+		prompt = "Earlier in this chat:\n\n" + t + "Now:\n\n" + question
+	}
+	return coachRunner(v).Ask(ctx, ai.RunRequest{
+		System: coach.Instructions, Prompt: prompt, Model: v.ClaudeModel,
+		MCPURL: v.RunnerMCPURL, MCPToken: token, Timeout: int(coachTimeout / time.Second),
+	}, emit)
 }
 
 func (a *app) coachAsk(w http.ResponseWriter, req *http.Request, p *principal) {
@@ -136,45 +288,28 @@ func (a *app) coachAsk(w http.ResponseWriter, req *http.Request, p *principal) {
 		return
 	}
 	ctx := req.Context()
-	_, ready, job := a.coachConfig(ctx)
-	if !ready {
+	v, _ := a.settingsValues(ctx)
+	backend := a.coachBackend(ctx, v, p.user)
+	if backend == "" {
 		writeError(w, http.StatusConflict, "coach_off")
 		return
+	}
+	if in.Thread != 0 {
+		if _, err := a.chats.Turns(ctx, p.user.ID, in.Thread); errors.Is(err, coach.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found")
+			return
+		}
 	}
 	if _, busy := a.coach.busy.LoadOrStore(p.user.ID, struct{}{}); busy {
 		writeError(w, http.StatusConflict, "busy")
 		return
 	}
-	release := func() { a.coach.busy.Delete(p.user.ID) }
-
-	var history []json.RawMessage
-	if in.Thread != 0 {
-		if history, err = a.chats.History(ctx, p.user.ID, in.Thread); err != nil {
-			release()
-			if errors.Is(err, coach.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "not_found")
-				return
-			}
-			a.failed(w, "coach", err)
-			return
-		}
-	}
-	data, err := a.mcpData(ctx, p)
-	if err != nil {
-		release()
-		a.failed(w, "coach", err)
-		return
-	}
 	thread, err := a.chats.Ask(ctx, p.user.ID, in.Thread, question)
 	if err != nil {
-		release()
+		a.coach.busy.Delete(p.user.ID)
 		a.failed(w, "coach", err)
 		return
 	}
-	day, _ := time.Parse(time.DateOnly, data.Today)
-	job.History = history
-	job.Question = coach.Question(data.Today, day.Weekday().String(), question)
-	job.Tools = coach.AITools(data)
 
 	// The answer is written to the end even if the page goes away: it runs
 	// on its own context and is stored when done.
@@ -185,25 +320,17 @@ func (a *app) coachAsk(w http.ResponseWriter, req *http.Request, p *principal) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		defer release()
-		jctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), coachTimeout)
-		defer cancel()
-		ans, err := ai.AskAPI(jctx, job, func(e ai.Event) {
+		defer a.coach.busy.Delete(p.user.ID)
+		msg, err := a.answer(ctx, v, backend, coachJob{user: p.user, thread: thread, question: question}, func(e ai.Event) {
 			select {
 			case events <- e:
 			default: // the page reads too slowly or is gone: it gets the whole answer at the end
 			}
 		})
-		errText := ""
 		if err != nil {
-			log.Printf("coach: %v", err)
-			errText = coachErrorCode(err)
+			log.Printf("coach: storing the answer: %v", err)
 		}
-		msg, serr := a.chats.Answered(context.WithoutCancel(ctx), thread, "api", ans, errText)
-		if serr != nil {
-			log.Printf("coach: storing the answer: %v", serr)
-		}
-		done <- result{msg, serr}
+		done <- result{msg, err}
 	}()
 
 	h := w.Header()
@@ -219,7 +346,7 @@ func (a *app) coachAsk(w http.ResponseWriter, req *http.Request, p *principal) {
 			flusher.Flush()
 		}
 	}
-	send("thread", map[string]int64{"id": thread})
+	send("thread", map[string]any{"id": thread, "backend": backend})
 	beat := time.NewTicker(15 * time.Second)
 	defer beat.Stop()
 	for {
@@ -244,6 +371,79 @@ func (a *app) coachAsk(w http.ResponseWriter, req *http.Request, p *principal) {
 			return
 		case <-ctx.Done():
 			return // the page is gone; the answer goes on
+		}
+	}
+}
+
+// startCoachWorker starts the queue worker unless it runs or nothing
+// waits: it answers the questions that waited for Claude Code's limit once
+// it has reset, and stops when none wait.
+func (a *app) startCoachWorker() {
+	a.coach.mu.Lock()
+	defer a.coach.mu.Unlock()
+	if a.coach.working {
+		return
+	}
+	waiting, err := a.chats.Waiting(context.Background())
+	if err != nil || !waiting {
+		return
+	}
+	a.coach.working = true
+	go a.coachWorker()
+}
+
+func (a *app) coachWorker() {
+	ctx := context.Background()
+	defer func() {
+		a.coach.mu.Lock()
+		a.coach.working = false
+		a.coach.mu.Unlock()
+	}()
+	if err := a.chats.Recover(ctx); err != nil {
+		log.Printf("coach queue: %v", err)
+		return
+	}
+	for {
+		if waiting, err := a.chats.Waiting(ctx); err != nil || !waiting {
+			return
+		}
+		now := a.store.Now()
+		if ai.LimitUntil(ctx, a.store.DB, now).IsZero() {
+			a.runDue(ctx, now)
+		}
+		time.Sleep(coachWorkerEvery)
+	}
+}
+
+// runDue answers the queued questions that are due, one after the other.
+func (a *app) runDue(ctx context.Context, now time.Time) {
+	due, err := a.chats.Due(ctx, now)
+	if err != nil {
+		log.Printf("coach queue: %v", err)
+		return
+	}
+	for i, d := range due {
+		v, _ := a.settingsValues(ctx)
+		u, err := a.store.UserByID(ctx, d.UserID)
+		backend := ""
+		if err == nil && !u.Disabled && u.Can(auth.UseCoach) {
+			backend = a.coachBackend(ctx, v, u)
+		}
+		if backend == "" {
+			a.chats.Finish(ctx, d.ThreadID, d.MessageID, "", nil, "coach_off")
+			continue
+		}
+		log.Printf("coach queue: answering a question of %s that waited", u.Name)
+		msg, err := a.answer(ctx, v, backend, coachJob{user: u, thread: d.ThreadID, msgID: d.MessageID, question: d.Question}, func(ai.Event) {})
+		if err != nil {
+			log.Printf("coach queue: %v", err)
+		}
+		if msg.Status == "queued" {
+			// The limit again: the rest waits too.
+			for _, rest := range due[i+1:] {
+				a.chats.Requeue(ctx, rest.MessageID, *msg.QueuedUntil)
+			}
+			return
 		}
 	}
 }

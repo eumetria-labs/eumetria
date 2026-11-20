@@ -194,6 +194,9 @@ type ReviewState struct {
 	LastAttempt time.Time `json:"last_attempt"`
 	Error       string    `json:"error"`
 	Billing     bool      `json:"billing,omitempty"`
+	// QueuedUntil: Claude Code's usage limit is reached; the review is
+	// written on the first sync after it.
+	QueuedUntil time.Time `json:"queued_until,omitzero"`
 }
 
 // OFFProduct is what Open Food Facts knows about a barcode. Its data is

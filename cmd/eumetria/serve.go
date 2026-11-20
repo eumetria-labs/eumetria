@@ -213,10 +213,11 @@ func newRunner(cfg config, interval time.Duration, data *published) *runner {
 }
 
 func rewriteServer(ctx context.Context, cfg config, progress func(done, total int)) (*store.History, error) {
-	if cfg.values.AnthropicKey == "" {
-		return nil, errors.New("no Anthropic API key in the settings")
+	write, _, err := reviewWriter(cfg)
+	if err != nil {
+		return nil, err
 	}
-	return rewriteReviews(ctx, cfg, writer(cfg.values.AnthropicKey), progress)
+	return rewriteReviews(ctx, cfg, write, progress)
 }
 
 // current is the config for a job that starts now.

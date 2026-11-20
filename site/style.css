@@ -2381,6 +2381,7 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .coach-msg.user { align-self: flex-end; background: var(--s1); color: #fff; white-space: pre-wrap; border-bottom-right-radius: 6px; }
 .coach-msg.assistant { align-self: flex-start; background: var(--surface-2); border-bottom-left-radius: 6px; min-width: 0; }
 .coach-msg.failed { background: transparent; border: 1px solid var(--over); color: var(--ink); }
+.coach-msg.queued { background: transparent; border: 1px dashed var(--axis); color: var(--ink-2); }
 .coach-msg.writing .md > :last-child::after { content: "▍"; color: var(--muted); animation: fade-in .6s ease-in-out infinite alternate; }
 .coach-wait { font-size: 13.5px; }
 .coach-tools { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }

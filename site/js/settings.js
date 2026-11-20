@@ -427,13 +427,25 @@ function reviewTab(body, data) {
   ]));
   const coach = section(t('Coach'), t('A chat on the dashboard: Claude answers questions about the data the asker’s role sees. Roles need “Ask the coach”.'));
   coach.append(form(body, data, [
-    { key: 'coach', label: t('Coach'), options: [['off', t('Off')], ['api', t('Anthropic API')]] },
+    { key: 'coach', label: t('Coach'), options: [['off', t('Off')], ['api', t('Anthropic API')], ['claude', t('Claude Code (your subscription)')]] },
     { key: 'coach_model', label: t('Model'), options: MODELS(), hint: t('Sonnet: about $0.10 per question; Opus: about $0.20; Haiku: under a cent, for simple questions.') },
     { key: 'coach_effort', label: t('Effort'), options: ['low', 'medium', 'high', 'xhigh', 'max'].map((e) => [e, e]) },
+  ]));
+  const cc = data.claude || {};
+  const claude = section(t('Claude Code'), t('Your Claude subscription instead of the API, through the runner container (README: “Claude Code”). Only for your own account: everyone else is answered on the API.'));
+  const until = cc.limit_until ? new Date(cc.limit_until).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' }) : '';
+  claude.querySelector('.wo-sec-head')?.append(!cc.set_up ? badge('off', t('Not set up'))
+    : until ? badge('warn', t('Limit reached until {time}', { time: until }))
+      : cc.reachable ? badge('ok', t('Ready')) : badge('warn', t('Not reachable')));
+  if (cc.set_up && (cc.version || cc.error)) claude.append(h('p', { class: 'muted set-hint' }, cc.error ? cc.error : cc.version));
+  claude.append(form(body, data, [
+    { key: 'claude_model', label: t('Model'), options: [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']], hint: t('Only your 5-hour limit counts: Opus uses it fastest.') },
+    { key: 'claude_fallback_api', label: t('Answer on the API while the limit is reached'), type: 'checkbox' },
   ]));
   const sec = section(t('Weekly review'), t('Written by Claude after each week.'));
   sec.append(form(body, data, [
     { key: 'review', label: t('Write a review every week'), type: 'checkbox' },
+    { key: 'review_backend', label: t('Written by'), options: [['api', t('Anthropic API')], ['claude', t('Claude Code (your subscription)')]] },
     { key: 'ai_model', label: t('Model') },
     { key: 'ai_effort', label: t('Effort'), options: ['low', 'medium', 'high', 'xhigh', 'max'].map((e) => [e, e]) },
   ]));
@@ -461,7 +473,7 @@ function reviewTab(body, data) {
   };
   if (data.status.running) poll(body, line, () => load(body, 'review'));
   again.append(line, run);
-  return [...noKeyNote(data), key, coach, sec, again];
+  return [...noKeyNote(data), key, coach, claude, sec, again];
 }
 
 /* ---------- backups ---------- */

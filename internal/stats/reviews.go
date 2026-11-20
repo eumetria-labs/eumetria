@@ -26,6 +26,8 @@ type ReviewStatus struct {
 	CreditLow    bool    `json:"credit_low,omitempty"`
 	RemainingUSD float64 `json:"remaining_usd,omitempty"`
 	WeeksLeft    int     `json:"weeks_left,omitempty"`
+	// QueuedUntil: the review waits for Claude Code's usage limit to reset.
+	QueuedUntil *time.Time `json:"queued_until,omitempty"`
 }
 
 // lowWeeks is when the credit counts as low: about a month of reviews.
@@ -42,6 +44,10 @@ func reviews(h *store.History) []Review {
 
 func reviewStatus(h *store.History, creditUSD float64) *ReviewStatus {
 	st := &ReviewStatus{Billing: h.ReviewState != nil && h.ReviewState.Billing}
+	if h.ReviewState != nil && !h.ReviewState.QueuedUntil.IsZero() {
+		u := h.ReviewState.QueuedUntil
+		st.QueuedUntil = &u
+	}
 	if creditUSD > 0 {
 		var all []*store.Review
 		for _, r := range h.Reviews {
@@ -64,7 +70,7 @@ func reviewStatus(h *store.History, creditUSD float64) *ReviewStatus {
 			st.CreditLow = st.WeeksLeft < lowWeeks
 		}
 	}
-	if !st.Billing && !st.CreditLow {
+	if !st.Billing && !st.CreditLow && st.QueuedUntil == nil {
 		return nil
 	}
 	return st

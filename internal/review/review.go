@@ -84,16 +84,35 @@ func encode(w Week) (string, error) {
 	return strings.TrimSpace(b.String()), nil
 }
 
-// Generate asks Claude for the review of w. The API key comes from
-// ANTHROPIC_API_KEY; effort is "low", "medium", "high", "xhigh" or "max".
-func Generate(ctx context.Context, apiKey, model, effort string, w Week) (*Result, error) {
+// Instructions are the review's fixed instructions (its system prompt).
+func Instructions() string { return instructions }
+
+// Prompt is the user turn asking for the review of w: the week and its data.
+func Prompt(w Week) (string, error) {
 	data, err := encode(w)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	week := fmt.Sprintf("Calendar week %s (Monday) to %s (Sunday).", w.From, w.To)
 	if w.Running {
 		week += " The week is still running."
+	}
+	return week + " The data:\n\n```json\n" + data + "\n```", nil
+}
+
+// FromText makes a Result of an answer written elsewhere (Claude Code):
+// the two languages split, no tokens or cost known.
+func FromText(text, model string) *Result {
+	en, de := splitLanguages(text)
+	return &Result{Text: en, TextDE: de, Model: model}
+}
+
+// Generate asks Claude for the review of w. The API key comes from
+// ANTHROPIC_API_KEY; effort is "low", "medium", "high", "xhigh" or "max".
+func Generate(ctx context.Context, apiKey, model, effort string, w Week) (*Result, error) {
+	prompt, err := Prompt(w)
+	if err != nil {
+		return nil, err
 	}
 	client := anthropic.NewClient(option.WithAPIKey(apiKey))
 	opts := ai.FallbackOptions(model)
@@ -103,7 +122,7 @@ func Generate(ctx context.Context, apiKey, model, effort string, w Week) (*Resul
 		System:       []anthropic.TextBlockParam{{Text: instructions}},
 		OutputConfig: anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffort(effort)},
 		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(week + " The data:\n\n```json\n" + data + "\n```")),
+			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
 		},
 	}, opts...)
 	if err != nil {

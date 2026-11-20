@@ -242,10 +242,11 @@ func run() error {
 	case *debugWeek != "":
 		return debugReview(ctx, cfg, *debugWeek, *dryRun)
 	case *rewrite:
-		if cfg.values.AnthropicKey == "" {
-			return errors.New("no Anthropic API key in the settings")
+		write, _, err := reviewWriter(cfg)
+		if err != nil {
+			return err
 		}
-		_, err := rewriteReviews(ctx, cfg, writer(cfg.values.AnthropicKey), func(int, int) {})
+		_, err = rewriteReviews(ctx, cfg, write, func(int, int) {})
 		return err
 	case *debugDay != "":
 		client, err := login(ctx, cfg.values)

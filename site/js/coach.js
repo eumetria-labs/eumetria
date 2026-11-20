@@ -54,6 +54,7 @@ const ERRORS = () => ({
   timeout: t('That took too long. Try again.'),
   busy: t('Another question of yours is still being answered.'),
   coach_off: t('The coach is switched off.'),
+  runner_down: t('Claude Code can’t be reached right now. Try again later.'),
   bad_question: t('Write a question of up to 2000 characters.'),
 });
 
@@ -118,7 +119,7 @@ export async function openCoach(returnFocus) {
   const toolsBox = (b) => b.querySelector('.coach-tools') || b.appendChild(h('ul', { class: 'coach-tools', 'aria-label': t('Looked at') }));
   const addTool = (b, name, args) => toolsBox(b).append(h('li', {}, toolLine(name, args)));
   const footer = (b, m) => {
-    const bits = [t('Written by Claude')];
+    const bits = [m.backend === 'claude' ? t('Written by Claude Code') : t('Written by Claude')];
     if (m.cost_usd && account.user?.scopes?.includes('admin')) bits.push(`$${m.cost_usd.toLocaleString(LOCALE, { maximumFractionDigits: 3 })}`);
     b.append(h('p', { class: 'muted coach-by' }, bits.join(' · ')));
   };
@@ -130,6 +131,15 @@ export async function openCoach(returnFocus) {
       b.append(h('p', {}, ERRORS()[m.error] || t('That didn’t work. Try again.')));
       return;
     }
+    if (m.status === 'queued' || m.status === 'running') {
+      b.classList.add('queued');
+      const time = m.queued_until ? new Date(m.queued_until).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' }) : '';
+      b.append(h('p', {}, m.status === 'running' ? t('Writing the answer now…')
+        : t('Claude’s limit is reached: your answer comes after {time}. It fills in by itself.', { time })));
+      waitFor(thread);
+      return;
+    }
+    b.classList.remove('queued');
     b.append(renderMarkdown(m.text || ''));
     footer(b, m);
   };
@@ -150,6 +160,16 @@ export async function openCoach(returnFocus) {
     log.append(intro);
     drawSide();
     input.focus();
+  };
+
+  // A thread with answers waiting is looked at again every 30 s while open.
+  let poll = null;
+  const waitFor = (id) => {
+    if (poll) return;
+    poll = setTimeout(() => {
+      poll = null;
+      if (win && thread === id && !asking) load(id);
+    }, 30000);
   };
 
   const load = async (id) => {

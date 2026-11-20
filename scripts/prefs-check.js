@@ -236,6 +236,15 @@ await wait(1200);
 const saved = await (await fetch(base + '/api/admin/settings', { headers: { cookie: adminSession.cookie } })).json();
 check('Save stores it', saved.settings.title.value === 'Eumetria Test' && (await ev(`document.querySelector('.savebar').hidden`)), saved.settings.title.value);
 
+// Settings → AI: the API key, the coach, Claude Code (not set up here) and the review.
+await open('settings=review', { width: 1280, height: 900 });
+check('Settings → AI has the coach, Claude Code and the weekly review', await ev(`(() => {
+  const heads = [...document.querySelectorAll('.pf-content h3, .pf-content .wo-sec-head')].map((e) => e.textContent).join(' | ');
+  const coach = [...document.querySelectorAll('.pf-content select option')].some((o) => o.value === 'claude');
+  return /Coach/.test(heads) && /Claude Code/.test(heads) && /Not set up/.test(heads) && /Weekly review/.test(heads) && coach;
+})()`), await ev(`[...document.querySelectorAll('.pf-content .wo-sec-head')].map((e) => e.textContent).join(' | ')`));
+await open('settings=general', { width: 1280, height: 900 });
+
 await ev(`document.querySelector('.pf-switch a:first-child').click()`);
 await wait(700);
 check('the switch goes to Profile → Account', await ev(`location.hash.includes('profile=account')`), await ev('location.hash'));

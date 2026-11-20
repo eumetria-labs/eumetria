@@ -10,8 +10,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"eumetria/internal/ai"
 	"eumetria/internal/auth"
+	"eumetria/internal/settings"
 )
 
 // fakeClaude streams Messages API answers: the first request of each
@@ -219,5 +222,157 @@ func TestCoachAsk(t *testing.T) {
 	}
 	if res, _ := e.do(t, admin, "GET", fmt.Sprintf("/api/coach/threads/%d", thread), ""); res.StatusCode != 404 {
 		t.Errorf("deleted thread = %d, want 404", res.StatusCode)
+	}
+}
+
+// fakeRunner answers like the runner: it checks the job's MCP token on the
+// real /api/mcp, then answers, or says the limit is reached.
+type fakeRunner struct {
+	mu      sync.Mutex
+	limit   bool
+	jobs    []map[string]any
+	mcp     *http.Client
+	mcpCode int
+}
+
+func (f *fakeRunner) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if req.Header.Get("Authorization") != "Bearer runner-key" {
+		http.Error(w, "no", 401)
+		return
+	}
+	if req.URL.Path == "/healthz" {
+		fmt.Fprint(w, `{"version":"2.1.329 (Claude Code)","token":true}`)
+		return
+	}
+	var job map[string]any
+	json.NewDecoder(req.Body).Decode(&job)
+	f.mu.Lock()
+	f.jobs = append(f.jobs, job)
+	limit := f.limit
+	f.mu.Unlock()
+	if limit {
+		fmt.Fprintln(w, `{"kind":"limit","until":`+fmt.Sprint(time.Now().Add(2*time.Hour).Unix())+`}`)
+		return
+	}
+	// The token must work on /api/mcp, for this one job.
+	mreq, _ := http.NewRequest("POST", job["mcp_url"].(string), strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"phases","arguments":{}}}`))
+	mreq.Header.Set("Authorization", "Bearer "+job["mcp_token"].(string))
+	mreq.Header.Set("Content-Type", "application/json")
+	if res, err := f.mcp.Do(mreq); err == nil {
+		f.mu.Lock()
+		f.mcpCode = res.StatusCode
+		f.mu.Unlock()
+		res.Body.Close()
+	}
+	fmt.Fprintln(w, `{"kind":"tool","tool":"phases","args":{}}`)
+	fmt.Fprintln(w, `{"kind":"text","text":"From Claude Code."}`)
+	fmt.Fprintln(w, `{"kind":"done","text":"From Claude Code.","model":"claude-opus-5-5"}`)
+}
+
+func TestCoachClaudeCode(t *testing.T) {
+	e := newTestEnv(t, true)
+	ctx := context.Background()
+	fakeAPI := &fakeClaude{}
+	api := httptest.NewServer(fakeAPI)
+	t.Cleanup(api.Close)
+	runner := &fakeRunner{mcp: e.srv.Client()}
+	rs := httptest.NewServer(runner)
+	t.Cleanup(rs.Close)
+	coachAPIURL = api.URL
+	coachRunner = func(v settings.Values) ai.Runner { return ai.Runner{URL: rs.URL, Key: "runner-key"} }
+	coachWorkerEvery = 20 * time.Millisecond
+	t.Cleanup(func() {
+		coachAPIURL = ""
+		coachRunner = func(v settings.Values) ai.Runner { return ai.Runner{URL: v.RunnerURL, Key: v.RunnerKey} }
+		coachWorkerEvery = 30 * time.Second
+	})
+	if err := e.runner.settings.Save(ctx, map[string]string{"coach": "claude", "anthropic_key": "sk-test",
+		"runner_mcp_url": e.srv.URL + "/api/mcp", "claude_model": "opus"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	patrick := e.signIn(t, "patrick", adminPassword, false) // the owner: the oldest admin
+	ask := func(c *http.Client, thread int64, text string) map[string]any {
+		b, _ := json.Marshal(map[string]any{"thread": thread, "text": text})
+		res, body := e.do(t, c, "POST", "/api/coach/ask", string(b), sameSite)
+		if res.StatusCode != 200 {
+			t.Fatalf("ask = %d %s", res.StatusCode, body)
+		}
+		var done map[string]any
+		for _, ev := range events(body) {
+			if ev[0] == "done" {
+				json.Unmarshal([]byte(ev[1]), &done)
+			}
+		}
+		return done
+	}
+
+	_, home := e.do(t, patrick, "GET", "/api/coach", "")
+	if !strings.Contains(home, `"uses":"claude"`) {
+		t.Fatalf("home = %s", home)
+	}
+	done := ask(patrick, 0, "What phase am I in?")
+	if done["backend"] != "claude" || done["text"] != "From Claude Code." || done["model"] != "claude-code/claude-opus-5-5" {
+		t.Fatalf("done = %v", done)
+	}
+	runner.mu.Lock()
+	job := runner.jobs[0]
+	code := runner.mcpCode
+	runner.mu.Unlock()
+	if code != 200 || job["model"] != "opus" || !strings.HasPrefix(job["system"].(string), "You are the coach") || !strings.Contains(job["prompt"].(string), "What phase am I in?") {
+		t.Errorf("job = %v, mcp answered %d", job, code)
+	}
+	// The job's token is gone afterwards.
+	owner, _ := e.store.UserByName(ctx, "patrick")
+	if toks, _ := e.store.APITokens(ctx, owner); len(toks) != 0 {
+		t.Errorf("tokens left: %v", toks)
+	}
+	if _, _, err := e.store.APIToken(ctx, job["mcp_token"].(string)); err == nil {
+		t.Error("the job's token still works")
+	}
+
+	// The limit: the question waits; the next one waits without asking.
+	runner.mu.Lock()
+	runner.limit = true
+	runner.mu.Unlock()
+	done = ask(patrick, 0, "And my sleep?")
+	if done["status"] != "queued" || done["queued_until"] == nil {
+		t.Fatalf("at the limit = %v", done)
+	}
+	n := len(runner.jobs)
+	ask(patrick, 0, "And my food?")
+	if len(runner.jobs) != n {
+		t.Error("asked the runner again although the limit is reached")
+	}
+	_, home = e.do(t, patrick, "GET", "/api/coach", "")
+	if !strings.Contains(home, `"limit_until"`) {
+		t.Errorf("home at the limit = %s", home)
+	}
+
+	// Someone else with the coach scope is answered on the API.
+	e.store.SaveRole(ctx, "Coached", []string{auth.ViewNutrition, auth.UseCoach})
+	e.store.CreateUser(ctx, "bea", viewerPassword+"!", "Coached")
+	bea := e.signIn(t, "bea", viewerPassword+"!", false)
+	if done := ask(bea, 0, "Hi"); done["backend"] != "api" || done["status"] != "done" {
+		t.Errorf("bea = %v", done)
+	}
+
+	// After the reset the worker answers both waiting questions.
+	runner.mu.Lock()
+	runner.limit = false
+	runner.mu.Unlock()
+	e.now = e.now.Add(3 * time.Hour)
+	e.do(t, patrick, "GET", "/api/coach", "") // starts the worker
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var answered int
+		e.store.DB.QueryRowContext(ctx, `SELECT count(*) FROM coach_messages m JOIN coach_threads t ON t.id = m.thread_id
+			WHERE t.user_id = ? AND m.role = 'assistant' AND m.status = 'done'`, owner.ID).Scan(&answered)
+		if answered == 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the worker answered %d of 3", answered)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

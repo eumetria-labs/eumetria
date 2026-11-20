@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"time"
 
+	"eumetria/internal/ai"
+	"eumetria/internal/db"
 	"eumetria/internal/off"
 	"eumetria/internal/review"
 	"eumetria/internal/settings"
@@ -66,8 +69,10 @@ func sources(cfg config, opts stats.Options) []Source {
 		srcs = append(srcs, offSource{client: off.New(), perRun: 30, pause: 5 * time.Second})
 	}
 	// Last: the weekly review reads what the others brought in.
-	if v := cfg.values; v.Review && v.AnthropicKey != "" {
-		srcs = append(srcs, reviewSource{opts: opts, dbPath: cfg.dbPath, model: v.Model, effort: v.Effort, write: writer(v.AnthropicKey)})
+	if v := cfg.values; v.Review {
+		if write, model, err := reviewWriter(cfg); err == nil {
+			srcs = append(srcs, reviewSource{opts: opts, dbPath: cfg.dbPath, model: model, effort: v.Effort, write: write})
+		}
 	}
 	return srcs
 }
@@ -258,6 +263,58 @@ func (o offSource) Sync(ctx context.Context, h *store.History, w window) error {
 	return nil
 }
 
+// reviewWriter is who writes the weekly review, as Settings → AI says:
+// Claude Code when it's picked and its runner is set up, else the API with
+// its key. It answers the model to name in the log and the review.
+func reviewWriter(cfg config) (writeFunc, string, error) {
+	v := cfg.values
+	r := ai.Runner{URL: v.RunnerURL, Key: v.RunnerKey}
+	switch {
+	case v.ReviewBackend == "claude" && r.Ready():
+		return claudeWriter(cfg.dbPath, r, v.ClaudeModel), v.ClaudeModel, nil
+	case v.AnthropicKey != "":
+		return writer(v.AnthropicKey), v.Model, nil
+	}
+	return nil, "", errors.New("no Anthropic API key and no Claude Code runner in the settings")
+}
+
+// claudeWriter has Claude Code write the review: the same instructions and
+// data as on the API, in one turn without tools. While its usage limit is
+// reached (shared with the coach, in app.db) it doesn't ask.
+func claudeWriter(dbPath string, r ai.Runner, model string) writeFunc {
+	return func(ctx context.Context, _, _ string, w review.Week) (*review.Result, error) {
+		d, err := db.Open(ctx, dbPath)
+		if err != nil {
+			return nil, err
+		}
+		defer d.Close()
+		now := time.Now()
+		if until := ai.LimitUntil(ctx, d, now); !until.IsZero() {
+			return nil, &ai.LimitError{Until: until}
+		}
+		prompt, err := review.Prompt(w)
+		if err != nil {
+			return nil, err
+		}
+		ans, err := r.Ask(ctx, ai.RunRequest{System: review.Instructions(), Prompt: prompt, Model: model, Timeout: 600}, func(ai.Event) {})
+		if err != nil {
+			var le *ai.LimitError
+			if errors.As(err, &le) {
+				until := ai.ResetAt(err, now)
+				if serr := ai.SetLimit(ctx, d, until); serr != nil {
+					log.Printf("weekly review: storing the limit: %v", serr)
+				}
+				return nil, &ai.LimitError{Until: until}
+			}
+			return nil, err
+		}
+		if strings.TrimSpace(ans.Text) == "" {
+			return nil, errors.New("claude code: an empty review")
+		}
+		return review.FromText(ans.Text, ans.Model), nil
+	}
+}
+
 // writer has Claude write a review with this API key.
 func writer(apiKey string) func(context.Context, string, string, review.Week) (*review.Result, error) {
 	return func(ctx context.Context, model, effort string, w review.Week) (*review.Result, error) {
@@ -284,6 +341,10 @@ func (s reviewSource) Sync(ctx context.Context, h *store.History, w window) erro
 	if h.Reviews[key] != nil {
 		return nil
 	}
+	// Claude Code's limit: wait for the first sync after it resets.
+	if st := h.ReviewState; st != nil && st.QueuedUntil.After(w.now) {
+		return nil
+	}
 	out := stats.Build(h, withOwner(ctx, s.dbPath, s.opts.Everything()), w.now)
 	week := review.BuildWeek(out, monday, w.today.Format(time.DateOnly))
 	loadNoted(ctx, s.dbPath).addTo(&week)
@@ -294,6 +355,12 @@ func (s reviewSource) Sync(ctx context.Context, h *store.History, w window) erro
 	r, err := s.write(ctx, s.model, s.effort, week)
 	if err != nil {
 		h.ReviewState = &store.ReviewState{LastAttempt: w.now, Error: err.Error(), Billing: errors.Is(err, review.ErrBilling)}
+		var le *ai.LimitError
+		if errors.As(err, &le) {
+			h.ReviewState.QueuedUntil = le.Until
+			log.Printf("weekly review of %s: Claude Code's limit is reached; it's written after %s", key, le.Until.Format(time.RFC3339))
+			return nil
+		}
 		log.Printf("WARNING: weekly review of %s: %v", key, err)
 		return nil
 	}

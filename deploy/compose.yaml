@@ -28,6 +28,31 @@ services:
         max-size: 10m
         max-file: "3"
 
+  # Optional (phase 12b): Claude Code on your subscription for the coach and
+  # the weekly review. Not started by `docker compose up -d`; switch it on
+  # with `docker compose --profile claude up -d` once claude-runner.env holds
+  # the token (README, "Claude Code"). No ports: only Eumetria reaches it.
+  claude-runner:
+    image: ghcr.io/eumetria-labs/eumetria-claude-runner:latest
+    container_name: claude-runner
+    profiles: [claude]
+    restart: unless-stopped
+    env_file: claude-runner.env
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 200
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
 # A fixed network, so nginx on the host always reaches the container from
 # the same address, its gateway: TRUSTED_PROXY in eumetria.env names it.
 # Pick another /24 if this one is taken on your host.

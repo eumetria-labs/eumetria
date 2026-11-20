@@ -75,10 +75,18 @@ var defs = []def{
 	{key: "ai_model", env: "AI_MODEL", fallback: review.DefaultModel, valid: text(64, false)},
 	{key: "ai_effort", env: "AI_EFFORT", fallback: "medium", valid: oneOf("low", "medium", "high", "xhigh", "max")},
 	{key: "ai_credit_usd", env: "AI_CREDIT_USD", valid: money},
-	// The coach chat: off, or on the Anthropic API (phase 12b adds Claude Code).
-	{key: "coach", fallback: "off", valid: oneOf("off", "api")},
+	// The coach chat: off, on the Anthropic API, or on Claude Code (the
+	// owner's subscription through the runner container).
+	{key: "coach", fallback: "off", valid: oneOf("off", "api", "claude")},
 	{key: "coach_model", fallback: "claude-sonnet-5-5", valid: text(64, false)},
 	{key: "coach_effort", fallback: "medium", valid: oneOf("low", "medium", "high", "xhigh", "max")},
+	// Who writes the weekly review, and Claude Code's model and runner.
+	{key: "review_backend", fallback: "api", valid: oneOf("api", "claude")},
+	{key: "claude_model", fallback: "opus", valid: oneOf("opus", "sonnet", "haiku")},
+	{key: "claude_fallback_api", fallback: "false", valid: boolean},
+	{key: "runner_url", env: "RUNNER_URL", fallback: "http://claude-runner:8080", valid: text(256, false)},
+	{key: "runner_key", env: "RUNNER_KEY", secret: true},
+	{key: "runner_mcp_url", env: "RUNNER_MCP_URL", fallback: "http://eumetria:8080/api/mcp", valid: text(256, false)},
 	{key: "openfoodfacts", env: "OPENFOODFACTS", fallback: "true", valid: boolean},
 	{key: "sleep_goal", fallback: "480", valid: number(240, 720)},
 	{key: "backups", fallback: "true", valid: boolean},
@@ -440,11 +448,17 @@ type Values struct {
 	Review            bool
 	AnthropicKey      string
 	Model, Effort     string
-	// The coach: Coach is "off" or "api".
+	// The coach: Coach is "off", "api" or "claude".
 	Coach, CoachModel, CoachEffort string
-	CreditUSD                      float64
-	OpenFoodFacts                  bool
-	SleepGoal                      int // minutes, for the sleep score
+	// ReviewBackend is "api" or "claude"; ClaudeModel the alias Claude Code
+	// uses; ClaudeFallbackAPI answers on the API while its limit is reached.
+	ReviewBackend, ClaudeModel string
+	ClaudeFallbackAPI          bool
+	// The runner container (cmd/claude-runner) and where it reaches /api/mcp.
+	RunnerURL, RunnerKey, RunnerMCPURL string
+	CreditUSD                          float64
+	OpenFoodFacts                      bool
+	SleepGoal                          int // minutes, for the sleep score
 
 	Backups             bool
 	BackupTime          string // "HH:MM" in the site's time zone
@@ -491,6 +505,8 @@ func resolve(get func(key string) string) Values {
 		GoogleClientID: get("google_client_id"), GoogleSecret: get("google_client_secret"),
 		AnthropicKey: get("anthropic_key"), Model: get("ai_model"), Effort: get("ai_effort"),
 		Coach: get("coach"), CoachModel: get("coach_model"), CoachEffort: get("coach_effort"),
+		ReviewBackend: get("review_backend"), ClaudeModel: get("claude_model"),
+		RunnerURL: get("runner_url"), RunnerKey: get("runner_key"), RunnerMCPURL: get("runner_mcp_url"),
 		BackupTime: get("backup_time"), BackupPassphrase: get("backup_passphrase"), BackupPassphraseAt: get("backup_passphrase_at"),
 		BackupFolder: get("backup_folder"),
 		PublicURL:    strings.TrimRight(get("public_url"), "/"),
@@ -519,6 +535,7 @@ func resolve(get func(key string) string) Values {
 		return err != nil || b
 	}
 	v.Review, v.OpenFoodFacts = onOff("review"), onOff("openfoodfacts")
+	v.ClaudeFallbackAPI = onOff("claude_fallback_api")
 	v.Backups = onOff("backups")
 	v.BackupDrive, _ = strconv.ParseBool(get("backup_drive"))
 	v.BackupKeepDays, _ = strconv.Atoi(get("backup_keep_days"))

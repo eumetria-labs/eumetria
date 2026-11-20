@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"eumetria/internal/ai"
 	"eumetria/internal/off"
 	"eumetria/internal/review"
 	"eumetria/internal/stats"
@@ -178,5 +179,35 @@ func TestReviewSource(t *testing.T) {
 	_ = src.Sync(context.Background(), empty, win)
 	if len(weeks) != 0 {
 		t.Errorf("asked for an empty week: %v", weeks)
+	}
+}
+
+func TestReviewWaitsForClaudeCodesLimit(t *testing.T) {
+	today := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	h := &store.History{Days: map[string]*store.Day{"2026-10-14": {Date: "2026-10-14", Total: store.Macros{Energy: 1800}}}}
+	reset := today.Add(13 * time.Hour)
+	asked := 0
+	limited := true
+	src := reviewSource{model: "opus", write: func(context.Context, string, string, review.Week) (*review.Result, error) {
+		asked++
+		if limited {
+			return nil, &ai.LimitError{Until: reset}
+		}
+		return review.FromText("A week.\n=== DEUTSCH ===\nEine Woche.", "claude-code/claude-opus-5-5"), nil
+	}}
+	_ = src.Sync(context.Background(), h, window{today: today, now: today.Add(8 * time.Hour)})
+	if h.ReviewState == nil || !h.ReviewState.QueuedUntil.Equal(reset) || h.ReviewState.Billing {
+		t.Fatalf("state = %+v", h.ReviewState)
+	}
+	// Syncs before the reset don't ask.
+	_ = src.Sync(context.Background(), h, window{today: today, now: today.Add(12 * time.Hour)})
+	if asked != 1 {
+		t.Errorf("asked %d times before the reset", asked)
+	}
+	limited = false
+	_ = src.Sync(context.Background(), h, window{today: today, now: today.Add(14 * time.Hour)})
+	r := h.Reviews["2026-10-12"]
+	if asked != 2 || r == nil || r.Text != "A week." || r.TextDE != "Eine Woche." || h.ReviewState != nil {
+		t.Errorf("after the reset: asked %d, review %+v, state %+v", asked, r, h.ReviewState)
 	}
 }

@@ -181,6 +181,10 @@ export function syncNotices(data, now = Date.now()) {
 export function reviewNotices(data) {
   const st = data.review_status;
   if (!st) return [];
+  if (st.queued_until) {
+    const time = new Date(st.queued_until).toLocaleString(LOCALE, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+    return [t('Claude’s limit is reached: the weekly review is written after {time}.', { time })];
+  }
   if (st.billing) return [t("The weekly review couldn't be written: the Anthropic credit is used up or the workspace's spend limit is reached. Buy credits in the Anthropic Console; it's tried again on every sync.")];
   if (st.credit_low) {
     const weeks = tn(st.weeks_left, 'one more weekly review', 'about {n} more weekly reviews');

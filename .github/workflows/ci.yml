@@ -93,3 +93,15 @@ jobs:
             ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # The optional Claude Code runner (deploy/claude-runner).
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/claude-runner/Dockerfile
+          pull: true
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-claude-runner:latest
+            ghcr.io/${{ github.repository }}-claude-runner:${{ steps.tag.outputs.short }}
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
