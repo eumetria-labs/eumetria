@@ -1642,6 +1642,7 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 /* The settings */
 .set-form { display: grid; gap: 12px; }
 .set-field { display: grid; gap: 4px; font-size: 14px; }
+.set-field[hidden] { display: none; }
 .set-field .field { width: 100%; }
 .set-label { display: flex; justify-content: space-between; gap: 8px; font-weight: 550; }
 .set-label small { font-size: 12px; font-weight: 400; color: var(--muted); }
@@ -2408,3 +2409,7 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
   .coach-form { padding: 10px 12px; }
   .coach-msg { max-width: 100%; }
 }
+/* "Write all reviews again" at the foot of the weekly review's card. */
+.set-again { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); display: grid; gap: 8px; justify-items: start; }
+.set-again p { margin: 0; }
+.set-again p:empty { display: none; }

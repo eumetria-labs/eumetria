@@ -151,7 +151,7 @@ const adminSession = await signIn(...ADMIN, begun.secret);
 await useSession(adminSession);
 await sections('admin', {
   profile: ['account', 'layout', 'phases'],
-  settings: ['sign-in', 'devices', 'users', 'roles', 'sessions', 'notes', 'audit', 'yazio', 'google', 'sync', 'general', 'review', 'mail', 'backups'],
+  settings: ['sign-in', 'devices', 'users', 'roles', 'sessions', 'notes', 'audit', 'yazio', 'google', 'sync', 'general', 'ai', 'mail', 'backups'],
 });
 
 await browser.view(base + '/#range=30', { width: 1280, height: 900 });
@@ -237,7 +237,11 @@ const saved = await (await fetch(base + '/api/admin/settings', { headers: { cook
 check('Save stores it', saved.settings.title.value === 'Eumetria Test' && (await ev(`document.querySelector('.savebar').hidden`)), saved.settings.title.value);
 
 // Settings → AI: the API key, the coach, Claude Code (not set up here) and the review.
+await open('settings=ai', { width: 1280, height: 900 });
+check('Settings → AI lives at #settings=ai', await ev(`location.hash.includes('settings=ai')`), await ev('location.hash'));
 await open('settings=review', { width: 1280, height: 900 });
+check('the old #settings=review leads to Settings → AI', await ev(`location.hash.includes('settings=ai')`), await ev('location.hash'));
+await open('settings=ai', { width: 1280, height: 900 });
 check('Settings → AI has the coach, Claude Code and the weekly review', await ev(`(() => {
   const heads = [...document.querySelectorAll('.pf-content h3, .pf-content .wo-sec-head')].map((e) => e.textContent).join(' | ');
   const coach = [...document.querySelectorAll('.pf-content select option')].some((o) => o.value === 'claude');
@@ -245,9 +249,15 @@ check('Settings → AI has the coach, Claude Code and the weekly review', await 
 })()`), await ev(`[...document.querySelectorAll('.pf-content .wo-sec-head')].map((e) => e.textContent).join(' | ')`));
 // The weekly review has no model of its own by default; ticking it shows two fields.
 const reviewOwn = `[...document.querySelectorAll('.pf-content .set-check')].filter((l) => /Own model/.test(l.textContent)).at(-1)`;
-const shown = `[...${reviewOwn}.closest('form').querySelectorAll('label.set-field')].filter((l) => !l.hidden && l.querySelector('select')).length`;
+const shown = `[...${reviewOwn}.closest('form').querySelectorAll('label.set-field')].filter((l) => l.offsetParent && l.querySelector('select')).length`;
 const before = await ev(shown);
 await ev(`${reviewOwn}.querySelector('input').click()`);
+check('Settings → AI: the order is API, Claude Code, Model and effort, Coach, Weekly review (with writing all again)', await ev(`(() => {
+  const heads = [...document.querySelectorAll('.pf-content .wo-sec-head h3, .pf-content .wo-sec-head h2')].map((e) => e.textContent.trim());
+  const want = ['Anthropic API', 'Claude Code', 'Model and effort', 'Coach', 'Weekly review'];
+  const last = [...document.querySelectorAll('.pf-content section, .pf-content .wo-sec')].at(-1);
+  return JSON.stringify(heads.filter((x) => want.includes(x))) === JSON.stringify(want) && !!last?.querySelector('.set-again button');
+})()`), await ev(`[...document.querySelectorAll('.pf-content .wo-sec-head')].map((e) => e.textContent.trim()).join(' | ')`));
 check('Settings → AI: a model of its own shows model and effort', /Model and effort/.test(await ev(`document.querySelector('.pf-content').textContent`)) && (await ev(shown)) === before + 2, `${before} → ${await ev(shown)}`);
 await open('settings=general', { width: 1280, height: 900 });
 

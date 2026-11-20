@@ -61,7 +61,7 @@ const SECTIONS = [
   ].map(([key, label, ic, color, desc]) => ({ side: 'settings', group: () => t('Data sources'), key, label, icon: ic, color, desc, when: admin,
     draw: (host, result) => renderSettings(host, key, result) })),
   ...[['general', () => t('General'), 'sliders', '#6b7280', () => t('The site’s name, address, language and time zone.')],
-    ['review', () => t('AI'), 'spark', '#a24bc4', () => t('The weekly review and the coach chat, written by Claude.')],
+    ['ai', () => t('AI'), 'spark', '#a24bc4', () => t('The weekly review and the coach chat, written by Claude.')],
     ['mail', () => t('E-mail'), 'mail', '#eb6834', () => t('Security alerts and links by e-mail.')],
     ['backups', () => t('Backups'), 'archive', '#4b5563', () => t('A daily archive on this server, and on Google Drive if you like.')],
   ].map(([key, label, ic, color, desc]) => ({ side: 'settings', group: () => t('Site'), key, label, icon: ic, color, desc, when: admin,
@@ -72,8 +72,8 @@ const visible = (side) => SECTIONS.filter((s) => s.side === side && (!s.when || 
 const narrow = matchMedia('(max-width: 899px)');
 
 // Old addresses still lead somewhere: "#security", "#admin=roles", the
-// settings tab "email".
-const ALIASES = { email: 'mail', security: 'sign-in' };
+// settings tabs "email" and "review" (now "ai").
+const ALIASES = { email: 'mail', security: 'sign-in', review: 'ai' };
 
 let view = null; // the open view: { win, side, key, pushed, … }
 
@@ -306,8 +306,8 @@ async function loadStatus(side, root) {
         const g = d.google || {};
         out.google = g.connected ? (g.missing?.length ? ['warn', t('Partly connected')] : ['ok', t('Connected')]) : ['off', t('Not connected')];
         if (v('sync_interval').value) out.sync = ['', t('Every {every}', { every: v('sync_interval').value })];
-        const reviewOn = /^(1|t|true)$/i.test(v('review').value), coachOn = v('coach').value === 'api';
-        out.review = reviewOn || coachOn ? ['ok', [reviewOn && t('Review'), coachOn && t('Coach')].filter(Boolean).join(' · ')] : ['off', t('Off')];
+        const reviewOn = /^(1|t|true)$/i.test(v('review').value), coachOn = !!v('coach').value && v('coach').value !== 'off';
+        out.ai = reviewOn || coachOn ? ['ok', [reviewOn && t('Review'), coachOn && t('Coach')].filter(Boolean).join(' · ')] : ['off', t('Off')];
         const m = d.mail || {};
         out.mail = !v('smtp_host').value ? ['off', t('Off')] : m.last_error ? ['warn', t('Last mail failed')] : ['ok', t('On')];
         out.backups = /^(1|t|true)$/i.test(v('backups').value) ? ['ok', t('Daily')] : ['off', t('Off')];

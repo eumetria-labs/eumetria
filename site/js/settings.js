@@ -18,7 +18,7 @@ const POLL_MS = 2000;
 let polling = 0; // the status poll that may go on; leaving the section ends it
 
 // renderSettings draws one part of the settings (general, sync, yazio,
-// google, review, backups, mail) into body: a section of the Profile /
+// google, ai, backups, mail) into body: a section of the Profile /
 // Settings view. result is how Connect Google ended, when it brought the
 // browser back here.
 export function renderSettings(body, tab, result = '') {
@@ -50,7 +50,7 @@ async function load(body, tab, result) {
   }
   // tab comes from the URL (#settings=…): only the object's own tabs count,
   // not what every object has, such as "constructor" (pentest F8).
-  const tabs = { general: generalTab, sync: syncTab, yazio: yazioTab, google: googleTab, review: reviewTab, backups: backupsTab, mail: mailTab };
+  const tabs = { general: generalTab, sync: syncTab, yazio: yazioTab, google: googleTab, ai: aiTab, backups: backupsTab, mail: mailTab };
   body.replaceChildren(...(Object.hasOwn(tabs, tab) ? tabs[tab] : generalTab)(body, data, result));
   // The save bar saves every form of the section in one request.
   body._saveAll = () => {
@@ -437,7 +437,7 @@ const ownModel = (part) => [
   { key: part + '_effort', label: t('Effort'), options: EFFORTS(), showIf: part + '_own' },
 ];
 
-function reviewTab(body, data) {
+function aiTab(body, data) {
   const key = section(t('Anthropic API'), t('Used by the weekly review and the coach. Billed to the key’s account; prepaid credit with auto-reload off keeps the cost in hand.'));
   key.append(form(body, data, [
     { key: 'anthropic_key', label: t('Anthropic API key') },
@@ -469,7 +469,9 @@ function reviewTab(body, data) {
     { key: 'review_backend', label: t('Written by'), options: BACKENDS() },
     ...ownModel('review'),
   ]));
-  const again = section(t('Write all reviews again'), t('In English and German, one after the other.'));
+  // Writing every stored review again, part of the review's card.
+  const again = h('div', { class: 'set-again' });
+  again.append(h('p', { class: 'muted set-hint' }, t('Write all reviews again: in English and German, one after the other.')));
   const line = h('p', { class: 'muted' }, data.status.job_error || '');
   line.classList.toggle('lock-error', !!data.status.job_error);
   const run = h('button', { class: 'pill-btn', type: 'button' }, t('Write all reviews again'));
@@ -489,11 +491,12 @@ function reviewTab(body, data) {
       if (why === 'reauth') return body.prepend(confirmNote());
       return showError(body, t('That didn’t work. Try again.'));
     }
-    poll(body, line, () => load(body, 'review'));
+    poll(body, line, () => load(body, 'ai'));
   };
-  if (data.status.running) poll(body, line, () => load(body, 'review'));
+  if (data.status.running) poll(body, line, () => load(body, 'ai'));
   again.append(line, run);
-  return [...noKeyNote(data), key, model, coach, claude, sec, again];
+  sec.append(again);
+  return [...noKeyNote(data), key, claude, model, coach, sec];
 }
 
 /* ---------- backups ---------- */
