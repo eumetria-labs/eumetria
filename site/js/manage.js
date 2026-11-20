@@ -27,6 +27,7 @@ const SCOPES = {
   'edit.notes': () => [t('Write notes'), t('Add, change and delete workout notes')],
   'edit.lifts': () => [t('Write personal bests'), t('Add, change and delete lifts and benchmark workouts (needs Fitbit)')],
   'edit.checkin': () => [t('Check in'), t('The daily check-in and day tags like sick or travel (needs Fitbit)')],
+  'use.coach': () => [t('Ask the coach'), t('Chat with Claude about the data this role sees (uses the AI backend set under Settings → AI)')],
   sync: () => [t('Sync'), t('Sync now and refresh everything; needs a second factor')],
   admin: () => [t('Admin'), t('Everything, including users, roles and the audit log; needs a second factor')],
 };

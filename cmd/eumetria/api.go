@@ -25,6 +25,7 @@ import (
 
 	"eumetria/internal/auth"
 	"eumetria/internal/checkins"
+	"eumetria/internal/coach"
 	"eumetria/internal/imgmeta"
 	"eumetria/internal/lifts"
 	"eumetria/internal/mail"
@@ -114,6 +115,9 @@ import (
 //	POST   /api/admin/backups/test-drive  uploads and deletes a small file         admin
 //	GET    /api/google/callback  where Google sends the browser back               admin
 //	DELETE /api/google        disconnects                                          admin, recent sign-in
+//	GET    /api/coach         the coach chat: on or off, the user's threads (coach.go)  use.coach
+//	GET    /api/coach/threads/{id}  a thread's messages; DELETE deletes it          use.coach
+//	POST   /api/coach/ask     {thread, text}: asks; the answer streams back (SSE)  use.coach
 //	POST   /api/mcp           the MCP server: JSON-RPC, read-only tools (mcp.go)   mcp token
 //	GET    /api/status        sync state                                           sync
 //	POST   /api/sync          starts a sync now (?all=1 re-fetches everything)     sync
@@ -140,6 +144,7 @@ const (
 	liftWriter                      // a session with the edit.lifts scope (lifts and benchmark workouts)
 	checkinWriter                   // a session with the edit.checkin scope (check-ins and day tags)
 	mcpToken                        // an API token with the mcp scope (mcp.go)
+	coachUser                       // a session with the use.coach scope (coach.go)
 )
 
 type route struct {
@@ -195,6 +200,8 @@ type app struct {
 	training *sessions.Store // training sessions (sets × reps)
 	phases   *phases.Store
 	checkins *checkins.Store
+	chats    *coach.Store // the coach chat's threads
+	coach    coachState
 	data     *published
 	photoDir string
 	// Images in notes (internal/notes, images.go).
@@ -240,6 +247,7 @@ func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, a
 		training:      &sessions.Store{DB: store.DB, Now: store.Now},
 		phases:        &phases.Store{DB: store.DB, Now: store.Now},
 		checkins:      &checkins.Store{DB: store.DB, Now: store.Now},
+		chats:         &coach.Store{DB: store.DB, Now: store.Now},
 		data:          data,
 		photoDir:      photoDir,
 		noteImages:    noteImages,
@@ -362,6 +370,10 @@ func (a *app) routes() []route {
 		{"POST", "/api/withings/connect", adminOnly, a.withingsConnect},
 		{"GET", "/api/withings/callback", adminOnly, a.withingsCallbackRoute},
 		{"DELETE", "/api/withings", adminOnly, a.withingsDisconnect},
+		{"GET", "/api/coach", coachUser, a.coachHome},
+		{"GET", "/api/coach/threads/{id}", coachUser, a.coachThread},
+		{"DELETE", "/api/coach/threads/{id}", coachUser, a.coachDelete},
+		{"POST", "/api/coach/ask", coachUser, a.coachAsk},
 		{"POST", "/api/mcp", mcpToken, a.mcp},
 		{"GET", "/api/mcp", mcpToken, a.mcpOther},
 		{"DELETE", "/api/mcp", mcpToken, a.mcpOther},
@@ -420,6 +432,8 @@ func (a *app) guard(rt route) http.Handler {
 			ok = p.can(auth.EditCheckin)
 		case mcpToken:
 			ok = p.token != nil && p.token.Has(auth.TokenMCP)
+		case coachUser:
+			ok = p.session != nil && p.user.Can(auth.UseCoach)
 		}
 		if !ok {
 			writeError(w, http.StatusForbidden, "forbidden")

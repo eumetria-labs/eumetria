@@ -22,6 +22,7 @@ const (
 	EditNotes     = "edit.notes"     // add, change and delete notes
 	EditLifts     = "edit.lifts"     // add, change and delete personal bests in lifts
 	EditCheckin   = "edit.checkin"   // the daily check-in and day tags
+	UseCoach      = "use.coach"      // ask the coach (Claude) about the data the role sees
 	ScopeSync     = "sync"           // sync now, full refresh
 	ScopeAdmin    = "admin"          // users, roles, settings, backups, audit log; implies all others
 )
@@ -30,7 +31,7 @@ const (
 var ViewScopes = []string{ViewNutrition, ViewFoods, ViewPhotos, ViewActivity, ViewHealth, ViewRoutes, ViewNotes, ViewReview}
 
 // AllScopes are every scope a role can have.
-var AllScopes = append(slices.Clone(ViewScopes), EditNotes, EditLifts, EditCheckin, ScopeSync, ScopeAdmin)
+var AllScopes = append(slices.Clone(ViewScopes), EditNotes, EditLifts, EditCheckin, UseCoach, ScopeSync, ScopeAdmin)
 
 // The built-in roles. Their scopes are fixed here; they can't be changed
 // or deleted.

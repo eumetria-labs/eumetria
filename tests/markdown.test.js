@@ -221,3 +221,14 @@ test('a note as plain lines', () => {
   ]);
   assert.deepEqual(noteLines('![](note-images/0123456789abcdef0123456789abcdef.jpg)\n\ntext\n\n```\nraw\n```'), [{ text: 'text', head: false }, { text: 'raw' }]);
 });
+
+test('a table needs a row and a rule under it; cells are inline Markdown', () => {
+  const blocks = parseMarkdown('Before\n\n| Night | Asleep |\n|---|---:|\n| Mon | **8 h** |\n| Tue | 7 h |\nAfter\n\n| just pipes |');
+  assert.deepEqual(blocks.map((b) => b.type), ['p', 'table', 'p', 'p']);
+  const table = blocks[1];
+  assert.deepEqual(table.head, [[{ text: 'Night' }], [{ text: 'Asleep' }]]);
+  assert.deepEqual(table.rows[0][1], [{ bold: [{ text: '8 h' }] }]);
+  assert.equal(table.rows.length, 2);
+  assert.ok(!('line' in blocks[3]), 'no parser state left on blocks');
+  assert.deepEqual(noteLines('| a | b |\n|--|--|\n| 1 | 2 |'), [{ text: 'a · b', head: true }, { text: '1 · 2', head: false }]);
+});

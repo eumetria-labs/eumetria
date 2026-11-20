@@ -474,14 +474,25 @@ function withingsTab(body, data, result) {
 
 /* ---------- weekly review ---------- */
 
+const MODELS = () => [['claude-sonnet-5-5', 'Claude Sonnet 5.5'], ['claude-opus-5-5', 'Claude Opus 5.5'], ['claude-haiku-5-5', 'Claude Haiku 5.5']];
+
 function reviewTab(body, data) {
+  const key = section(t('Anthropic API'), t('Used by the weekly review and the coach. Billed to the key’s account; prepaid credit with auto-reload off keeps the cost in hand.'));
+  key.append(form(body, data, [
+    { key: 'anthropic_key', label: t('Anthropic API key') },
+    { key: 'ai_credit_usd', label: t('Credit bought (USD)'), hint: t('Warns admins when it runs low. Empty: no warning.'), type: 'number' },
+  ]));
+  const coach = section(t('Coach'), t('A chat on the dashboard: Claude answers questions about the data the asker’s role sees. Roles need “Ask the coach”.'));
+  coach.append(form(body, data, [
+    { key: 'coach', label: t('Coach'), options: [['off', t('Off')], ['api', t('Anthropic API')]] },
+    { key: 'coach_model', label: t('Model'), options: MODELS(), hint: t('Sonnet: about $0.10 per question; Opus: about $0.20; Haiku: under a cent, for simple questions.') },
+    { key: 'coach_effort', label: t('Effort'), options: ['low', 'medium', 'high', 'xhigh', 'max'].map((e) => [e, e]) },
+  ]));
   const sec = section(t('Weekly review'), t('Written by Claude after each week.'));
   sec.append(form(body, data, [
     { key: 'review', label: t('Write a review every week'), type: 'checkbox' },
-    { key: 'anthropic_key', label: t('Anthropic API key') },
     { key: 'ai_model', label: t('Model') },
     { key: 'ai_effort', label: t('Effort'), options: ['low', 'medium', 'high', 'xhigh', 'max'].map((e) => [e, e]) },
-    { key: 'ai_credit_usd', label: t('Credit bought (USD)'), hint: t('Warns admins when it runs low. Empty: no warning.'), type: 'number' },
   ]));
   const again = section(t('Write all reviews again'), t('In English and German, one after the other.'));
   const line = h('p', { class: 'muted' }, data.status.job_error || '');
@@ -507,7 +518,7 @@ function reviewTab(body, data) {
   };
   if (data.status.running) poll(body, line, () => load(body, 'review'));
   again.append(line, run);
-  return [...noKeyNote(data), sec, again];
+  return [...noKeyNote(data), key, coach, sec, again];
 }
 
 /* ---------- backups ---------- */

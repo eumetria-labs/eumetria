@@ -79,6 +79,10 @@ var defs = []def{
 	{key: "ai_model", env: "AI_MODEL", fallback: review.DefaultModel, valid: text(64, false)},
 	{key: "ai_effort", env: "AI_EFFORT", fallback: "medium", valid: oneOf("low", "medium", "high", "xhigh", "max")},
 	{key: "ai_credit_usd", env: "AI_CREDIT_USD", valid: money},
+	// The coach chat: off, or on the Anthropic API (phase 12b adds Claude Code).
+	{key: "coach", fallback: "off", valid: oneOf("off", "api")},
+	{key: "coach_model", fallback: "claude-sonnet-5-5", valid: text(64, false)},
+	{key: "coach_effort", fallback: "medium", valid: oneOf("low", "medium", "high", "xhigh", "max")},
 	{key: "openfoodfacts", env: "OPENFOODFACTS", fallback: "true", valid: boolean},
 	{key: "sleep_goal", fallback: "480", valid: number(240, 720)},
 	{key: "backups", fallback: "true", valid: boolean},
@@ -480,9 +484,11 @@ type Values struct {
 	Review            bool
 	AnthropicKey      string
 	Model, Effort     string
-	CreditUSD         float64
-	OpenFoodFacts     bool
-	SleepGoal         int // minutes, for the sleep score
+	// The coach: Coach is "off" or "api".
+	Coach, CoachModel, CoachEffort string
+	CreditUSD                      float64
+	OpenFoodFacts                  bool
+	SleepGoal                      int // minutes, for the sleep score
 
 	Backups             bool
 	BackupTime          string // "HH:MM" in the site's time zone
@@ -529,6 +535,7 @@ func resolve(get func(key string) string) Values {
 		GoogleClientID: get("google_client_id"), GoogleSecret: get("google_client_secret"),
 		WithingsClientID: get("withings_client_id"), WithingsSecret: get("withings_client_secret"),
 		AnthropicKey: get("anthropic_key"), Model: get("ai_model"), Effort: get("ai_effort"),
+		Coach: get("coach"), CoachModel: get("coach_model"), CoachEffort: get("coach_effort"),
 		BackupTime: get("backup_time"), BackupPassphrase: get("backup_passphrase"), BackupPassphraseAt: get("backup_passphrase_at"),
 		BackupFolder: get("backup_folder"),
 		PublicURL:    strings.TrimRight(get("public_url"), "/"),

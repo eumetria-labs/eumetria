@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 
+	"eumetria/internal/ai"
+
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
@@ -69,20 +71,6 @@ type Result struct {
 	KnownPrice   bool
 }
 
-// prices are USD per million input and output tokens (first-party API).
-var prices = map[string][2]float64{
-	"claude-opus-5-5":   {4, 20},
-	"claude-sonnet-5-5": {2, 10},
-	"claude-haiku-5-5":  {0.10, 0.50},
-	"claude-fable-5-1":  {10, 50},
-}
-
-// fallbackModels can hand a declined request to another model in the same
-// call (server-side fallback); Haiku has none.
-var fallbackModels = map[string]bool{
-	"claude-opus-5-5": true, "claude-opus-5": true, "claude-sonnet-5-5": true, "claude-fable-5-1": true,
-}
-
 // encode writes w as JSON with "&", "<" and ">" as they are: Go escapes
 // them by default (\u0026), and the model then answers with HTML escapes
 // ("Sleep &amp; recovery").
@@ -109,12 +97,7 @@ func Generate(ctx context.Context, apiKey, model, effort string, w Week) (*Resul
 		week += " The week is still running."
 	}
 	client := anthropic.NewClient(option.WithAPIKey(apiKey))
-	var opts []option.RequestOption
-	if fallbackModels[model] {
-		opts = append(opts,
-			option.WithHeaderAdd("anthropic-beta", "server-side-fallback-2026-07-01"),
-			option.WithJSONSet("fallbacks", "default"))
-	}
+	opts := ai.FallbackOptions(model)
 	resp, err := client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:        anthropic.Model(model),
 		MaxTokens:    16000,
@@ -151,10 +134,7 @@ func Generate(ctx context.Context, apiKey, model, effort string, w Week) (*Resul
 		Text: en, TextDE: de, Model: string(resp.Model),
 		InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens,
 	}
-	if p, ok := prices[r.Model]; ok {
-		r.KnownPrice = true
-		r.CostUSD = (float64(r.InputTokens)*p[0] + float64(r.OutputTokens)*p[1]) / 1e6
-	}
+	r.CostUSD, r.KnownPrice = ai.Cost(r.Model, ai.Usage{Input: r.InputTokens, Output: r.OutputTokens})
 	return r, nil
 }
 
@@ -172,18 +152,5 @@ func splitLanguages(s string) (en, de string) {
 	return strings.TrimSpace(s[:loc[0]]), strings.TrimSpace(s[loc[1]:])
 }
 
-// billing tells a refusal for money reasons (e.g. "Your credit balance is
-// too low to access the Anthropic API") from other errors. Rate limits
-// (429) are not billing problems.
-func billing(status int, msg string) bool {
-	if status != 400 && status != 402 && status != 403 {
-		return false
-	}
-	msg = strings.ToLower(msg)
-	for _, w := range []string{"credit balance", "billing", "spend limit", "spending limit", "purchase credits"} {
-		if strings.Contains(msg, w) {
-			return true
-		}
-	}
-	return false
-}
+// billing tells a refusal for money reasons (ai.IsBilling).
+func billing(status int, msg string) bool { return ai.IsBilling(status, msg) }

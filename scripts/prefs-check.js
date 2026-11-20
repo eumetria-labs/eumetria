@@ -305,7 +305,7 @@ check('phone: Training shows only training', await ev(`location.hash.includes('v
 check('phone: the round "+" sits above the tab bar', await ev(`(() => { const q = document.getElementById('quick-btn').getBoundingClientRect(), bar = document.getElementById('tabbar').getBoundingClientRect(); return q.bottom <= bar.top && q.right <= innerWidth && q.width > 40; })()`));
 await ev(`document.querySelector('#tabbar a[data-view=more]').click()`);
 await wait(400);
-check('phone: More has search, year in review, profile and settings', await ev(`document.querySelectorAll('#more-card .more-item').length === 4 && getComputedStyle(document.getElementById('more-card')).display !== 'none'`));
+check('phone: More has search, year in review, coach, profile and settings', await ev(`[...document.querySelectorAll('#more-card .more-item')].filter((b) => !b.hidden).length === 5 && !document.getElementById('more-coach').hidden && getComputedStyle(document.getElementById('more-card')).display !== 'none'`));
 check('phone: nothing wider than the screen', await ev(`document.documentElement.scrollWidth <= innerWidth`));
 
 /* ---------- the daily check-in ---------- */

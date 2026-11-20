@@ -1,6 +1,6 @@
-// Workout notes are Markdown people write and other people read. Only this
-// much is understood: headings, bold, italic, bullet and numbered lists, line
-// breaks, inline code, code blocks, links to http(s) addresses and images
+// Workout notes are Markdown people write and other people read, and so are
+// the coach's answers. Only this much is understood: headings, bold, italic,
+// bullet and numbered lists, line breaks, inline code, code blocks, tables, links to http(s) addresses and images
 // uploaded to the server. Everything else stays the text it is, HTML
 // included. The parser makes plain data and the renderer turns that into
 // elements with textContent, so nothing in a note can become HTML, and no
@@ -123,8 +123,26 @@ export function inline(s, depth = 0) {
 export function parseMarkdown(text) {
   const blocks = [];
   let para = null, list = null, code = null, blank = false;
+  // A table: a row line, then a line of dashes; pending is a paragraph that
+  // is one row line so far, table the table rows go to.
+  let pending = null, table = null;
   for (const raw of (text || '').split(/\r?\n/)) {
     const line = raw.trim();
+    if (!code) {
+      if (table && isRow(line)) {
+        table.rows.push(cells(line));
+        continue;
+      }
+      table = null;
+      if (pending && pending === para && TABLE_RULE.test(line)) {
+        blocks.splice(blocks.indexOf(para), 1);
+        table = { type: 'table', head: cells(pending.line), rows: [] };
+        blocks.push(table);
+        para = pending = null;
+        continue;
+      }
+      pending = null;
+    }
     if (code) {
       if (line === '```') code = null;
       else code.lines.push(raw);
@@ -165,11 +183,19 @@ export function parseMarkdown(text) {
       list = null;
       para = { type: 'p', parts: inline(line) };
       blocks.push(para);
+      if (isRow(line)) pending = Object.assign(para, { line });
     }
     blank = false;
   }
+  for (const b of blocks) delete b.line;
   return blocks;
 }
+
+// A table row starts and ends with "|"; the rule under the header row is
+// dashes between pipes, with colons for the alignment (ignored).
+const isRow = (line) => line.length > 1 && line.startsWith('|') && line.endsWith('|');
+const TABLE_RULE = /^\|(\s*:?-{2,}:?\s*\|)+$/;
+const cells = (line) => line.slice(1, -1).split('|').map((c) => inline(c.trim()));
 
 function partsText(parts) {
   return parts.map((p) => (p.br ? '\n' : p.img ? '' : p.code ?? p.text ?? partsText(p.bold || p.em || p.parts))).join('');
@@ -182,6 +208,8 @@ export function noteLines(text) {
   for (const b of parseMarkdown(text)) {
     if (b.type === 'pre') {
       for (const line of b.lines) out.push({ text: line });
+    } else if (b.type === 'table') {
+      for (const row of [b.head, ...b.rows]) out.push({ text: row.map(partsText).join(' · '), head: row === b.head });
     } else if (b.type === 'ul' || b.type === 'ol') {
       b.items.forEach((parts, i) => out.push({ text: (b.type === 'ul' ? '• ' : `${b.start + i}. `) + partsText(parts) }));
     } else {
@@ -228,6 +256,25 @@ export function renderMarkdown(text, doc = document) {
   for (const b of parseMarkdown(text)) {
     if (b.type === 'h') root.append(fill(el(`h${Math.min(b.level + 3, 6)}`), b.parts));
     else if (b.type === 'p') root.append(fill(el('p'), b.parts));
+    else if (b.type === 'table') {
+      // In a box of its own, so a wide table scrolls instead of the page.
+      const box = el('div');
+      box.setAttribute('class', 'md-table');
+      const table = el('table');
+      const head = el('thead');
+      const tr = el('tr');
+      for (const c of b.head) tr.append(fill(el('th'), c));
+      head.append(tr);
+      const body = el('tbody');
+      for (const row of b.rows) {
+        const r = el('tr');
+        for (const c of row) r.append(fill(el('td'), c));
+        body.append(r);
+      }
+      table.append(head, body);
+      box.append(table);
+      root.append(box);
+    }
     else if (b.type === 'pre') {
       const pre = el('pre');
       pre.append(el('code', b.lines.join('\n')));

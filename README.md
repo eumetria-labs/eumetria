@@ -15,7 +15,7 @@ Eumetria puts the data of the apps you already use onto one page on your own ser
 - 🎉 A year in review: the year's numbers, new bests and favourite foods, as a picture to share too
 - 🔍 Search across your whole history, food and activity histories, a sortable data table
 - 🏋️ Workout details: heart rate by zone, splits, route map, elevation
-- 🤖 An optional weekly review written by Claude, and an MCP server so Claude Code (or another AI app) can answer questions about your data
+- 🤖 An optional weekly review and a coach chat written by Claude, and an MCP server so Claude Code (or another AI app) can answer questions about your data
 - 🥫 Nutri-Score and NOVA badges from Open Food Facts
 - 📤 Export as CSV/JSON (with workout notes, lifts, benchmark workouts, phases, weekly reviews and goal changes), a printable report with scores and training, share cards for Instagram & co.
 - 🌗 Light and dark mode, English and German, installable on your phone, works offline (when you sign in with "Keep me signed in")
@@ -240,9 +240,20 @@ The sleep goal is under **Profile → Sleep** of the site's owner (the oldest ad
 
 Put the client ID and secret into **Settings → Google**, press **Connect Google** and allow every access. The token is stored in `data/google-token.json` and the running container picks it up at its next sync. If the logs say `google: not authorized`, Google revoked the token (password change, access removed, or six months unused): authorize again.
 
-## 🤖 Weekly review with Claude
+## 🤖 Claude: weekly review and coach
 
-With an API key in **Settings → Weekly review**, the first sync after a calendar week has Claude write a short review of it: nutrition, training, sleep and recovery, compared with the week before, in English and German. It's written once per week and stored, about $0.10 per week with Claude Opus 5.5. Claude sees all of the data; who reads the review is up to the `view.review` scope.
+Both live under **Settings → AI** and use the Anthropic API key entered there.
+
+**Weekly review.** The first sync after a calendar week has Claude write a short review of it: nutrition, training, sleep and recovery, compared with the week before, in English and German. It's written once per week and stored, about $0.10 per week with Claude Opus 5.5. Claude sees all of the data; who reads the review is up to the `view.review` scope.
+
+**Coach.** A chat on the dashboard (the speech-bubble button in the top bar, or **More → Coach** on phones). You ask about your data ("How did I sleep this week compared to last week?", "Where does my protein come from?") and Claude looks it up with the same read-only tools as the MCP server before it answers. The answer streams in, with a line for each lookup ("sleep · Nov 9 – Nov 20"). Claude sees only what the asker's role sees.
+- Off by default. Switch it on under **Settings → AI → Coach** (backend: Anthropic API).
+- Only roles with **Ask the coach** (`use.coach`) can use it; admins always can.
+- The model is a setting. Claude Sonnet 5.5 (the default) costs about $0.10 per question, Opus 5.5 about $0.20, and Haiku 5.5 under a cent, for simple questions. Admins see each answer's cost under it.
+- The instructions and tools are cached, so follow-up questions in the same chat cost less.
+- Chats are their asker's alone, kept in `app.db`, and can be deleted. A follow-up question sends the last 10 questions and answers of the chat along.
+- No diagnoses, and the data is treated as data: text in food names or notes is never followed as an instruction.
+- **nginx:** a server set up before the coach needs the `location /api/coach` block from [`deploy/nginx.conf`](deploy/nginx.conf). It allows questions up to 16 KB; the server's default 1 KB would refuse longer ones.
 
 The Anthropic API is prepaid: buy credit at [console.anthropic.com](https://console.anthropic.com) and leave auto-reload off, so nothing more can be charged. Enter what you bought under **Credit bought**; the page warns admins when it covers fewer than 4 more reviews.
 
@@ -299,7 +310,7 @@ All commands run on the server in `/srv/eumetria`.
 | Authorize Fitbit again | **Settings → Google → Connect again** |
 | Raw Yazio / Fitbit answers for a day | `docker compose run --rm eumetria -debug-day 2026-10-13` / `… -debug-google 2026-10-13 -google-token /data/google-token.json` |
 
-**Write all weekly reviews again** (e.g. after a prompt change): **Settings → Weekly review**. It runs between syncs and shows how far it got.
+**Write all weekly reviews again** (e.g. after a prompt change): **Settings → AI**. It runs between syncs and shows how far it got.
 
 `/healthz` turns unhealthy when no sync has succeeded for three intervals, e.g. because Yazio changed its API or your password. Point an uptime monitor at `https://eumetria.example.com/healthz` to hear about it.
 

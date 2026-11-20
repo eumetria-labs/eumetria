@@ -18,6 +18,7 @@ import { openWorkout } from './workout.js';
 import { openDialog } from './dialog.js';
 import { openPrefs } from './prefs.js';
 import { openYear } from './yearreview.js';
+import { openCoach, showCoach } from './coach.js';
 import { GROUP } from './layout.js';
 
 const VIEWS = ['today', 'nutrition', 'body', 'training', 'more'];
@@ -130,6 +131,7 @@ function initMore() {
   card.append(h('h2', {}, t('More')),
     item(t('Search'), t('Foods, activities and days'), () => $('#search').click()),
     item(t('Year in review'), t('The year’s numbers, bests and favourite foods'), (b) => openYear((state.today || '').slice(0, 4), b)),
+    Object.assign(item(t('Coach'), t('Ask Claude about your data'), (b) => openCoach(b)), { id: 'more-coach', hidden: true }),
     item(t('Profile'), t('Account, Customize Dashboard, Phases & Events'), (b) => openPrefs('profile', '', { returnFocus: b })),
     item(t('Settings'), t('Sign-in, devices and the site'), (b) => openPrefs('settings', '', { returnFocus: b })));
   $('#cards').after(card);
@@ -162,6 +164,7 @@ export function showQuick() {
   const menu = $('#quick-menu');
   for (const b of menu.querySelectorAll('[data-log]')) b.hidden = b.dataset.log === 'note' ? !(notes && workout) : b.dataset.log === 'checkin' ? !mayCheckin() : !lifts;
   $('#quick').hidden = ![...menu.querySelectorAll('[data-log]')].some((b) => !b.hidden);
+  showCoach();
 }
 
 // pickWod asks which benchmark workout the result is for, or a new one.
