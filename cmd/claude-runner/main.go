@@ -17,6 +17,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -120,6 +121,10 @@ func args(req ai.RunRequest, mcpFile string) []string {
 	if req.Effort != "" {
 		a = append(a, "--effort", req.Effort)
 	}
+	if len(req.Images) > 0 {
+		// Images need the prompt as a stream-json message (stdinFor).
+		a = append(a, "--input-format", "stream-json")
+	}
 	if mcpFile != "" {
 		a = append(a, "--mcp-config", mcpFile, "--allowedTools", ai.MCPPrefix+"*")
 	}
@@ -128,7 +133,7 @@ func args(req ai.RunRequest, mcpFile string) []string {
 
 func (s *server) runJob(w http.ResponseWriter, r *http.Request) {
 	var req ai.RunRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || req.Prompt == "" || !modelName.MatchString(req.Model) || !efforts[req.Effort] {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 24<<20)).Decode(&req); err != nil || req.Prompt == "" || !modelName.MatchString(req.Model) || !efforts[req.Effort] || len(req.Images) > maxImages {
 		http.Error(w, "bad request: {system, prompt, model, effort?, mcp_url?, mcp_token?}", http.StatusBadRequest)
 		return
 	}
@@ -191,7 +196,7 @@ func (s *server) runJob(w http.ResponseWriter, r *http.Request) {
 	if start == nil {
 		start = startClaude(s.claude)
 	}
-	cmd, err := start(ctx, work, args(req, mcpFile), env, req.Prompt)
+	cmd, err := start(ctx, work, args(req, mcpFile), env, stdinFor(req))
 	if err != nil {
 		send(ai.RunEvent{Kind: "error", Message: "claude didn't start: " + err.Error()})
 		return
@@ -269,4 +274,23 @@ func (t *tail) String() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return strings.TrimSpace(string(t.buf))
+}
+
+// maxImages is how many images one job may bring.
+const maxImages = 4
+
+// stdinFor is what claude reads: the prompt, or with images one stream-json
+// user message holding them and the prompt (checked with 2.1.329).
+func stdinFor(req ai.RunRequest) string {
+	if len(req.Images) == 0 {
+		return req.Prompt
+	}
+	var content []map[string]any
+	for _, img := range req.Images {
+		content = append(content, map[string]any{"type": "image", "source": map[string]any{
+			"type": "base64", "media_type": "image/jpeg", "data": base64.StdEncoding.EncodeToString(img)}})
+	}
+	content = append(content, map[string]any{"type": "text", "text": req.Prompt})
+	b, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": content}})
+	return string(b) + "\n"
 }

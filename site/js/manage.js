@@ -74,7 +74,7 @@ const ACTIONS = {
   email_removed: () => t('removed their e-mail address'), mail_test: () => t('sent a test mail'),
   key_clone_warning: () => t('was refused: a key may be copied'),
   note_added: () => t('added a note'), note_changed: () => t('changed a note'), note_deleted: () => t('deleted a note'),
-  note_image_added: () => t('added an image to a note'),
+  note_image_added: () => t('added an image to a note'), note_image_transcribed: () => t('had a whiteboard photo read'),
   lift_added: () => t('added a lift result'), lift_changed: () => t('changed a lift result'), lift_deleted: () => t('deleted a lift result'),
   phase_added: () => t('added a phase or event'), phase_changed: () => t('changed a phase or event'), phase_deleted: () => t('deleted a phase or event'),
   checkin_saved: () => t('saved a check-in'), checkin_deleted: () => t('deleted a check-in'),

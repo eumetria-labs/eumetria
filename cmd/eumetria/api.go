@@ -57,6 +57,7 @@ import (
 //	PUT    /api/notes/{key}   {markdown}: a workout's note, new or changed         edit.notes
 //	DELETE /api/notes/{key}   deletes it                                           edit.notes
 //	POST   /api/notes/{key}/images  {image}: stores one, answers its address       edit.notes
+//	POST   /api/notes/{key}/transcribe  {src}: a whiteboard photo as Markdown (whiteboard.go)  edit.notes
 //	GET    /note-images/{name}  an image in a note                                 signed in, view.notes
 //	GET    /api/lifts         personal bests in lifts, lifts.go                   signed in, view.health
 //	POST   /api/lifts         {lift, kg, reps, date, note}: a new entry            edit.lifts
@@ -289,6 +290,7 @@ func (a *app) routes() []route {
 		{"PUT", "/api/notes/{key}", noteWriter, a.notePut},
 		{"DELETE", "/api/notes/{key}", noteWriter, a.noteDelete},
 		{"POST", "/api/notes/{key}/images", noteWriter, a.noteImagePost},
+		{"POST", "/api/notes/{key}/transcribe", noteWriter, a.whiteboard},
 		{"GET", "/note-images/{name}", signedIn, scoped(auth.ViewNotes, a.noteImage)},
 		{"GET", "/api/lifts", signedIn, scoped(auth.ViewHealth, a.liftsList)},
 		{"POST", "/api/lifts", liftWriter, a.liftPost},

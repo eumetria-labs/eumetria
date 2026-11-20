@@ -36,6 +36,8 @@ type RunRequest struct {
 	MCPURL   string `json:"mcp_url,omitempty"`   // empty: no tools
 	MCPToken string `json:"mcp_token,omitempty"` // a short-lived "mcp" API token
 	Timeout  int    `json:"timeout,omitempty"`   // seconds; 0: 300
+	// Images go with the prompt, before it: JPEGs (base64 in JSON).
+	Images [][]byte `json:"images,omitempty"`
 }
 
 // RunEvent is one line of the runner's answer.

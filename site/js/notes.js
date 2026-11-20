@@ -11,7 +11,7 @@ import { h, tabKeys } from './dom.js';
 import { openLightbox } from './lightbox.js';
 import { account, api, reason } from './account.js';
 import { can, state } from './state.js';
-import { noteLines, renderMarkdown } from './markdown.js';
+import { noteImages, noteLines, placeTranscript, renderMarkdown } from './markdown.js';
 import { imageForUpload } from './upload.js';
 import { t } from './i18n.js';
 
@@ -161,6 +161,20 @@ async function refusedImage(res) {
   return refused(res);
 }
 
+// What the page says when a photo couldn't be read.
+function whiteboardError(body) {
+  const time = (s) => new Date(s).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
+  return {
+    ai_off: () => t('Reading photos needs Claude: an admin sets it up under Settings → AI.'),
+    no_workout: () => t('Claude found no workout on that photo.'),
+    limit: () => t('Claude’s limit is reached until {time}. Try again then.', { time: time(body.until) }),
+    too_many_images: () => t('That’s a lot of photos for one hour. Try again later.'),
+    billing: () => t('The Anthropic credit is used up. An admin can buy more at console.anthropic.com.'),
+    runner_down: () => t('Claude Code can’t be reached right now. Try again later.'),
+    refused: () => t('Claude declined to read this photo.'),
+  }[body.error]?.() || t('That didn’t work. Try again.');
+}
+
 function noteEditor(w, done) {
   const area = h('textarea', { class: 'field note-input', rows: 12, 'aria-label': t('Note in Markdown'), spellcheck: 'true' });
   area.value = drafts.get(w.id) ?? noteOf(w.id)?.markdown ?? '';
@@ -220,6 +234,7 @@ function noteEditor(w, done) {
         const before = area.value[at - 1];
         area.setRangeText(`${before && before !== '\n' ? '\n' : ''}![](${src})\n`, at, area.selectionEnd, 'end');
         area.oninput();
+        drawPhotos();
       } catch (err) {
         error.textContent = err.res ? await refusedImage(err.res) : err instanceof TypeError ? t('Server not reachable.') : t('That image can’t be used.');
         error.hidden = false;
@@ -243,8 +258,59 @@ function noteEditor(w, done) {
     upload(files);
   });
 
+  // The note's photos, each with a button that has Claude write out the
+  // workout on it: the text goes where the photo was, the photo to the end
+  // (whiteboard.go). Nothing is saved until the note is.
+  const photos = h('div', { class: 'note-photos', hidden: '' });
+  const reading = new Set();
+  const drawPhotos = () => {
+    const srcs = noteImages(area.value);
+    photos.hidden = !srcs.length;
+    photos.replaceChildren(...srcs.map((src) => {
+      const item = h('div', { class: 'note-photo' });
+      const img = h('img', { src, alt: '', loading: 'lazy' });
+      const go = h('button', { class: 'pill-btn small', type: 'button' }, reading.has(src) ? t('Reading…') : t('Read the whiteboard'));
+      go.disabled = reading.has(src);
+      go.onclick = () => transcribe(src);
+      item.append(img, go);
+      return item;
+    }));
+  };
+  const transcribe = async (src) => {
+    reading.add(src);
+    drawPhotos();
+    error.hidden = true;
+    status.textContent = t('Claude is reading the photo…');
+    try {
+      const res = await api(`notes/${encodeURIComponent(w.id)}/transcribe`, 'POST', { src });
+      if (res.ok) {
+        const { markdown } = await res.json();
+        area.value = placeTranscript(area.value, src, markdown);
+        area.oninput();
+        status.textContent = t('Written out by Claude: check it before you save.');
+      } else {
+        const body = await res.json().catch(() => ({}));
+        status.textContent = '';
+        error.textContent = whiteboardError(body);
+        error.hidden = false;
+      }
+    } catch {
+      status.textContent = '';
+      error.textContent = t('Server not reachable.');
+      error.hidden = false;
+    }
+    reading.delete(src);
+    drawPhotos();
+  };
+  let photoTimer = 0;
+  area.addEventListener('input', () => {
+    clearTimeout(photoTimer);
+    photoTimer = setTimeout(drawPhotos, 300);
+  });
+  drawPhotos();
+
   const form = h('form', { class: 'note-form' });
-  form.append(tabs, area, preview, status, error, row);
+  form.append(tabs, area, preview, photos, status, error, row);
   form.onsubmit = async (e) => {
     e.preventDefault();
     save.disabled = true;

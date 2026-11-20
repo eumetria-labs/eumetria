@@ -232,3 +232,16 @@ test('a table needs a row and a rule under it; cells are inline Markdown', () =>
   assert.ok(!('line' in blocks[3]), 'no parser state left on blocks');
   assert.deepEqual(noteLines('| a | b |\n|--|--|\n| 1 | 2 |'), [{ text: 'a · b', head: true }, { text: '1 · 2', head: false }]);
 });
+
+test('a transcript takes the photo’s place; the photo moves to the end', async () => {
+  const { noteImages, placeTranscript } = await import('../site/js/markdown.js');
+  const a = 'note-images/' + 'a'.repeat(32) + '.jpg', b = 'note-images/' + 'b'.repeat(32) + '.jpg';
+  const note = `Felt good.\n\n![](${a})\n\nAfter: stretched.\n![](${b})\n`;
+  assert.deepEqual(noteImages(note + `![](${a})`), [a, b]);
+  const out = placeTranscript(note, a, '### WOD\n- 10 alternating DB snatch @ 15 kg\n');
+  assert.equal(out, `Felt good.\n\n### WOD\n- 10 alternating DB snatch @ 15 kg\n\nAfter: stretched.\n![](${b})\n\n![](${a})\n`);
+  // Text on the image's line stays, above the transcript.
+  assert.equal(placeTranscript(`Board: ![](${a})`, a, 'X'), `Board:\n\nX\n\n![](${a})\n`);
+  // An image no longer in the text: the transcript goes at the end.
+  assert.equal(placeTranscript('Hi', a, 'X'), `Hi\n\nX\n\n![](${a})\n`);
+});

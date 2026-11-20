@@ -2413,3 +2413,8 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .set-again { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); display: grid; gap: 8px; justify-items: start; }
 .set-again p { margin: 0; }
 .set-again p:empty { display: none; }
+
+/* Whiteboard photos in the note editor (notes.js) */
+.note-photos { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 2px; }
+.note-photo { display: grid; gap: 6px; justify-items: start; }
+.note-photo img { width: 120px; height: 90px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -75,5 +76,44 @@ func TestRun(t *testing.T) {
 	// The env holds only what claude needs: no RUNNER_KEY.
 	if slices.ContainsFunc(gotEnv, func(e string) bool { return strings.HasPrefix(e, "RUNNER_KEY") }) {
 		t.Error("RUNNER_KEY reached claude")
+	}
+}
+
+func TestRunWithImage(t *testing.T) {
+	rec, _ := os.ReadFile("../../internal/ai/testdata/claude-ok.ndjson")
+	var gotArgs []string
+	var gotStdin string
+	s := &server{key: strings.Repeat("k", 32), token: true, slots: make(chan struct{}, 1)}
+	s.start = func(ctx context.Context, dir string, args, env []string, stdin string) (proc, error) {
+		gotArgs, gotStdin = args, stdin
+		return fakeProc{strings.NewReader(string(rec))}, nil
+	}
+	srv := httptest.NewServer(s.routes())
+	defer srv.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/run", strings.NewReader(`{"prompt":"Transcribe.","model":"haiku","images":["/9j/AA=="]}`))
+	req.Header.Set("Authorization", "Bearer "+s.key)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("run = %v %v", res, err)
+	}
+	io.ReadAll(res.Body)
+	if !strings.Contains(strings.Join(gotArgs, " "), "--input-format stream-json") {
+		t.Errorf("args = %v", gotArgs)
+	}
+	var msg struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content []map[string]any `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(gotStdin), &msg); err != nil || msg.Type != "user" || len(msg.Message.Content) != 2 ||
+		msg.Message.Content[0]["type"] != "image" || msg.Message.Content[1]["text"] != "Transcribe." {
+		t.Errorf("stdin = %s (%v)", gotStdin, err)
+	}
+	// Too many images: refused.
+	req, _ = http.NewRequest("POST", srv.URL+"/run", strings.NewReader(`{"prompt":"x","model":"haiku","images":["AA==","AA==","AA==","AA==","AA=="]}`))
+	req.Header.Set("Authorization", "Bearer "+s.key)
+	if res, _ := http.DefaultClient.Do(req); res.StatusCode != 400 {
+		t.Errorf("5 images = %d", res.StatusCode)
 	}
 }

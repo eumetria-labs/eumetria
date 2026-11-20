@@ -136,3 +136,17 @@ func DirSize(dir string) (int64, error) {
 	}
 	return n, nil
 }
+
+// MayRead reports whether user may have the image name read for the note of
+// workoutID: they uploaded it, or that note embeds it already.
+func (s *Store) MayRead(ctx context.Context, name, workoutID string, user int64) (bool, error) {
+	var n int
+	if err := s.DB.QueryRowContext(ctx, "SELECT count(*) FROM note_uploads WHERE name = ? AND user_id = ?", name, user).Scan(&n); err != nil {
+		return false, err
+	}
+	if n > 0 {
+		return true, nil
+	}
+	err := s.DB.QueryRowContext(ctx, "SELECT count(*) FROM notes WHERE workout_id = ? AND instr(markdown, ?) > 0", workoutID, name).Scan(&n)
+	return n > 0, err
+}

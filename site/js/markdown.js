@@ -289,3 +289,25 @@ export function renderMarkdown(text, doc = document) {
   }
   return root;
 }
+
+// The images a note embeds (note-images/…), in order, each once.
+export function noteImages(text) {
+  const out = [];
+  for (const m of (text || '').matchAll(/!\[[^\]]*\]\((note-images\/[0-9a-f]{32}\.jpg)\)/g)) {
+    if (!out.includes(m[1])) out.push(m[1]);
+  }
+  return out;
+}
+
+// placeTranscript puts what a whiteboard photo says where the photo was and
+// moves the photo to the end of the note (whiteboard.go).
+export function placeTranscript(text, src, transcript) {
+  const image = new RegExp(String.raw`!\[[^\]]*\]\(${src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\)`);
+  const lines = (text || '').split('\n');
+  const at = lines.findIndex((l) => image.test(l));
+  const body = transcript.trim();
+  if (at < 0) return `${(text || '').trimEnd()}\n\n${body}\n\n![](${src})\n`.trimStart();
+  const rest = lines[at].replace(image, '').trim();
+  lines.splice(at, 1, ...(rest ? [rest, '', body] : [body]));
+  return `${lines.join('\n').trimEnd()}\n\n![](${src})\n`;
+}

@@ -92,6 +92,11 @@ var defs = []def{
 	{key: "coach_effort", fallback: "medium", valid: oneOf(Efforts...)},
 	// Who writes the weekly review, and Claude Code's model and runner.
 	{key: "review_backend", fallback: "api", valid: oneOf("api", "claude")},
+	// Whiteboard photos in workout notes, transcribed to Markdown.
+	{key: "whiteboard_backend", fallback: "api", valid: oneOf("api", "claude")},
+	{key: "whiteboard_own", fallback: "false", valid: boolean},
+	{key: "whiteboard_model", fallback: review.DefaultModel, valid: oneOf(Models...)},
+	{key: "whiteboard_effort", fallback: "medium", valid: oneOf(Efforts...)},
 	{key: "review_own", fallback: "false", valid: boolean},
 	{key: "review_model", fallback: review.DefaultModel, valid: oneOf(Models...)},
 	{key: "review_effort", fallback: "medium", valid: oneOf(Efforts...)},
@@ -469,6 +474,9 @@ type Values struct {
 	// while Claude Code's limit is reached.
 	ReviewBackend, ReviewModel, ReviewEffort string
 	ReviewOwn, ClaudeFallbackAPI             bool
+	// Whiteboard photos: "api" or "claude", with its own model (WhiteboardAI).
+	WhiteboardBackend, WhiteboardModel, WhiteboardEffort string
+	WhiteboardOwn                                        bool
 	// The runner container (cmd/claude-runner) and where it reaches /api/mcp.
 	RunnerURL, RunnerKey, RunnerMCPURL string
 	CreditUSD                          float64
@@ -521,6 +529,7 @@ func resolve(get func(key string) string) Values {
 		AnthropicKey: get("anthropic_key"), Model: get("ai_model"), Effort: get("ai_effort"),
 		Coach: get("coach"), CoachModel: get("coach_model"), CoachEffort: get("coach_effort"),
 		ReviewBackend: get("review_backend"), ReviewModel: get("review_model"), ReviewEffort: get("review_effort"),
+		WhiteboardBackend: get("whiteboard_backend"), WhiteboardModel: get("whiteboard_model"), WhiteboardEffort: get("whiteboard_effort"),
 		RunnerURL: get("runner_url"), RunnerKey: get("runner_key"), RunnerMCPURL: get("runner_mcp_url"),
 		BackupTime: get("backup_time"), BackupPassphrase: get("backup_passphrase"), BackupPassphraseAt: get("backup_passphrase_at"),
 		BackupFolder: get("backup_folder"),
@@ -551,6 +560,7 @@ func resolve(get func(key string) string) Values {
 	}
 	v.Review, v.OpenFoodFacts = onOff("review"), onOff("openfoodfacts")
 	v.ClaudeFallbackAPI, v.CoachOwn, v.ReviewOwn = onOff("claude_fallback_api"), onOff("coach_own"), onOff("review_own")
+	v.WhiteboardOwn = onOff("whiteboard_own")
 	v.Backups = onOff("backups")
 	v.BackupDrive, _ = strconv.ParseBool(get("backup_drive"))
 	v.BackupKeepDays, _ = strconv.Atoi(get("backup_keep_days"))
@@ -697,6 +707,15 @@ func (v Values) CoachAI() (model, effort string) {
 func (v Values) ReviewAI() (model, effort string) {
 	if v.ReviewOwn {
 		return v.ReviewModel, v.ReviewEffort
+	}
+	return v.Model, v.Effort
+}
+
+// WhiteboardAI is the model and effort for whiteboard photos: their own,
+// or the general ones.
+func (v Values) WhiteboardAI() (model, effort string) {
+	if v.WhiteboardOwn {
+		return v.WhiteboardModel, v.WhiteboardEffort
 	}
 	return v.Model, v.Effort
 }

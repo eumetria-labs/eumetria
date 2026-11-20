@@ -463,6 +463,11 @@ function aiTab(body, data) {
   claude.append(form(body, data, [
     { key: 'claude_fallback_api', label: t('Answer on the API while the limit is reached'), type: 'checkbox' },
   ]));
+  const board = section(t('Whiteboard photos'), t('In a workout note, Claude writes out the workout on a photo (the gym’s whiteboard) as text, so search finds it.'));
+  board.append(form(body, data, [
+    { key: 'whiteboard_backend', label: t('Read by'), options: BACKENDS() },
+    ...ownModel('whiteboard'),
+  ]));
   const sec = section(t('Weekly review'), t('Written by Claude after each week.'));
   sec.append(form(body, data, [
     { key: 'review', label: t('Write a review every week'), type: 'checkbox' },
@@ -496,7 +501,7 @@ function aiTab(body, data) {
   if (data.status.running) poll(body, line, () => load(body, 'ai'));
   again.append(line, run);
   sec.append(again);
-  return [...noKeyNote(data), key, claude, model, coach, sec];
+  return [...noKeyNote(data), key, claude, model, coach, board, sec];
 }
 
 /* ---------- backups ---------- */
