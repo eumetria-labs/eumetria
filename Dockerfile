@@ -4,7 +4,7 @@
 # golang:1.26 is always the newest 1.26 patch release (the build pulls it
 # afresh), so security fixes of the standard library come with every build;
 # CI rebuilds weekly for weeks without a push (pentest F13).
-FROM golang:1.26 AS build
+FROM golang:1.27 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
