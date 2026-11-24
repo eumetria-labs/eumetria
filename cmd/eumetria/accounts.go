@@ -80,7 +80,7 @@ func setupAccounts(ctx context.Context, store *auth.Store, demo bool) error {
 		log.Printf("demo: sign in as demo / demo")
 		return nil
 	}
-	log.Printf("no account yet: create the first with -create-user <name> -role admin (README, \"Setup on a server\")")
+	log.Printf("no account yet: create the first with -create-user <name> -role admin (docs: https://eumetria-labs.github.io/eumetria/start/quick-start/)")
 	return nil
 }
 

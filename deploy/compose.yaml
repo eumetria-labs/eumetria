@@ -1,4 +1,4 @@
-# /srv/eumetria/compose.yaml — see the README, "Setup on a server".
+# /srv/eumetria/compose.yaml — see the docs: https://eumetria-labs.github.io/eumetria/install/server/
 # Replace UID:GID with the ids of the eumetria user (`id eumetria`).
 
 services:
@@ -31,7 +31,7 @@ services:
   # Optional (phase 12b): Claude Code on your subscription for the coach and
   # the weekly review. Not started by `docker compose up -d`; switch it on
   # with `docker compose --profile claude up -d` once claude-runner.env holds
-  # the token (README, "Claude Code"). No ports: only Eumetria reaches it.
+  # the token (docs: https://eumetria-labs.github.io/eumetria/connect/claude/). No ports: only Eumetria reaches it.
   claude-runner:
     image: ghcr.io/eumetria-labs/eumetria-claude-runner:latest
     container_name: claude-runner

@@ -10,7 +10,7 @@
 //	                             container): history, photos, tokens, app.db
 //	YAZIO_EMAIL, YAZIO_PASSWORD  account credentials (required unless -demo)
 //	YAZIO_CLIENT_ID,             OAuth client of the Yazio app (required unless
-//	YAZIO_CLIENT_SECRET          -demo; current values are in the README)
+//	YAZIO_CLIENT_SECRET          -demo; where to find them: docs, Connect → Yazio)
 //	YAZIO_SINCE                  first day to backfill (YYYY-MM-DD, default: 365 days ago)
 //	YAZIO_REFRESH_DAYS           always re-fetch this many most recent days (default 3)
 //	YAZIO_REFRESH_ALL            "true" re-fetches every day in the window and

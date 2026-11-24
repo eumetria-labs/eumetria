@@ -1,0 +1,31 @@
+/* Eumetria's colours on Starlight: the page's blue (--s1) as the accent,
+   its warm greys as the background. */
+:root {
+	--sl-color-accent-low: #12304f;
+	--sl-color-accent: #2a78d6;
+	--sl-color-accent-high: #c6dcf5;
+}
+:root[data-theme='light'] {
+	--sl-color-accent-low: #d6e3f3;
+	--sl-color-accent: #2a78d6;
+	--sl-color-accent-high: #12304f;
+	--sl-color-white: #1d1d1b;
+	--sl-color-bg: #f6f5f1;
+	--sl-color-bg-nav: #ebe9e3;
+	--sl-color-bg-sidebar: #ebe9e3;
+}
+
+/* Screenshots: a soft frame, like the cards in the app. */
+.sl-markdown-content img {
+	border-radius: 12px;
+	box-shadow: 0 0 0 1px var(--sl-color-gray-5), 0 8px 24px -12px rgba(0, 0, 0, 0.25);
+}
+/* Phone screenshots stand narrower, side by side when there are several. */
+.sl-markdown-content .phones {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1rem;
+}
+.sl-markdown-content .phones img {
+	width: min(260px, 100%);
+}

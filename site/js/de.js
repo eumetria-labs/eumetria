@@ -1279,7 +1279,7 @@ export const DE = {
   'Writing reviews: {done} of {total}': 'Rückblicke: {done} von {total}',
   'OAuth client ID': 'OAuth-Client-ID',
   'OAuth client secret': 'OAuth-Client-Secret',
-  'The Yazio app’s, the same for everyone: see the README.': 'Die der Yazio-App, für alle gleich: siehe README.',
+  'The Yazio app’s, the same for everyone: see the docs, Connect → Yazio.': 'Die der Yazio-App, für alle gleich: siehe Doku, Connect → Yazio.',
   'Test connection': 'Verbindung testen',
   'With the saved values.': 'Mit den gespeicherten Werten.',
   'Signed in to Yazio.': 'Bei Yazio angemeldet.',
@@ -1375,7 +1375,7 @@ export const DE = {
   'Claude’s limit is reached: the weekly review is written after {time}.': 'Claudes Limit ist erreicht: der Wochenrückblick wird nach {time} geschrieben.',
   'Claude Code (your subscription)': 'Claude Code (dein Abo)',
   'Claude Code': 'Claude Code',
-  'Your Claude subscription instead of the API, through the runner container (README: “Claude Code”). Only for your own account: everyone else is answered on the API.': 'Dein Claude-Abo statt der API, über den Runner-Container (README: „Claude Code“). Nur für dein eigenes Konto: alle anderen bekommen ihre Antwort über die API.',
+  'Your Claude subscription instead of the API, through the runner container (docs: “Claude: review and coach”). Only for your own account: everyone else is answered on the API.': 'Dein Claude-Abo statt der API, über den Runner-Container (Doku: „Claude: review and coach“). Nur für dein eigenes Konto: alle anderen bekommen ihre Antwort über die API.',
   'Limit reached until {time}': 'Limit erreicht bis {time}',
   'Ready': 'Bereit',
   'Not reachable': 'Nicht erreichbar',
@@ -2023,4 +2023,5 @@ export const DE = {
   // Photos shared to the installed app.
   "Your role can’t write notes, so the shared photo can’t be added.": "Deine Rolle darf keine Notizen schreiben, das geteilte Foto kann nicht hinzugefügt werden.",
   "Your role can’t log trainings, so the shared photo can’t be added.": "Deine Rolle darf keine Trainings eintragen, das geteilte Foto kann nicht hinzugefügt werden.",
+  "How to create the first account": "So legst du das erste Konto an",
 };

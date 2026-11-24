@@ -1,0 +1,22 @@
+{
+  "name": "eumetria-docs",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.43.1",
+    "astro": "^7.3.6",
+    "sharp": "^0.35.3"
+  },
+  "private": true,
+  "description": "The Eumetria documentation (Starlight)",
+  "devDependencies": {
+    "starlight-links-validator": "^0.27.0"
+  }
+}

@@ -3,7 +3,7 @@
 // Endpoints come from https://github.com/funmelon64/Yazio-Exporter (MIT),
 // https://github.com/juriadams/yazio (no license; only endpoint names are used)
 // and https://github.com/dornsebastian/yazio-api-specification (MIT), which is
-// also where the OAuth client credentials documented in the README come from.
+// also where the OAuth client credentials documented in the docs (docs/src/content/docs/connect/yazio.md) come from.
 // The API is undocumented and may change without notice. This client is
 // unofficial and not affiliated with or endorsed by YAZIO.
 package yazio

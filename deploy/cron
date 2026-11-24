@@ -1,4 +1,4 @@
-# /etc/cron.d/eumetria — see the README, "Setup on a server".
+# /etc/cron.d/eumetria — see the docs: https://eumetria-labs.github.io/eumetria/install/server/
 SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 

@@ -115,7 +115,7 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 		return err
 	}
 	if len(trustedProxies) == 0 {
-		log.Printf("TRUSTED_PROXY isn't set: X-Real-IP is believed from any private address. Set it to nginx's address as the container sees it (README)")
+		log.Printf("TRUSTED_PROXY isn't set: X-Real-IP is believed from any private address. Set it to nginx's address as the container sees it (docs: https://eumetria-labs.github.io/eumetria/install/configuration/)")
 	} else {
 		log.Printf("X-Real-IP is believed from %v", trustedProxies)
 	}

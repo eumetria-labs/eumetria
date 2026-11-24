@@ -1,5 +1,5 @@
 # Tests for every push and pull request; on main, the container image the
-# server runs (README, "Setup on a server"), pushed to GitHub's registry as
+# server runs (docs: install/server), pushed to GitHub's registry as
 # :latest and :<short commit>. The server's nightly cron pulls :latest.
 #
 # Also weekly, so the image gets Go's patch releases (and the base image's

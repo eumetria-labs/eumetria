@@ -1,5 +1,5 @@
 # Updates proposed as pull requests: the pinned base image (Dockerfile), the
-# GitHub Actions and the Go modules. CI tests each one.
+# GitHub Actions, the Go modules and the docs' npm packages. CI tests each one.
 version: 2
 updates:
   - package-ecosystem: docker
@@ -16,5 +16,9 @@ updates:
       interval: weekly
   - package-ecosystem: gomod
     directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /docs
     schedule:
       interval: weekly

@@ -12,3 +12,5 @@ site/days
 /google
 /eumetria
 /yazio-sync
+# The documentation (Starlight) is built and published on its own.
+docs

@@ -275,7 +275,7 @@ function yazioTab(body, data) {
   sec.append(form(body, data, [
     { key: 'yazio_email', label: t('E-mail'), type: 'email' },
     { key: 'yazio_password', label: t('Password') },
-    { key: 'yazio_client_id', label: t('OAuth client ID'), hint: t('The Yazio app’s, the same for everyone: see the README.') },
+    { key: 'yazio_client_id', label: t('OAuth client ID'), hint: t('The Yazio app’s, the same for everyone: see the docs, Connect → Yazio.') },
     { key: 'yazio_client_secret', label: t('OAuth client secret') },
   ]));
   const msg = h('p', { class: 'sec-msg', role: 'status', hidden: '' });
@@ -454,7 +454,7 @@ function aiTab(body, data) {
     ...ownModel('coach'),
   ]));
   const cc = data.claude || {};
-  const claude = section(t('Claude Code'), t('Your Claude subscription instead of the API, through the runner container (README: “Claude Code”). Only for your own account: everyone else is answered on the API.'));
+  const claude = section(t('Claude Code'), t('Your Claude subscription instead of the API, through the runner container (docs: “Claude: review and coach”). Only for your own account: everyone else is answered on the API.'));
   const until = cc.limit_until ? new Date(cc.limit_until).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' }) : '';
   claude.querySelector('.wo-sec-head')?.append(!cc.set_up ? badge('off', t('Not set up'))
     : until ? badge('warn', t('Limit reached until {time}', { time: until }))
