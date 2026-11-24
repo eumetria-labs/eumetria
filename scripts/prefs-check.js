@@ -150,7 +150,7 @@ async function sections(who, expect) {
 const adminSession = await signIn(...ADMIN, begun.secret);
 await useSession(adminSession);
 await sections('admin', {
-  profile: ['account', 'layout', 'phases'],
+  profile: ['account', 'training', 'layout', 'phases'],
   settings: ['sign-in', 'devices', 'users', 'roles', 'sessions', 'notes', 'audit', 'yazio', 'google', 'sync', 'general', 'ai', 'mail', 'backups'],
 });
 
@@ -309,15 +309,7 @@ await ev(`document.body.click()`);
 await wait(150);
 check('footer: one line at the bottom of the window', await ev(`(() => { const f = document.querySelector('.foot').getBoundingClientRect(); return f.height < 40 && Math.abs(f.bottom - innerHeight) < 2; })()`),
   await ev(`JSON.stringify(document.querySelector('.foot').getBoundingClientRect())`));
-check('"+ Log" offers lift, WOD result and phase', await ev(`!document.getElementById('quick').hidden && ['lift', 'wod', 'phase'].every((k) => !document.querySelector('#quick-menu [data-log=' + k + ']').hidden)`));
-await ev(`document.getElementById('quick-btn').click()`);
-await wait(200);
-await ev(`document.querySelector('#quick-menu [data-log=wod]').click()`);
-await wait(500);
-check('"+ Log → WOD result" asks which workout', await ev(`document.querySelectorAll('.pick-item').length > 0`));
-await ev(`document.querySelector('.pick-item').click()`);
-await wait(500);
-check('… and opens its result form', await ev(`!!document.getElementById('wod-result-title')`));
+check('"+ Log" offers training, check-in and phase, nothing else', await ev(`!document.getElementById('quick').hidden && ['training', 'checkin', 'phase'].every((k) => !document.querySelector('#quick-menu [data-log=' + k + ']').hidden) && document.querySelectorAll('#quick-menu [data-log]').length === 3`));
 await browser.view(base + '/#range=30', { width: 1000, height: 800 });
 await wait(600);
 check('medium screens: the sidebar keeps its icons', await ev(`document.getElementById('side').getBoundingClientRect().width === 72`), await ev(`document.getElementById('side').getBoundingClientRect().width`));
@@ -353,9 +345,21 @@ await browser.view(base + '/#range=30', { width: 320, height: 700, mobile: true 
 await wait(800);
 await ev(`document.getElementById('quick-btn').click()`);
 await wait(200);
-await ev(`document.querySelector('#quick-menu [data-log="session"]').click()`);
+await ev(`document.querySelector('#quick-menu [data-log="training"]').click()`);
 await wait(500);
+// Today's workouts to pick from, or the form straight away. A training
+// without a workout leaves -demo's workouts for the checks below.
+if (await ev(`!!document.querySelector('.pick-panel')`)) {
+  check('training: + Log asks which', await ev(`document.querySelectorAll('.pick-training').length > 0 || document.querySelectorAll('.pick-panel .pill-btn').length > 0`));
+  await ev(`document.querySelector('.pick-panel .pill-btn').click()`);
+  await wait(500);
+}
 check('session: the form opens from + Log', await ev(`!!document.querySelector('.session-form')`));
+check('training: the form has strength, benchmark and note', await ev(`document.querySelectorAll('.session-form .ses-part').length === 3 && !!document.querySelector('.session-form .note-input')`),
+  await ev(`document.querySelectorAll('.session-form .ses-part').length`));
+// Strength folded with nothing in it: open it, add an exercise.
+await ev(`(() => { const d = document.querySelector('.session-form .ses-part'); d.open = true; if (!document.querySelector('.ses-lift')) [...d.querySelectorAll('.pill-btn')].find((b) => b.textContent.includes('Exercise')).click(); })()`);
+await wait(200);
 check('session: nothing wider than a 320 px screen', await ev(`(() => { const W = innerWidth; return [...document.querySelectorAll('.session-panel *')].every((el) => { const r = el.getBoundingClientRect(); return !r.width || r.right <= W + 0.5; }); })()`),
   await ev(`[...document.querySelectorAll('.session-panel *')].filter((el) => el.getBoundingClientRect().right > innerWidth + 0.5).map((el) => el.className).slice(0, 5).join()`));
 await ev(`(() => {
@@ -363,6 +367,7 @@ await ev(`(() => {
   set(document.querySelector('.ses-lift'), 'Zercher Squat');
   const [reps, kg] = document.querySelectorAll('.ses-set .field');
   set(reps, '5'); set(kg, '100');
+  set(document.querySelector('.session-form .note-input'), 'Zerchers, then the WOD.');
 })()`);
 await wait(200);
 check('session: a first set is offered as a best, ticked', await ev(`document.querySelector('.ses-best input')?.checked === true`));
@@ -371,8 +376,35 @@ await wait(1200);
 {
   const list = await (await fetch(base + '/api/training/sessions', { headers: { cookie: adminSession.cookie } })).json();
   const bests = await (await fetch(base + '/api/lifts', { headers: { cookie: adminSession.cookie } })).json();
-  check('session: saved with the best, linked', list.length === 1 && list[0].sets[0].kg === 100 && bests.some((e) => e.session_id === list[0].id && e.kg === 100 && e.reps === 5),
-    JSON.stringify([list.length, bests.length]));
+  // -demo has a training already: the sample workout's, with its best and
+  // benchmark result, no sets.
+  const withSets = list.filter((x) => x.sets.length);
+  check('session: saved with the best, linked', withSets.length === 1 && withSets[0].sets[0].kg === 100 && bests.some((e) => e.session_id === withSets[0].id && e.kg === 100 && e.reps === 5),
+    JSON.stringify([list.length, withSets.length, bests.length]));
+  const notes = await (await fetch(base + '/api/notes', { headers: { cookie: adminSession.cookie } })).json();
+  check('training: its note saved with it', notes.some((n) => n.session_id === withSets[0]?.id && n.markdown === 'Zerchers, then the WOD.'), JSON.stringify(notes.map((n) => [n.session_id, n.markdown])));
+}
+
+/* ---------- not logged yet (PLAN 14c) ---------- */
+{
+  await browser.view(base + '/#range=30', { width: 390, height: 844, mobile: true });
+  await wait(1000);
+  const count = () => ev(`Number(document.querySelector('#quick-btn .log-badge')?.textContent || 0)`);
+  const before = await count();
+  check('not logged: a count on + Log and the Training tab', before > 0 && await ev(`!!document.querySelector('#tabbar a[data-view=training] .log-badge')`), String(before));
+  await ev(`document.getElementById('training-unlogged').click()`);
+  await wait(500);
+  check('not logged: the window lists them', await ev(`document.querySelectorAll('.unlogged-row').length`) === before, String(await ev(`document.querySelectorAll('.unlogged-row').length`)));
+  check('not logged: nothing wider than the screen', await ev(`[...document.querySelectorAll('.unlogged-panel *')].every((el) => { const r = el.getBoundingClientRect(); return !r.width || r.right <= innerWidth + 0.5; })`));
+  await ev(`[...document.querySelectorAll('.unlogged-row .pill-btn')].find((b) => b.textContent === 'Nothing to add').click()`);
+  await wait(1000);
+  check('not logged: "Nothing to add" takes one off', await count() === before - 1 && await ev(`document.querySelectorAll('.unlogged-row').length`) === before - 1, String(await count()));
+  // No type asks: no count.
+  await fetch(base + '/api/profile/layout', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: adminSession.cookie, origin: base }, body: JSON.stringify({ order: [], hidden: [], prompt_types: [] }) });
+  await browser.view(base + '/#range=30', { width: 390, height: 844, mobile: true });
+  await wait(1000);
+  check('not logged: no type picked, no count', await count() === 0);
+  await fetch(base + '/api/profile/layout', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: adminSession.cookie, origin: base }, body: JSON.stringify({ order: [], hidden: [] }) });
 }
 
 /* ---------- viewer ---------- */

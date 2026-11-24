@@ -4,7 +4,7 @@
 // result is the personal best, Rx and scaled apart. The server keeps them
 // (wods.go) under the lifts' scopes: view.health reads, edit.lifts writes.
 // A result can be linked to the Fitbit workout it was done in: the workout's
-// window lists it and adds new ones (wodSection).
+// window lists it (wodSection); the Training form adds new ones.
 
 import { actLabel, dfLong, dfShort, dfMonthYear, fmt, parse } from './format.js';
 import { WOD_PRESETS, betterResult, fmtClock, liftBoard, liftKey, liftMarks, linkableWorkouts, parseClock, wodBestResults, wodBoard, workoutIcon, workoutName } from './health.js';
@@ -16,6 +16,7 @@ import { openDialog } from './dialog.js';
 import { api, reason } from './account.js';
 import { dueKeys, fmtKg, fmtSet, liftGain, liftSeries, mayEditLifts, notifyBests, openLift, retestBadge, sessionSummary } from './lifts.js';
 import { state } from './state.js';
+import { inWorkout, knowTraining } from './sessions.js';
 import { t } from './i18n.js';
 
 const SCORING = {
@@ -187,17 +188,15 @@ function fitbitWorkout(r) {
 // activity rows show them).
 export const linkedNames = (workoutId) => {
   const byId = new Map(state.wods.workouts.map((w) => [w.id, w]));
-  return [...new Set(state.wods.results.filter((r) => r.fitbit_workout === workoutId && byId.has(r.workout)).map((r) => byId.get(r.workout).name))];
+  return [...new Set(state.wods.results.filter((r) => inWorkout(r, workoutId) && byId.has(r.workout)).map((r) => byId.get(r.workout).name))];
 };
 
-// The workout window's part about what was done: the benchmark results
-// linked to it, and for edit.lifts a pick of the saved workouts (or a new
-// one) to add a result to, dated and linked to this session. Null when
-// there is nothing to show or add.
+// The workout window's part about the benchmark results noted in it (its
+// training's), for edit.lifts each with a button to change it. New ones
+// come from the Training form. Null without any.
 export function wodSection(day, fw) {
-  const mine = () => state.wods.results.filter((r) => r.fitbit_workout === fw.id);
-  if (!mayEditLifts() && !mine().length) return null;
-  const link = { id: fw.id, date: day.date, label: actLabel(workoutName(fw.type)) };
+  const mine = () => state.wods.results.filter((r) => inWorkout(r, fw.id));
+  if (!mine().length) return null;
   const sec = h('section', { class: 'wo-sec wo-wods' });
   const draw = () => {
     const byId = new Map(state.wods.workouts.map((w) => [w.id, w]));
@@ -223,23 +222,6 @@ export function wodSection(day, fw) {
       }
       sec.append(row);
     }
-    if (!mayEditLifts()) return;
-    const pick = h('select', { class: 'field', 'aria-label': t('Benchmark workout') });
-    pick.append(h('option', { value: '' }, t('Choose a workout…')), ...[...state.wods.workouts].sort((a, b) => a.name.localeCompare(b.name)).map((w) => h('option', { value: String(w.id) }, w.name)), h('option', { value: 'new' }, t('New workout…')));
-    const add = h('button', { class: 'pill-btn', type: 'button' }, t('Add result'));
-    add.onclick = () => {
-      if (!pick.value) return pick.focus();
-      if (pick.value === 'new') {
-        openWorkoutForm({ returnFocus: add, onCreated: (saved) => openResultForm({ workout: saved, link, returnFocus: add, after: draw }) });
-        return;
-      }
-      const w = byId.get(Number(pick.value));
-      if (w) openResultForm({ workout: w, link, returnFocus: add, after: draw });
-    };
-    const controls = h('div', { class: 'wod-pick' });
-    controls.append(pick, add);
-    sec.append(controls);
-    if (!mine().length) sec.append(h('p', { class: 'muted wod-hint' }, t('Pick the benchmark workout you did, or create it, and note your result.')));
   };
   draw();
   return sec;
@@ -537,6 +519,53 @@ export function openWorkoutForm({ workout, returnFocus, after, onCreated }) {
   });
 }
 
+// The fields of a result of workout (v: the result, or its blanks) by how
+// it is scored, and Scaled, appended to form through field (as formDialog's):
+// the first input, and read() for what to send. read throws "check:…" for a
+// time it can't read. The Training form uses them too.
+export function resultInputs(form, field, workout, v) {
+  let first, read;
+  if (workout.scoring === 'time') {
+    const time = first = field(t('Time'), h('input', { class: 'field', type: 'text', inputmode: 'text', autocomplete: 'off', placeholder: '4:12', value: v.value && !v.capped ? fmtClock(v.value) : '' }), t('minutes:seconds, or h:mm:ss'));
+    // Not finished in the time cap: the reps done instead of a time.
+    const capWrap = h('label', { class: 'lift-check' });
+    const capped = h('input', { type: 'checkbox' });
+    capped.checked = !!v.capped;
+    capWrap.append(capped, h('span', {}, workout.time_cap ? t('Not finished in the {time} cap', { time: fmtClock(workout.time_cap) }) : t('Not finished in the time cap')));
+    form.append(capWrap);
+    const reps = field(t('Reps done'), h('input', { class: 'field', type: 'number', min: '0', max: '99999', step: '1', inputmode: 'numeric', value: v.capped ? v.value : '' }));
+    const timeField = time.closest('label'), repsField = reps.closest('label');
+    const sync = () => {
+      timeField.hidden = capped.checked;
+      repsField.hidden = !capped.checked;
+      time.required = !capped.checked;
+      reps.required = capped.checked;
+    };
+    capped.onchange = sync;
+    sync();
+    read = () => {
+      if (capped.checked) return { value: Number(reps.value), capped: true };
+      const s = parseClock(time.value);
+      if (!s) throw new Error('check:' + t('Write the time like 4:12 or 1:02:05.'));
+      return { value: s };
+    };
+  } else if (workout.scoring === 'rounds') {
+    const rounds = first = field(t('Rounds'), h('input', { class: 'field', type: 'number', required: '', min: '0', max: '999', step: '1', inputmode: 'numeric', value: v.value ?? '' }));
+    const reps = field(t('Reps after them'), h('input', { class: 'field', type: 'number', min: '0', max: '999', step: '1', inputmode: 'numeric', value: v.reps || 0 }));
+    read = () => ({ value: Number(rounds.value), reps: Number(reps.value) || 0 });
+  } else {
+    const load = workout.scoring === 'load';
+    const n = first = field(load ? t('Weight (kg)') : t('Reps'), h('input', { class: 'field', type: 'number', required: '', min: load ? '0.5' : '1', max: load ? '500' : '99999', step: load ? '0.25' : '1', inputmode: load ? 'decimal' : 'numeric', value: v.value }));
+    read = () => ({ value: Number(n.value) });
+  }
+  const wrap = h('label', { class: 'lift-check' });
+  const scaled = h('input', { type: 'checkbox' });
+  scaled.checked = !!v.scaled;
+  wrap.append(scaled, h('span', {}, t('Scaled')), h('span', { class: 'muted hint' }, t('lighter or easier than written; it has its own best')));
+  form.append(wrap);
+  return { first, read: () => ({ ...read(), scaled: scaled.checked }) };
+}
+
 // A new result of workout, or a change to one (result).
 // link: { id, date, label } of a Fitbit workout a new result is done in; a
 // result linked already keeps its link unless it is unticked. Otherwise the
@@ -546,51 +575,14 @@ export function openResultForm({ workout, result, link, returnFocus, after }) {
   const fixed = link || (result && fitbitWorkout(result) && { id: result.fitbit_workout, date: result.date, label: fitbitWorkout(result).label }) || null;
   let linkTo = fixed;
   let linked = null;
-  let read, scaled, date, note;
+  let read, date, note;
   formDialog({
     id: 'wod-result-title',
     title: `${result ? t('Change result') : t('New result')} · ${workout.name}`,
     returnFocus,
     build: (form, field) => {
       let first;
-      if (workout.scoring === 'time') {
-        const time = first = field(t('Time'), h('input', { class: 'field', type: 'text', inputmode: 'text', autocomplete: 'off', placeholder: '4:12', value: v.value && !v.capped ? fmtClock(v.value) : '' }), t('minutes:seconds, or h:mm:ss'));
-        // Not finished in the time cap: the reps done instead of a time.
-        const capWrap = h('label', { class: 'lift-check' });
-        const capped = h('input', { type: 'checkbox' });
-        capped.checked = !!v.capped;
-        capWrap.append(capped, h('span', {}, workout.time_cap ? t('Not finished in the {time} cap', { time: fmtClock(workout.time_cap) }) : t('Not finished in the time cap')));
-        form.append(capWrap);
-        const reps = field(t('Reps done'), h('input', { class: 'field', type: 'number', min: '0', max: '99999', step: '1', inputmode: 'numeric', value: v.capped ? v.value : '' }));
-        const timeField = time.closest('label'), repsField = reps.closest('label');
-        const sync = () => {
-          timeField.hidden = capped.checked;
-          repsField.hidden = !capped.checked;
-          time.required = !capped.checked;
-          reps.required = capped.checked;
-        };
-        capped.onchange = sync;
-        sync();
-        read = () => {
-          if (capped.checked) return { value: Number(reps.value), capped: true };
-          const s = parseClock(time.value);
-          if (!s) throw new Error('check:' + t('Write the time like 4:12 or 1:02:05.'));
-          return { value: s };
-        };
-      } else if (workout.scoring === 'rounds') {
-        const rounds = first = field(t('Rounds'), h('input', { class: 'field', type: 'number', required: '', min: '0', max: '999', step: '1', inputmode: 'numeric', value: result ? v.value : '' }));
-        const reps = field(t('Reps after them'), h('input', { class: 'field', type: 'number', min: '0', max: '999', step: '1', inputmode: 'numeric', value: v.reps || 0 }));
-        read = () => ({ value: Number(rounds.value), reps: Number(reps.value) || 0 });
-      } else {
-        const load = workout.scoring === 'load';
-        const n = first = field(load ? t('Weight (kg)') : t('Reps'), h('input', { class: 'field', type: 'number', required: '', min: load ? '0.5' : '1', max: load ? '500' : '99999', step: load ? '0.25' : '1', inputmode: load ? 'decimal' : 'numeric', value: v.value }));
-        read = () => ({ value: Number(n.value) });
-      }
-      const wrap = h('label', { class: 'lift-check' });
-      scaled = h('input', { type: 'checkbox' });
-      scaled.checked = !!v.scaled;
-      wrap.append(scaled, h('span', {}, t('Scaled')), h('span', { class: 'muted hint' }, t('lighter or easier than written; it has its own best')));
-      form.append(wrap);
+      ({ first, read } = resultInputs(form, field, workout, v));
       // The link: ticked for the fixed one (the date is then the
       // workout's), else for the workout of the date picked, ticked when
       // that day has just one (walks aside), unticked for the longest of
@@ -625,7 +617,11 @@ export function openResultForm({ workout, result, link, returnFocus, after }) {
       return first;
     },
     save: () => {
-      const body = { ...read(), scaled: scaled.checked, date: date.value, note: note.value, fitbit_workout: linked?.checked && linkTo ? linkTo.id : '' };
+      // As in the lift form: linked into the workout's training, else a
+      // training without a workout keeps it.
+      const into = linked?.checked && linkTo;
+      const body = { ...read(), date: date.value, note: note.value, fitbit_workout: into ? linkTo.id : '',
+        session_id: into || !result?.fitbit_workout ? result?.session_id ?? null : null };
       return result ? api('wod-results/' + result.id, 'PUT', body) : api(`wods/${workout.id}/results`, 'POST', body);
     },
     remove: result && (() => api('wod-results/' + result.id, 'DELETE')),
@@ -636,6 +632,7 @@ export function openResultForm({ workout, result, link, returnFocus, after }) {
       } else {
         const saved = await res.json();
         state.wods = { ...state.wods, results: [...state.wods.results.filter((r) => r.id !== saved.id), saved] };
+        await knowTraining(saved.session_id);
       }
       changed();
       after?.();

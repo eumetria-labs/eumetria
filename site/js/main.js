@@ -157,6 +157,8 @@ async function load(force) {
     addSnapButtons();
     addWeightShare();
     document.documentElement.dataset.rendered = 'true';
+    // For views drawn before the data was here (Profile → Training).
+    document.dispatchEvent(new Event('data-rendered'));
     // Lets the service worker drop cached photos, routes and year files that
     // this data no longer uses.
     navigator.serviceWorker?.controller?.postMessage({ keep: referencedFiles(next) });

@@ -71,17 +71,8 @@ func (a *app) resultInput(w http.ResponseWriter, req *http.Request, p *principal
 		writeError(w, http.StatusBadRequest, "bad_result")
 		return in, false
 	}
-	if in.FitbitWorkout != "" {
-		b, ok := a.build(w, req, p)
-		if !ok {
-			return in, false
-		}
-		date, found := b.workouts[in.FitbitWorkout]
-		if !found {
-			writeError(w, http.StatusBadRequest, "bad_workout")
-			return in, false
-		}
-		in.Date = date
+	if !a.linkTraining(w, req, p, in.FitbitWorkout, &in.SessionID, &in.Date) {
+		return in, false
 	}
 	return in, true
 }

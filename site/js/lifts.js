@@ -16,7 +16,7 @@ import { openDialog } from './dialog.js';
 import { account, api, reason } from './account.js';
 import { state, store } from './state.js';
 import { t, tn } from './i18n.js';
-import { liftSessions } from './sessions.js';
+import { inWorkout, knowTraining, liftSessions } from './sessions.js';
 
 const nfKg = new Intl.NumberFormat(NUM_LOCALE, { maximumFractionDigits: 2 });
 const nfX = new Intl.NumberFormat(NUM_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -566,12 +566,17 @@ export function openLiftForm({ entry, preset, link, returnFocus, after }) {
 
   form.onsubmit = (e) => {
     e.preventDefault();
-    const body = { lift: lift.value, kg: Number(kg.value), reps: Number(reps.value) || 1, date: date.value, note: note.value, fitbit_workout: linked.checked && linkTo ? linkTo.id : '' };
+    // Linked: into the workout's training. Unlinked: a result of a training
+    // without a workout (a best saved from its sets) stays in it.
+    const into = linked.checked && linkTo;
+    const body = { lift: lift.value, kg: Number(kg.value), reps: Number(reps.value) || 1, date: date.value, note: note.value, fitbit_workout: into ? linkTo.id : '',
+      session_id: into || !entry?.fitbit_workout ? entry?.session_id ?? null : null };
     send(save,
       () => (entry ? api('lifts/' + entry.id, 'PUT', body) : api('lifts', 'POST', body)),
       async (res) => {
         const saved = await res.json();
         state.lifts = entry ? state.lifts.map((x) => (x.id === saved.id ? saved : x)) : [...state.lifts, saved];
+        await knowTraining(saved.session_id);
       });
   };
   if (del) {
@@ -588,26 +593,20 @@ export function openLiftForm({ entry, preset, link, returnFocus, after }) {
 
 // The lifts noted in a Fitbit workout, by name (the day window's activity
 // rows show them).
-export const liftedNames = (workoutId) => [...new Set(state.lifts.filter((e) => e.fitbit_workout === workoutId).map((e) => e.lift))];
+export const liftedNames = (workoutId) => [...new Set(state.lifts.filter((e) => inWorkout(e, workoutId)).map((e) => e.lift))];
 
-// The workout window's part about the lifts done in it: each result linked
-// to it, a new best marked, and for edit.lifts a button to note one, dated
-// and linked to this session. Null when there is nothing to show or add.
+// The workout window's part about the lifts noted in it (its training's):
+// each result, a new best marked, and for edit.lifts a button to change it.
+// New ones come from the Training form. Null without any.
 export function liftSection(day, fw) {
-  const mine = () => state.lifts.filter((e) => e.fitbit_workout === fw.id).sort((a, b) => a.id - b.id);
-  if (!mayEditLifts() && !mine().length) return null;
-  const link = { id: fw.id, date: day.date, label: actLabel(workoutName(fw.type)) };
+  const mine = () => state.lifts.filter((e) => inWorkout(e, fw.id)).sort((a, b) => a.id - b.id);
+  if (!mine().length) return null;
   const sec = h('section', { class: 'wo-sec wo-lifts' });
   const draw = () => {
     const board = new Map(liftBoard(state.lifts, state.today).map((r) => [r.key, r]));
     const marks = new Map([...board.values()].flatMap((r) => liftMarks(r.entries)).map((m) => [m.e.id, m]));
     const hd = h('div', { class: 'wo-sec-head' });
     hd.append(h('h3', {}, t('Lifts')), h('span', { class: 'muted' }, t('personal bests noted in this session')));
-    if (mayEditLifts()) {
-      const add = h('button', { class: 'pill-btn', type: 'button' }, t('Add lift'));
-      add.onclick = () => openLiftForm({ link, returnFocus: add, after: draw });
-      hd.append(add);
-    }
     sec.replaceChildren(hd);
     for (const e of mine()) {
       const m = marks.get(e.id);
@@ -625,7 +624,6 @@ export function liftSection(day, fw) {
       }
       sec.append(row);
     }
-    if (mayEditLifts() && !mine().length) sec.append(h('p', { class: 'muted wod-hint' }, t('Hit a personal best in this session? Note it here and it links to this workout.')));
   };
   draw();
   return sec;

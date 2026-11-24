@@ -16,7 +16,6 @@ type TrainingSession struct {
 	Title string        `json:"title,omitempty"`
 	RPE   *int          `json:"session_rpe,omitempty"`
 	Lifts []SessionLift `json:"lifts"`
-	Note  string        `json:"note,omitempty"`
 }
 
 type SessionLift struct {
@@ -62,10 +61,11 @@ func (w *Week) AddSessions(all []sessions.Session) {
 		last = w.Days[len(w.Days)-1].Date
 	}
 	for _, x := range all {
-		if x.Date < w.From || x.Date > last {
+		// A training without sets (only a note or results) is no session.
+		if x.Date < w.From || x.Date > last || len(x.Sets) == 0 {
 			continue
 		}
-		ts := TrainingSession{Date: x.Date, Title: clip(x.Title, nameMax), RPE: x.RPE, Note: clip(x.Note, noteMax)}
+		ts := TrainingSession{Date: x.Date, Title: clip(x.Title, nameMax), RPE: x.RPE}
 		var order []string
 		by := map[string][]sessions.Set{}
 		warm := map[string]int{}

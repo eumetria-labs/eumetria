@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, liftBetter, linkSuggestions, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares, strengthTrend, retestDue, sessionVolumes, sessionWeeks, sessionEntries, bestCandidates } from '../site/js/health.js';
+import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, liftBetter, linkSuggestions, unclaimedWorkouts, unreviewedWorkouts, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares, strengthTrend, retestDue, sessionVolumes, sessionWeeks, sessionEntries, bestCandidates } from '../site/js/health.js';
 
 test('zoneOf uses the lower bounds of moderate, vigorous and peak', () => {
   const limits = [109, 133, 163];
@@ -242,6 +242,30 @@ test('link suggestions: unlinked results on days with workouts, walks aside', ()
   ]);
 });
 
+test('link suggestions: a training without workouts gets the day\'s unclaimed ones, and keeps its lifts', () => {
+  const byDate = new Map([
+    ['2026-11-20', { workouts: [{ id: 'run', type: 'RUNNING', start: '17:45' }, { id: 'wt', type: 'WEIGHTS', start: '18:10' }, { id: 'walk', type: 'WALKING', start: '12:00' }] }],
+    ['2026-11-18', { workouts: [{ id: 'cf', type: 'CROSSFIT', start: '07:00' }] }],
+  ]);
+  const trainings = [
+    { id: 1, date: '2026-11-20', workouts: [{ source: 'fitbit', id: 'run' }], sets: [] }, // has its workout
+    { id: 2, date: '2026-11-20', workouts: [], sets: [] }, // gets "wt" (run is taken, walks aside)
+    { id: 3, date: '2026-11-18', workouts: [], sets: [] },
+    { id: 4, date: '2026-11-17', workouts: [], sets: [] }, // no workouts that day
+  ];
+  const lifts = [
+    { id: 7, lift: 'Snatch', kg: 60, reps: 1, date: '2026-11-18', session_id: 3 }, // goes with training 3
+    { id: 8, lift: 'Clean', kg: 80, reps: 1, date: '2026-11-18' }, // in no training
+  ];
+  assert.deepEqual(linkSuggestions(lifts, [], byDate, trainings).map((s) => [s.kind, s.item.id, s.candidates.map((w) => w.id), s.pick]), [
+    ['training', 2, ['wt'], 'wt'],
+    ['training', 3, ['cf'], 'cf'],
+    ['lift', 8, ['cf'], 'cf'],
+  ]);
+  assert.deepEqual(unclaimedWorkouts(byDate.get('2026-11-20'), trainings).map((w) => w.id), ['wt']);
+  assert.deepEqual(unclaimedWorkouts(byDate.get('2026-11-20'), trainings, true).map((w) => w.id), ['wt', 'walk']);
+});
+
 test('retest hints: lifts and benchmark workouts not done for months, the longest ago first', () => {
   const lifts = [
     { id: 1, lift: 'Back Squat', kg: 140, reps: 1, date: '2026-01-10' },
@@ -288,4 +312,23 @@ test('sessions: volume per lift, weeks, and which sets beat the best', () => {
   assert.deepEqual(bestCandidates(s2.sets, bests), []); // lighter
   // A lift without a best yet: its best work set is the first.
   assert.deepEqual(bestCandidates([{ lift: 'Front Squat', type: 'work', reps: 3, kg: 80 }, { lift: 'front squat', type: 'work', reps: 1, kg: 90 }], bests).map((x) => [x.index, x.prev]), [[1, null]]);
+});
+
+test('not logged: workouts of the last 7 days without a training, by type, the newest first', () => {
+  const byDate = new Map([
+    ['2026-11-24', { workouts: [{ id: 'a', type: 'CROSSFIT', start: '07:00' }, { id: 'b', type: 'RUNNING', start: '18:00' }, { id: 'w', type: 'WALKING', start: '12:00' }] }],
+    ['2026-11-20', { workouts: [{ id: 'c', type: 'HIIT', start: '18:21' }, { id: 'd', type: 'CROSSFIT', start: '19:00' }] }],
+    ['2026-11-18', { workouts: [{ id: 'e', type: 'CROSSFIT', start: '19:00' }] }], // day 7: in
+    ['2026-11-17', { workouts: [{ id: 'f', type: 'CROSSFIT', start: '19:00' }] }], // day 8: out
+  ]);
+  const trainings = [
+    { id: 1, date: '2026-11-20', workouts: [{ source: 'fitbit', id: 'd' }], sets: [] }, // logged, empty: nothing to add
+    { id: 2, date: '2026-11-20', workouts: [], sets: [] },
+  ];
+  const ids = (list) => list.map((x) => `${x.date}:${x.w.id}`);
+  assert.deepEqual(ids(unreviewedWorkouts(byDate, trainings, '2026-11-24')), ['2026-11-24:b', '2026-11-24:a', '2026-11-20:c', '2026-11-18:e']);
+  // The person's types: walks count when picked, the rest doesn't.
+  assert.deepEqual(ids(unreviewedWorkouts(byDate, trainings, '2026-11-24', ['CROSSFIT', 'WALKING'])), ['2026-11-24:w', '2026-11-24:a', '2026-11-18:e']);
+  assert.deepEqual(unreviewedWorkouts(byDate, trainings, '2026-11-24', []), []);
+  assert.deepEqual(unreviewedWorkouts(null, trainings, '2026-11-24'), []);
 });

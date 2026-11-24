@@ -18,13 +18,23 @@ type Layout struct {
 	// RetestMonths: after how many months without a result a lift or a
 	// benchmark workout is offered for a retest; 0 none, nil the default (6).
 	RetestMonths *int `json:"retest_months,omitempty"`
+	// PromptTypes: the workout types (as synced, "CROSSFIT") that count as
+	// not logged until a training wraps them (PLAN 14c); nil the default
+	// (all but walks), empty none.
+	PromptTypes *[]string `json:"prompt_types,omitempty"`
 }
 
-const maxLayoutCards = 32
+const (
+	maxLayoutCards = 32
+	maxPromptTypes = 64
+)
 
-var ErrBadLayout = errors.New("layout: up to 32 card names of lowercase letters, digits and -; retest months 0 to 24")
+var ErrBadLayout = errors.New("layout: up to 32 card names of lowercase letters, digits and -; retest months 0 to 24; up to 64 workout types of capitals, digits and _")
 
-var cardName = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
+var (
+	cardName    = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
+	workoutType = regexp.MustCompile(`^[A-Z0-9_]{1,48}$`)
+)
 
 // Clean checks l and drops repeated names.
 func (l Layout) Clean() (Layout, error) {
@@ -54,7 +64,23 @@ func (l Layout) Clean() (Layout, error) {
 	if m := l.RetestMonths; m != nil && (*m < 0 || *m > 24) {
 		return Layout{}, ErrBadLayout
 	}
-	return Layout{order, hidden, l.RetestMonths}, nil
+	var types *[]string
+	if l.PromptTypes != nil {
+		if len(*l.PromptTypes) > maxPromptTypes {
+			return Layout{}, ErrBadLayout
+		}
+		list := []string{}
+		for _, t := range *l.PromptTypes {
+			if !workoutType.MatchString(t) {
+				return Layout{}, ErrBadLayout
+			}
+			if !slices.Contains(list, t) {
+				list = append(list, t)
+			}
+		}
+		types = &list
+	}
+	return Layout{order, hidden, l.RetestMonths, types}, nil
 }
 
 // Layout returns u's layout, empty lists when they never arranged the page.

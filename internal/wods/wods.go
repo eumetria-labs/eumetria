@@ -76,14 +76,16 @@ type Result struct {
 	Reps    int     `json:"reps,omitempty"`
 	Scaled  bool    `json:"scaled,omitempty"`
 	Capped  bool    `json:"capped,omitempty"` // not finished in the time cap: Value is the reps done
-	// The Fitbit workout it was done in, if it is linked to one.
-	FitbitWorkout string    `json:"fitbit_workout,omitempty"`
-	Date          string    `json:"date"`
-	Note          string    `json:"note,omitempty"`
-	CreatedBy     string    `json:"created_by"`
-	UpdatedBy     string    `json:"updated_by"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	// The first Fitbit workout of its training, if that has one.
+	FitbitWorkout string `json:"fitbit_workout,omitempty"`
+	// The training it was done in (internal/sessions), if any.
+	SessionID *int64    `json:"session_id,omitempty"`
+	Date      string    `json:"date"`
+	Note      string    `json:"note,omitempty"`
+	CreatedBy string    `json:"created_by"`
+	UpdatedBy string    `json:"updated_by"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // ResultInput is what people send for a result.
@@ -92,10 +94,13 @@ type ResultInput struct {
 	Reps   int     `json:"reps"`
 	Scaled bool    `json:"scaled"`
 	Capped bool    `json:"capped"`
-	// A Fitbit workout's id; the server checks it and takes its date.
+	// A Fitbit workout's id; the server checks it, takes its date and puts
+	// the result in that workout's training (SessionID).
 	FitbitWorkout string `json:"fitbit_workout"`
-	Date          string `json:"date"`
-	Note          string `json:"note"`
+	// The training, when not given by FitbitWorkout; the server checks it.
+	SessionID *int64 `json:"session_id"`
+	Date      string `json:"date"`
+	Note      string `json:"note"`
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -254,13 +259,17 @@ func scanWorkout(row scanner) (Workout, error) {
 	return w, err
 }
 
-const selectResult = `SELECT r.id, r.wod_id, r.value, r.reps, r.scaled, r.capped, r.fitbit_workout, r.date, r.note, coalesce(c.name, ''), coalesce(u.name, ''), r.created_at, r.updated_at
+const selectResult = `SELECT r.id, r.wod_id, r.value, r.reps, r.scaled, r.capped, coalesce((SELECT tw.workout_id FROM training_workouts tw WHERE tw.session_id = r.session_id AND tw.source = 'fitbit' ORDER BY tw.rowid LIMIT 1), ''), r.session_id, r.date, r.note, coalesce(c.name, ''), coalesce(u.name, ''), r.created_at, r.updated_at
 	FROM wod_results r LEFT JOIN users c ON c.id = r.created_by LEFT JOIN users u ON u.id = r.updated_by`
 
 func scanResult(row scanner) (Result, error) {
 	var r Result
 	var created, updated int64
-	err := row.Scan(&r.ID, &r.Workout, &r.Value, &r.Reps, &r.Scaled, &r.Capped, &r.FitbitWorkout, &r.Date, &r.Note, &r.CreatedBy, &r.UpdatedBy, &created, &updated)
+	var session sql.NullInt64
+	err := row.Scan(&r.ID, &r.Workout, &r.Value, &r.Reps, &r.Scaled, &r.Capped, &r.FitbitWorkout, &session, &r.Date, &r.Note, &r.CreatedBy, &r.UpdatedBy, &created, &updated)
+	if session.Valid {
+		r.SessionID = &session.Int64
+	}
 	r.CreatedAt, r.UpdatedAt = time.Unix(created, 0).UTC(), time.Unix(updated, 0).UTC()
 	return r, err
 }
@@ -390,8 +399,8 @@ func (s *Store) DeleteWorkout(ctx context.Context, id int64) (Workout, int, erro
 // scoring.
 func (s *Store) AddResult(ctx context.Context, wod int64, in ResultInput, userID int64) (Result, error) {
 	now := s.Now().Unix()
-	res, err := s.DB.ExecContext(ctx, `INSERT INTO wod_results (wod_id, value, reps, scaled, capped, fitbit_workout, date, note, created_by, updated_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, wod, in.Value, in.Reps, in.Scaled, in.Capped, in.FitbitWorkout, in.Date, in.Note, userID, userID, now, now)
+	res, err := s.DB.ExecContext(ctx, `INSERT INTO wod_results (wod_id, value, reps, scaled, capped, fitbit_workout, session_id, date, note, created_by, updated_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, wod, in.Value, in.Reps, in.Scaled, in.Capped, in.FitbitWorkout, in.SessionID, in.Date, in.Note, userID, userID, now, now)
 	if err != nil {
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
 			err = ErrNotFound
@@ -420,8 +429,8 @@ func (s *Store) ResultWorkout(ctx context.Context, id int64) (Workout, error) {
 
 // UpdateResult changes a result. in must be Clean for its workout's scoring.
 func (s *Store) UpdateResult(ctx context.Context, id int64, in ResultInput, userID int64) (Result, error) {
-	res, err := s.DB.ExecContext(ctx, `UPDATE wod_results SET value = ?, reps = ?, scaled = ?, capped = ?, fitbit_workout = ?, date = ?, note = ?, updated_by = ?, updated_at = ?
-		WHERE id = ?`, in.Value, in.Reps, in.Scaled, in.Capped, in.FitbitWorkout, in.Date, in.Note, userID, s.Now().Unix(), id)
+	res, err := s.DB.ExecContext(ctx, `UPDATE wod_results SET value = ?, reps = ?, scaled = ?, capped = ?, fitbit_workout = ?, session_id = ?, date = ?, note = ?, updated_by = ?, updated_at = ?
+		WHERE id = ?`, in.Value, in.Reps, in.Scaled, in.Capped, in.FitbitWorkout, in.SessionID, in.Date, in.Note, userID, s.Now().Unix(), id)
 	if err != nil {
 		return Result{}, err
 	}

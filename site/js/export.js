@@ -157,7 +157,7 @@ export function exportTables(data, from, to, extras = null) {
   if (extras?.lifts || extras?.wods) tables.push(...bestTables(extras, from, to));
   if (extras?.phases) tables.push(phaseTable(extras.phases, from, to));
   if (extras?.checkins) tables.push(checkinTable(extras.checkins, from, to));
-  if (extras?.sessions) tables.push(...sessionTables(extras.sessions, from, to));
+  if (extras?.sessions) tables.push(...sessionTables(extras.sessions, from, to, extras.notes));
   const timing = timingTable(days, extras?.checkins, extras?.freeNight);
   if (timing) tables.push(timing);
   return tables;
@@ -181,13 +181,14 @@ function timingTable(days, checkins, isFree = freeNight) {
 }
 
 // The training sessions of the range, and their sets in order; volume_kg
-// is kg × reps of the work sets.
-function sessionTables(list, from, to) {
+// is kg × reps of the work sets. The note is the training's (notes: a Map
+// by training id, as state.notes).
+function sessionTables(list, from, to, notes) {
   const mine = list.filter((x) => x.date >= from && x.date <= to).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
   const sc = ['session_id', 'date', 'title', 'rpe', 'work_sets', 'volume_kg', 'fitbit_workout', 'note'];
   const sessions = mine.map((x) => {
     const work = x.sets.filter((s) => s.type !== 'warmup');
-    const r = { session_id: x.id, date: x.date, title: x.title, rpe: x.rpe, work_sets: work.length, volume_kg: work.reduce((a, s) => a + s.kg * s.reps, 0), fitbit_workout: x.fitbit_workout, note: x.note };
+    const r = { session_id: x.id, date: x.date, title: x.title, rpe: x.rpe, work_sets: work.length, volume_kg: work.reduce((a, s) => a + s.kg * s.reps, 0), fitbit_workout: x.workouts?.find((w) => w.source === 'fitbit')?.id, note: notes?.get(x.id)?.markdown };
     return Object.fromEntries(sc.map((k) => [k, value(r[k])]));
   });
   const tc = ['session_id', 'date', 'set', 'lift', 'type', 'reps', 'kg', 'rpe'];

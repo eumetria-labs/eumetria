@@ -1,5 +1,7 @@
-// Workout notes: Markdown about a Fitbit workout, written in its window. The
-// server keeps them (notes.go) and sends those of the workouts the user sees;
+// Workout notes: Markdown about a training (sessions.js), written in the
+// window of one of its Fitbit workouts. The server keeps them (notes.go) and
+// sends those of the workouts the user sees; state.notes has them by
+// training id;
 // with edit.notes the window also adds, changes and deletes them. Text being
 // written survives closing the window, until it is saved or cancelled.
 // Images are pasted into the text or picked from a file; they are uploaded
@@ -13,6 +15,7 @@ import { account, api, reason } from './account.js';
 import { can, state } from './state.js';
 import { noteImages, noteLines, placeTranscript, renderMarkdown } from './markdown.js';
 import { imageForUpload } from './upload.js';
+import { knowTraining } from './sessions.js';
 import { t } from './i18n.js';
 
 const dfNote = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -25,7 +28,11 @@ const IMAGE_SIDE = 1920;
 // text is the note without its Markdown, for search and for folded notes.
 export const withText = (n) => ({ ...n, text: noteLines(n.markdown).map((l) => l.text).join('\n') });
 
-export const noteOf = (id) => state.notes.get(id);
+// noteOf is the note of the Fitbit workout id: its training's.
+export const noteOf = (id) => {
+  for (const n of state.notes.values()) if (n.workouts?.some((r) => r.source === 'fitbit' && r.id === id)) return n;
+  return undefined;
+};
 
 // The notes that go with data. Offline, or when the server doesn't answer,
 // the ones already here stay, and the page knows the list may be incomplete.
@@ -36,7 +43,7 @@ export async function loadNotes(data) {
     console.error('loading the notes failed', res?.status);
     return;
   }
-  state.notes = new Map((await res.json()).map((n) => [n.workout_id, withText(n)]));
+  state.notes = new Map((await res.json()).map((n) => [n.session_id, withText(n)]));
   state.notesLoaded = true;
 }
 
@@ -88,7 +95,7 @@ function noteView(w, show, edit) {
       error.hidden = true;
       const res = await api('notes/' + encodeURIComponent(w.id), 'DELETE').catch(() => null);
       if (res?.ok || res?.status === 404) {
-        state.notes.delete(w.id);
+        state.notes.delete(n.session_id);
         return show();
       }
       del.disabled = false;
@@ -175,15 +182,21 @@ function whiteboardError(body) {
   }[body.error]?.() || t('That didn’t work. Try again.');
 }
 
-function noteEditor(w, done) {
-  const area = h('textarea', { class: 'field note-input', rows: 12, 'aria-label': t('Note in Markdown'), spellcheck: 'true' });
-  area.value = drafts.get(w.id) ?? noteOf(w.id)?.markdown ?? '';
-  area.oninput = () => drafts.set(w.id, area.value);
+// noteInput is the note being written, with its tabs (Write, Preview), its
+// images and their "Read the whiteboard" buttons, for the note key key (a
+// Fitbit workout's id, "training-{id}", or "new" for a training not saved
+// yet: notes.go). initial is the text to start with; onInput(text) follows
+// it. addImage is a button for the caller's row; busy() is true while an
+// image goes up, and error()/status() show the caller's messages.
+export function noteInput({ key, initial = '', onInput, label = t('Note in Markdown'), rows = 12 }) {
+  const area = h('textarea', { class: 'field note-input', rows, 'aria-label': label, spellcheck: 'true' });
+  area.value = initial;
+  area.oninput = () => onInput?.(area.value);
 
   const preview = h('div', { class: 'note-preview', hidden: '' });
   const tabs = h('div', { class: 'tabs note-tabs', role: 'tablist', 'aria-label': t('Note') });
-  const tab = (label, on, pick) => {
-    const b = h('button', { role: 'tab', type: 'button', 'aria-selected': String(on), tabindex: on ? '0' : '-1' }, label);
+  const tab = (text, on, pick) => {
+    const b = h('button', { role: 'tab', type: 'button', 'aria-selected': String(on), tabindex: on ? '0' : '-1' }, text);
     b.onclick = () => {
       for (const x of tabs.children) {
         x.setAttribute('aria-selected', String(x === b));
@@ -205,29 +218,24 @@ function noteEditor(w, done) {
 
   const error = h('p', { class: 'lock-error', role: 'alert', hidden: '' });
   const status = h('p', { class: 'muted note-status', role: 'status' });
-  const save = h('button', { class: 'pill-btn', type: 'submit' }, t('Save'));
-  const cancel = h('button', { class: 'pill-btn', type: 'button' }, t('Cancel'));
-  cancel.onclick = () => {
-    drafts.delete(w.id);
-    done();
+  const showError = (text) => {
+    error.textContent = text || '';
+    error.hidden = !text;
   };
   const picker = h('input', { type: 'file', accept: 'image/*', multiple: '', hidden: '' });
   const addImage = h('button', { class: 'pill-btn', type: 'button' }, t('Add image'));
   addImage.onclick = () => picker.click();
-  const row = h('div', { class: 'sec-row note-actions' });
-  row.append(save, cancel, addImage, picker);
 
   // Each image goes up on its own and lands where the cursor is by then,
   // on a line of its own.
   let uploading = 0;
   const upload = async (files) => {
     uploading += files.length;
-    save.disabled = true;
-    error.hidden = true;
+    showError('');
     status.textContent = t('Uploading image…');
     for (const file of files) {
       try {
-        const res = await api(`notes/${encodeURIComponent(w.id)}/images`, 'POST', { image: await imageForUpload(file, IMAGE_SIDE) });
+        const res = await api(`notes/${encodeURIComponent(key())}/images`, 'POST', { image: await imageForUpload(file, IMAGE_SIDE) });
         if (!res.ok) throw Object.assign(new Error(), { res });
         const { src } = await res.json();
         const at = area.selectionStart;
@@ -236,15 +244,11 @@ function noteEditor(w, done) {
         area.oninput();
         drawPhotos();
       } catch (err) {
-        error.textContent = err.res ? await refusedImage(err.res) : err instanceof TypeError ? t('Server not reachable.') : t('That image can’t be used.');
-        error.hidden = false;
+        showError(err.res ? await refusedImage(err.res) : err instanceof TypeError ? t('Server not reachable.') : t('That image can’t be used.'));
       }
       uploading--;
     }
-    if (!uploading) {
-      status.textContent = '';
-      save.disabled = false;
-    }
+    if (!uploading) status.textContent = '';
   };
   picker.onchange = () => {
     upload([...picker.files]);
@@ -279,10 +283,10 @@ function noteEditor(w, done) {
   const transcribe = async (src) => {
     reading.add(src);
     drawPhotos();
-    error.hidden = true;
+    showError('');
     status.textContent = t('Claude is reading the photo…');
     try {
-      const res = await api(`notes/${encodeURIComponent(w.id)}/transcribe`, 'POST', { src });
+      const res = await api(`notes/${encodeURIComponent(key())}/transcribe`, 'POST', { src });
       if (res.ok) {
         const { markdown } = await res.json();
         area.value = placeTranscript(area.value, src, markdown);
@@ -291,13 +295,11 @@ function noteEditor(w, done) {
       } else {
         const body = await res.json().catch(() => ({}));
         status.textContent = '';
-        error.textContent = whiteboardError(body);
-        error.hidden = false;
+        showError(whiteboardError(body));
       }
     } catch {
       status.textContent = '';
-      error.textContent = t('Server not reachable.');
-      error.hidden = false;
+      showError(t('Server not reachable.'));
     }
     reading.delete(src);
     drawPhotos();
@@ -309,32 +311,85 @@ function noteEditor(w, done) {
   });
   drawPhotos();
 
+  return {
+    parts: [tabs, area, preview, photos, status, error],
+    addImage: [addImage, picker],
+    value: () => area.value,
+    busy: () => uploading > 0,
+    focus: () => area.focus(),
+    error: showError,
+  };
+}
+
+// The workout window's editor: noteInput with Save and Cancel, the text
+// kept as a draft until one of them.
+function noteEditor(w, done) {
+  const input = noteInput({ key: () => w.id, initial: drafts.get(w.id) ?? noteOf(w.id)?.markdown ?? '', onInput: (text) => drafts.set(w.id, text) });
+  const save = h('button', { class: 'pill-btn', type: 'submit' }, t('Save'));
+  const cancel = h('button', { class: 'pill-btn', type: 'button' }, t('Cancel'));
+  cancel.onclick = () => {
+    drafts.delete(w.id);
+    done();
+  };
+  const row = h('div', { class: 'sec-row note-actions' });
+  row.append(save, cancel, ...input.addImage);
+
   const form = h('form', { class: 'note-form' });
-  form.append(tabs, area, preview, photos, status, error, row);
+  form.append(...input.parts, row);
   form.onsubmit = async (e) => {
     e.preventDefault();
+    if (input.busy()) return input.error(t('Wait for the images to finish uploading.'));
     save.disabled = true;
-    error.hidden = true;
+    input.error('');
     try {
-      const res = await api('notes/' + encodeURIComponent(w.id), 'PUT', { markdown: area.value });
+      const res = await api('notes/' + encodeURIComponent(w.id), 'PUT', { markdown: input.value() });
       if (res.ok) {
-        state.notes.set(w.id, withText(await res.json()));
+        const saved = withText(await res.json());
+        state.notes.set(saved.session_id, saved);
         drafts.delete(w.id);
+        // The workout's first note may have made its training.
+        await knowTraining(saved.session_id);
         return done();
       }
-      error.textContent = await refused(res);
+      input.error(await refused(res));
     } catch {
-      error.textContent = t('Server not reachable.');
+      input.error(t('Server not reachable.'));
     }
-    error.hidden = false;
     save.disabled = false;
   };
-  queueMicrotask(() => area.focus());
+  queueMicrotask(() => input.focus());
 
   const head = h('div', { class: 'wo-sec-head' });
   head.append(h('h3', {}, t('Note')));
   return [head, form];
 }
+
+// saveNote saves the training's note as text says: written, changed, or
+// deleted when emptied (nothing when it is as it was). It returns '' when
+// done, else what went wrong, in the page's words.
+export async function saveNote(trainingId, text) {
+  const before = state.notes.get(trainingId)?.markdown ?? '';
+  if (text.trim() === before.trim()) return '';
+  const key = 'notes/training-' + trainingId;
+  try {
+    if (!text.trim()) {
+      const res = await api(key, 'DELETE');
+      if (!res.ok && res.status !== 404) return refused(res);
+      state.notes.delete(trainingId);
+      return '';
+    }
+    const res = await api(key, 'PUT', { markdown: text });
+    if (!res.ok) return refused(res);
+    const saved = withText(await res.json());
+    state.notes.set(saved.session_id, saved);
+    return '';
+  } catch {
+    return t('Server not reachable.');
+  }
+}
+
+// mayEditNotes: whether this user writes notes.
+export const mayEditNotes = mayEdit;
 
 // A note folded to its first line, for lists of workouts.
 export function noteFold(n) {

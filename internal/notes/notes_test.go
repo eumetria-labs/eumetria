@@ -15,7 +15,19 @@ import (
 	"eumetria/internal/auth"
 	"eumetria/internal/db"
 	"eumetria/internal/picture"
+	"eumetria/internal/sessions"
 )
+
+// training returns the training of the Fitbit workout workout, made for it.
+func training(t *testing.T, d *db.DB, workout string, user int64) int64 {
+	t.Helper()
+	s := &sessions.Store{DB: d, Now: time.Now}
+	id, err := s.Resolve(context.Background(), sessions.Ref{Source: sessions.Fitbit, ID: workout}, "2026-10-30", nil, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
 
 func TestNotes(t *testing.T) {
 	ctx := context.Background()
@@ -35,22 +47,23 @@ func TestNotes(t *testing.T) {
 	}
 	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	s := &Store{DB: d, Now: func() time.Time { return now }}
+	w1, w2 := training(t, d, "w1", anna.ID), training(t, d, "w2", anna.ID)
 
-	n, added, err := s.Put(ctx, "w1", "# Warm-Up", anna.ID)
-	if err != nil || !added || n.CreatedBy != "anna" || n.UpdatedBy != "anna" || !n.CreatedAt.Equal(now) {
+	n, added, err := s.Put(ctx, w1, "# Warm-Up", anna.ID)
+	if err != nil || !added || n.CreatedBy != "anna" || n.UpdatedBy != "anna" || !n.CreatedAt.Equal(now) || n.WorkoutID != "w1" || n.Date != "2026-10-30" {
 		t.Fatalf("first put = %+v, %v, %v", n, added, err)
 	}
 
 	// Someone else's change keeps who wrote it and when.
 	later := now.Add(time.Hour)
 	now = later
-	n, added, err = s.Put(ctx, "w1", "# WOD", bob.ID)
+	n, added, err = s.Put(ctx, w1, "# WOD", bob.ID)
 	if err != nil || added || n.Markdown != "# WOD" || n.CreatedBy != "anna" || n.UpdatedBy != "bob" ||
 		!n.CreatedAt.Equal(later.Add(-time.Hour)) || !n.UpdatedAt.Equal(later) {
 		t.Fatalf("second put = %+v, %v, %v", n, added, err)
 	}
 
-	if _, _, err := s.Put(ctx, "w2", "second", bob.ID); err != nil {
+	if _, _, err := s.Put(ctx, w2, "second", bob.ID); err != nil {
 		t.Fatal(err)
 	}
 	list, err := s.List(ctx)
@@ -58,10 +71,10 @@ func TestNotes(t *testing.T) {
 		t.Fatalf("list = %+v, %v", list, err)
 	}
 
-	if err := s.Delete(ctx, "w1"); err != nil {
+	if err := s.Delete(ctx, w1); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Delete(ctx, "w1"); !errors.Is(err, ErrNotFound) {
+	if err := s.Delete(ctx, w1); !errors.Is(err, ErrNotFound) {
 		t.Errorf("deleting it again = %v", err)
 	}
 }
@@ -123,7 +136,7 @@ func TestImages(t *testing.T) {
 	h.Release()
 
 	// Pruning leaves what a note uses and what may still be used.
-	if _, _, err := s.Put(ctx, "w1", "![](note-images/"+used+")", anna.ID); err != nil {
+	if _, _, err := s.Put(ctx, training(t, d, "w1", anna.ID), "![](note-images/"+used+")", anna.ID); err != nil {
 		t.Fatal(err)
 	}
 	old := time.Now().Add(-30 * 24 * time.Hour)
@@ -173,7 +186,7 @@ func TestPendingUploads(t *testing.T) {
 	if n, err := s.PendingUploads(ctx, anna.ID); err != nil || n != 3 {
 		t.Fatalf("pending = %d, %v", n, err)
 	}
-	s.Put(ctx, "w1", "![](note-images/b.jpg)", anna.ID)
+	s.Put(ctx, training(t, d, "w1", anna.ID), "![](note-images/b.jpg)", anna.ID)
 	if n, _ := s.PendingUploads(ctx, anna.ID); n != 2 {
 		t.Errorf("pending after a note = %d, want 2", n)
 	}

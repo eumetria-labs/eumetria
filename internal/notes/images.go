@@ -85,6 +85,23 @@ func (s *Store) UsedImages(ctx context.Context) (func(name string) bool, error) 
 	for _, n := range list {
 		b.WriteString(n.Markdown)
 	}
+	// The notes as they were before phase 14, kept for one release: their
+	// images stay while the release before may still show them.
+	rows, err := s.DB.QueryContext(ctx, "SELECT markdown FROM notes")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var md string
+		if err := rows.Scan(&md); err != nil {
+			return nil, err
+		}
+		b.WriteString(md)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	all := b.String()
 	return func(name string) bool { return strings.Contains(all, name) }, nil
 }
@@ -138,8 +155,9 @@ func DirSize(dir string) (int64, error) {
 }
 
 // MayRead reports whether user may have the image name read for the note of
-// workoutID: they uploaded it, or that note embeds it already.
-func (s *Store) MayRead(ctx context.Context, name, workoutID string, user int64) (bool, error) {
+// the training sessionID (0: none yet): they uploaded it, or that note
+// embeds it already.
+func (s *Store) MayRead(ctx context.Context, name string, sessionID int64, user int64) (bool, error) {
 	var n int
 	if err := s.DB.QueryRowContext(ctx, "SELECT count(*) FROM note_uploads WHERE name = ? AND user_id = ?", name, user).Scan(&n); err != nil {
 		return false, err
@@ -147,6 +165,6 @@ func (s *Store) MayRead(ctx context.Context, name, workoutID string, user int64)
 	if n > 0 {
 		return true, nil
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT count(*) FROM notes WHERE workout_id = ? AND instr(markdown, ?) > 0", workoutID, name).Scan(&n)
+	err := s.DB.QueryRowContext(ctx, "SELECT count(*) FROM training_notes WHERE session_id = ? AND instr(markdown, ?) > 0", sessionID, name).Scan(&n)
 	return n > 0, err
 }

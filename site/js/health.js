@@ -392,7 +392,7 @@ export const wodBestDays = (workouts, results) => wodBestResults(workouts, resul
 /* ---------- the training calendar ---------- */
 
 // Workouts that are everyday movement rather than training.
-const EVERYDAY = new Set(['Walking']);
+export const EVERYDAY = new Set(['Walking']);
 
 // Each day trained: the minutes of its Fitbit workouts (walks aside), how
 // many, whether a result was noted (a lift or benchmark workout counts as
@@ -420,20 +420,63 @@ export function trainingDays(days, notedDates = [], bestDates = []) {
 // done in: every one but walks.
 export const linkableWorkouts = (day) => (day?.workouts || []).filter((w) => !EVERYDAY.has(workoutName(w.type)));
 
-// Lift and benchmark results not linked to a Fitbit workout although their
-// day has some: { kind: 'lift'|'wod', item, candidates, pick }, the newest
-// first. pick is the workout's id when the day has just one, else null (the
-// person picks).
-export function linkSuggestions(lifts, results, byDate) {
+// The Fitbit workout ids some training wraps already.
+export const claimedWorkouts = (trainings) => new Set(trainings.flatMap((x) => x.workouts.filter((r) => r.source === 'fitbit').map((r) => r.id)));
+
+// The workouts of a day no training wraps yet, walks aside (unless walks),
+// the newest first.
+export function unclaimedWorkouts(day, trainings, walks = false) {
+  const taken = claimedWorkouts(trainings);
+  return (walks ? day?.workouts || [] : linkableWorkouts(day)).filter((w) => !taken.has(w.id)).sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+}
+
+// How many days back a workout without a training counts as not logged.
+export const REVIEW_DAYS = 7;
+
+// prompts is whether a workout's type asks to be logged: one of types (the
+// person's list, as synced), or with none set all but walks.
+export const prompts = (types) => (w) => (types ? types.includes(w.type) : !EVERYDAY.has(workoutName(w.type)));
+
+// The workouts of the last REVIEW_DAYS days (today included) whose type
+// prompts and that no training wraps: { date, w }, the newest first (PLAN
+// 14c). An empty training counts as logged: "nothing to add".
+export function unreviewedWorkouts(byDate, trainings, today, types = null) {
+  if (!byDate || !today) return [];
+  const taken = claimedWorkouts(trainings);
+  const ask = prompts(types);
   const out = [];
-  const add = (kind, item) => {
-    if (item.fitbit_workout) return;
-    const candidates = linkableWorkouts(byDate.get(item.date));
+  for (let i = 0; i < REVIEW_DAYS; i++) {
+    const date = iso(addDays(parse(today), -i));
+    const day = byDate.get(date);
+    const ws = (day?.workouts || []).filter((w) => ask(w) && !taken.has(w.id)).sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+    for (const w of ws) out.push({ date, w });
+  }
+  return out;
+}
+
+// What was noted on a day with Fitbit workouts but belongs to none of them:
+// { kind: 'lift'|'wod'|'training', item, candidates, pick }, the newest
+// first. A training without workouts is offered the day's workouts no
+// training wraps (PLAN 14b); a lift or benchmark result outside any
+// training the day's workouts (it then goes to that workout's training),
+// and one in a training without workouts goes with that training. pick is
+// the workout's id when there is just one candidate, else null (the person
+// picks).
+export function linkSuggestions(lifts, results, byDate, trainings = []) {
+  const out = [];
+  const bare = new Set(trainings.filter((x) => !x.workouts.length).map((x) => x.id));
+  const add = (kind, item, candidates) => {
     if (candidates.length) out.push({ kind, item, candidates, pick: candidates.length === 1 ? candidates[0].id : null });
   };
-  for (const e of lifts) add('lift', e);
-  for (const r of results) add('wod', r);
-  return out.sort((a, b) => b.item.date.localeCompare(a.item.date) || a.kind.localeCompare(b.kind) || a.item.id - b.item.id);
+  const item = (kind, x) => {
+    if (x.fitbit_workout || (x.session_id != null && bare.has(x.session_id))) return;
+    add(kind, x, linkableWorkouts(byDate.get(x.date)));
+  };
+  for (const e of lifts) item('lift', e);
+  for (const r of results) item('wod', r);
+  for (const x of trainings) if (!x.workouts.length) add('training', x, unclaimedWorkouts(byDate.get(x.date), trainings));
+  const order = { training: 0, lift: 1, wod: 2 };
+  return out.sort((a, b) => b.item.date.localeCompare(a.item.date) || order[a.kind] - order[b.kind] || a.item.id - b.item.id);
 }
 
 // The days trained from..to (inclusive), per week on average, and the

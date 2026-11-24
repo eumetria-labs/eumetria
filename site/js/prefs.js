@@ -26,6 +26,8 @@ import { renderManage } from './manage.js';
 import { renderSettings, stopSettings } from './settings.js';
 import { renderPhases } from './phases.js';
 import { renderLayout } from './layout.js';
+import { renderPromptTypes } from './unlogged.js';
+import { mayEditLifts } from './lifts.js';
 
 const can = (scope) => !!account.user?.scopes?.includes(scope);
 const admin = () => can('admin');
@@ -39,6 +41,8 @@ const SECTIONS = [
   // The site's sleep data is the owner's: only they set its goal and days off.
   { side: 'profile', group: () => t('You'), key: 'sleep', label: () => t('Sleep'), icon: 'moon', color: '#5e6ad2', when: () => !!account.user?.owner && can('view.health'),
     desc: () => t('Your sleep goal, days off and public holidays.'), draw: renderSleep },
+  { side: 'profile', group: () => t('You'), key: 'training', label: () => t('Training'), icon: 'dumbbell', color: '#eb6834', when: () => mayEditLifts() && can('view.health'),
+    desc: () => t('Which recorded workouts ask to be logged.'), draw: renderPromptTypes },
   { side: 'profile', group: () => t('Dashboard'), key: 'layout', label: () => t('Customize Dashboard'), icon: 'layout', color: '#1baf7a',
     desc: () => t('The order of the cards and which ones you see, on all your devices.'), draw: renderLayout },
   { side: 'profile', group: () => t('Dashboard'), key: 'phases', label: () => t('Phases & Events'), icon: 'flag', color: '#eb6834', when: seesPhases,

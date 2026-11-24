@@ -2346,6 +2346,29 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .session-form > *, .ses-ex > *, .ses-sets > * { min-width: 0; }
 .ses-set .field { width: 100%; }
 .session-form .lift-check[hidden] { display: none; }
+/* The Training form (PLAN 14b): its workouts as chips, folding parts. */
+.ses-wbox { display: grid; gap: 6px; }
+.ses-wbox .lbl { font-size: 13px; }
+.ses-workouts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ses-workouts[hidden], .ses-add-workout[hidden], .ses-noworkout[hidden], .ses-entries[hidden] { display: none; }
+.ses-wchip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 4px 4px 12px; border-radius: 999px; background: var(--surface-2); font-size: 13px; font-weight: 550; }
+.ses-wchip > span:not(.emoji) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ses-wchip .icon-btn { width: 28px; height: 28px; flex: none; }
+.ses-add-workout { justify-self: start; max-width: 100%; }
+.ses-noworkout { margin: 0; font-size: 12.5px; }
+.ses-part { border-top: 1px solid var(--border); padding-top: 10px; display: grid; gap: 10px; }
+.ses-part > summary { cursor: pointer; list-style: none; font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.ses-part > summary::-webkit-details-marker { display: none; }
+.ses-part > summary::before { content: "›"; display: inline-block; width: 12px; color: var(--muted); transition: transform .2s var(--ease); }
+.ses-part[open] > summary::before { transform: rotate(90deg); }
+.ses-part > .pill-btn { justify-self: start; }
+.ses-part .hint { margin: 0; font-size: 12.5px; }
+.ses-entries { display: grid; gap: 4px; }
+.ses-result { display: grid; gap: 10px; }
+.ses-result:empty { display: none; }
+.wo-merged { margin: 0 0 4px; font-size: 13px; }
+.pick-training { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: baseline; }
+.pick-training small { grid-column: 2; font-size: 12px; font-weight: 400; }
 .ses-set { justify-content: start; }
 #train-sessions .ses-row { grid-template-columns: minmax(min-content, 1fr) minmax(0, auto) auto 14px; }
 #train-sessions .ses-row .amt { text-align: right; }
@@ -2418,3 +2441,31 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .note-photos { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 2px; }
 .note-photo { display: grid; gap: 6px; justify-items: start; }
 .note-photo img { width: 120px; height: 90px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); }
+
+/* ---------- "Not logged yet" (unlogged.js, PLAN 14c) ---------- */
+.log-badge {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: #e34948; color: #fff; font-size: 11px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+}
+.quick-btn { position: relative; }
+.quick-btn .log-badge { margin-left: 2px; box-shadow: 0 0 0 2px var(--ink); }
+.quick-menu .acct-item .log-badge { margin-left: auto; }
+.tabbar a { position: relative; }
+.tabbar a .log-badge { position: absolute; top: 2px; left: calc(50% + 6px); box-shadow: 0 0 0 2px var(--surface); }
+@media (max-width: 899px) {
+  .quick-btn .log-badge { display: inline-grid; position: absolute; top: -2px; right: -2px; margin: 0; box-shadow: 0 0 0 2px var(--surface); }
+}
+.unlogged-btn { font-size: 13px; }
+.unlogged-btn[hidden] { display: none; }
+.unlogged-panel { width: min(560px, 100%); }
+.unlogged-list { display: grid; gap: 10px; }
+.unlogged-row { display: grid; gap: 8px; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); }
+.unlogged-what { display: grid; gap: 2px; min-width: 0; }
+.unlogged-what b { font-size: 14.5px; font-weight: 600; }
+.unlogged-what .muted { font-size: 12.5px; }
+.unlogged-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.unlogged-actions .pill-btn { background: var(--surface); }
+.unlogged-add { width: auto; max-width: 100%; min-width: 0; }
+.unlogged-types { justify-self: start; margin-top: 14px; font-size: 13px; }
+.prompt-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 8px 16px; }
+.prompt-type { font-size: 14px; }

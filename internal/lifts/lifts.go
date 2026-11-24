@@ -43,9 +43,9 @@ type Entry struct {
 	Reps int     `json:"reps"`
 	Date string  `json:"date"`
 	Note string  `json:"note,omitempty"`
-	// The Fitbit workout it was lifted in, if it is linked to one.
+	// The first Fitbit workout of its training, if that has one.
 	FitbitWorkout string `json:"fitbit_workout,omitempty"`
-	// The training session it was saved from (internal/sessions), if any.
+	// The training it belongs to (internal/sessions), if any.
 	SessionID *int64    `json:"session_id,omitempty"`
 	CreatedBy string    `json:"created_by"`
 	UpdatedBy string    `json:"updated_by"`
@@ -60,8 +60,11 @@ type Input struct {
 	Reps int     `json:"reps"`
 	Date string  `json:"date"`
 	Note string  `json:"note"`
-	// A Fitbit workout's id; the server checks it and takes its date.
+	// A Fitbit workout's id; the server checks it, takes its date and puts
+	// the entry in that workout's training (SessionID).
 	FitbitWorkout string `json:"fitbit_workout"`
+	// The training, when not given by FitbitWorkout; the server checks it.
+	SessionID *int64 `json:"session_id"`
 }
 
 // Clean checks in and returns it tidied: names and notes trimmed with their
@@ -112,7 +115,7 @@ type Store struct {
 }
 
 // An author whose account was deleted is "".
-const selectEntry = `SELECT l.id, l.lift, l.kg, l.reps, l.date, l.note, l.fitbit_workout, l.session_id, coalesce(c.name, ''), coalesce(u.name, ''), l.created_at, l.updated_at
+const selectEntry = `SELECT l.id, l.lift, l.kg, l.reps, l.date, l.note, coalesce((SELECT tw.workout_id FROM training_workouts tw WHERE tw.session_id = l.session_id AND tw.source = 'fitbit' ORDER BY tw.rowid LIMIT 1), ''), l.session_id, coalesce(c.name, ''), coalesce(u.name, ''), l.created_at, l.updated_at
 	FROM lifts l LEFT JOIN users c ON c.id = l.created_by LEFT JOIN users u ON u.id = l.updated_by`
 
 type scanner interface{ Scan(...any) error }
@@ -158,8 +161,8 @@ func (s *Store) get(ctx context.Context, id int64) (Entry, error) {
 // Add stores a new entry for the user userID. in must be Clean.
 func (s *Store) Add(ctx context.Context, in Input, userID int64) (Entry, error) {
 	now := s.Now().Unix()
-	res, err := s.DB.ExecContext(ctx, `INSERT INTO lifts (lift, kg, reps, date, note, fitbit_workout, created_by, updated_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, in.Lift, in.Kg, in.Reps, in.Date, in.Note, in.FitbitWorkout, userID, userID, now, now)
+	res, err := s.DB.ExecContext(ctx, `INSERT INTO lifts (lift, kg, reps, date, note, fitbit_workout, session_id, created_by, updated_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, in.Lift, in.Kg, in.Reps, in.Date, in.Note, in.FitbitWorkout, in.SessionID, userID, userID, now, now)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -172,8 +175,8 @@ func (s *Store) Add(ctx context.Context, in Input, userID int64) (Entry, error) 
 
 // Update changes an entry. in must be Clean.
 func (s *Store) Update(ctx context.Context, id int64, in Input, userID int64) (Entry, error) {
-	res, err := s.DB.ExecContext(ctx, `UPDATE lifts SET lift = ?, kg = ?, reps = ?, date = ?, note = ?, fitbit_workout = ?, updated_by = ?, updated_at = ?
-		WHERE id = ?`, in.Lift, in.Kg, in.Reps, in.Date, in.Note, in.FitbitWorkout, userID, s.Now().Unix(), id)
+	res, err := s.DB.ExecContext(ctx, `UPDATE lifts SET lift = ?, kg = ?, reps = ?, date = ?, note = ?, fitbit_workout = ?, session_id = ?, updated_by = ?, updated_at = ?
+		WHERE id = ?`, in.Lift, in.Kg, in.Reps, in.Date, in.Note, in.FitbitWorkout, in.SessionID, userID, s.Now().Unix(), id)
 	if err != nil {
 		return Entry{}, err
 	}

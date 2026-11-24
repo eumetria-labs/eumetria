@@ -14,12 +14,15 @@ import (
 	"eumetria/internal/auth"
 	"eumetria/internal/notes"
 	"eumetria/internal/picture"
+	"eumetria/internal/sessions"
 )
 
 // Workout notes (PLAN M6), the first thing people write through the app.
-// A note belongs to a Fitbit workout. Everyone sees the notes of the
-// workouts in their own stats; admins also see, and can delete, the notes
-// whose workout has gone from the synced data.
+// A note belongs to a training (PLAN 14), and is reached through a Fitbit
+// workout of it: {key} is the workout's id. Everyone sees the notes of the
+// workouts in their own stats, and those of trainings without a workout;
+// admins also see, and can delete, the notes whose workouts have all gone
+// from the synced data.
 
 const (
 	maxNote = 20 << 10 // bytes of Markdown
@@ -65,7 +68,7 @@ func (a *app) notesList(w http.ResponseWriter, req *http.Request, p *principal) 
 	}
 	out := []notes.Note{}
 	for _, n := range list {
-		date, found := b.workouts[n.WorkoutID]
+		date, found := noteDay(b, n)
 		if !found || (from != "" && date < from) || (to != "" && date > to) {
 			continue
 		}
@@ -73,6 +76,95 @@ func (a *app) notesList(w http.ResponseWriter, req *http.Request, p *principal) 
 		out = append(out, n)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// noteDay is the day of a note's first workout in b, and whether it has
+// one there: a note of a training without workouts has its training's.
+func noteDay(b *build, n notes.Note) (string, bool) {
+	if len(n.Workouts) == 0 {
+		return n.Date, true
+	}
+	for _, r := range n.Workouts {
+		if date, found := b.workouts[r.ID]; found {
+			return date, true
+		}
+	}
+	return "", false
+}
+
+// The keys of a note in its routes: the id of one of its training's Fitbit
+// workouts, trainingKey + the training's id (a training without workouts
+// has no other), or newKey: the training of a form not saved yet, for
+// images and photos only (PLAN 14b).
+const (
+	trainingKey = "training-"
+	newKey      = "new"
+)
+
+// errNoTarget: the key names nothing the principal can reach.
+var errNoTarget = errors.New("no such note target")
+
+// noteTarget resolves a note key to its training (0: none yet) and day.
+// With b, the training must be in the principal's stats: a workout there,
+// or a training with one there or none at all; a nil b skips that (admins
+// deleting notes whose workouts are gone). create makes the training of a
+// workout that has none (a note being saved); newKey is then refused.
+func (a *app) noteTarget(ctx context.Context, b *build, key string, create bool, userID int64) (int64, string, error) {
+	if key == newKey {
+		if create {
+			return 0, "", errNoTarget
+		}
+		return 0, "", nil
+	}
+	if rest, ok := strings.CutPrefix(key, trainingKey); ok {
+		id, err := strconv.ParseInt(rest, 10, 64)
+		if err != nil || id <= 0 {
+			return 0, "", errNoTarget
+		}
+		x, err := a.training.Get(ctx, id)
+		if errors.Is(err, sessions.ErrNotFound) {
+			return 0, "", errNoTarget
+		}
+		if err != nil {
+			return 0, "", err
+		}
+		if b == nil || len(x.Workouts) == 0 {
+			return x.ID, x.Date, nil
+		}
+		for _, r := range x.Workouts {
+			if _, found := b.workouts[r.ID]; found && r.Source == sessions.Fitbit {
+				return x.ID, x.Date, nil
+			}
+		}
+		return 0, "", errNoTarget
+	}
+	date, found := "", b == nil
+	if b != nil {
+		date, found = b.workouts[key]
+	}
+	if !found {
+		return 0, "", errNoTarget
+	}
+	ref := sessions.Ref{Source: sessions.Fitbit, ID: key}
+	if create {
+		id, err := a.training.Resolve(ctx, ref, date, nil, userID)
+		return id, date, err
+	}
+	id, _, err := a.training.Lookup(ctx, ref)
+	return id, date, err
+}
+
+// noteTargetFailed answers a failed noteTarget, and reports whether it did.
+func (a *app) noteTargetFailed(w http.ResponseWriter, err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, errNoTarget):
+		writeError(w, http.StatusNotFound, "not_found")
+	default:
+		a.failed(w, "notes", err)
+	}
+	return true
 }
 
 // notePut adds a workout's note or changes the one it has.
@@ -83,16 +175,7 @@ func (a *app) notePut(w http.ResponseWriter, req *http.Request, p *principal) {
 	if !readJSONUpTo(w, req, &in, maxNoteBody) {
 		return
 	}
-	b, ok := a.build(w, req, p)
-	if !ok {
-		return
-	}
 	key := req.PathValue("key")
-	date, found := b.workouts[key]
-	if !found {
-		writeError(w, http.StatusNotFound, "not_found")
-		return
-	}
 	text := strings.TrimSpace(in.Markdown)
 	if text == "" {
 		writeError(w, http.StatusBadRequest, "empty")
@@ -102,7 +185,15 @@ func (a *app) notePut(w http.ResponseWriter, req *http.Request, p *principal) {
 		writeError(w, http.StatusRequestEntityTooLarge, "too_long")
 		return
 	}
-	n, added, err := a.notes.Put(req.Context(), key, text, p.user.ID)
+	b, ok := a.build(w, req, p)
+	if !ok {
+		return
+	}
+	session, date, err := a.noteTarget(req.Context(), b, key, true, p.user.ID)
+	if a.noteTargetFailed(w, err) {
+		return
+	}
+	n, added, err := a.notes.Put(req.Context(), session, text, p.user.ID)
 	if err != nil {
 		log.Printf("note %s: %v", key, err)
 		writeError(w, http.StatusInternalServerError, "server")
@@ -125,12 +216,20 @@ func (a *app) noteDelete(w http.ResponseWriter, req *http.Request, p *principal)
 		return
 	}
 	key := req.PathValue("key")
-	date, found := b.workouts[key]
-	if !found && !p.user.Can(auth.ScopeAdmin) {
-		writeError(w, http.StatusNotFound, "not_found")
-		return
+	// An admin reaches the notes whose workouts are gone, too.
+	session, date, err := a.noteTarget(req.Context(), b, key, false, p.user.ID)
+	if errors.Is(err, errNoTarget) && p.user.Can(auth.ScopeAdmin) {
+		session, date, err = a.noteTarget(req.Context(), nil, key, false, p.user.ID)
 	}
-	err := a.notes.Delete(req.Context(), key)
+	if err == nil && session == 0 {
+		err = notes.ErrNotFound
+	}
+	if err == nil {
+		err = a.notes.Delete(req.Context(), session)
+	}
+	if errors.Is(err, errNoTarget) {
+		err = notes.ErrNotFound
+	}
 	if errors.Is(err, notes.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
@@ -152,9 +251,8 @@ func (a *app) noteImagePost(w http.ResponseWriter, req *http.Request, p *princip
 		return
 	}
 	key := req.PathValue("key")
-	date, found := b.workouts[key]
-	if !found {
-		writeError(w, http.StatusNotFound, "not_found")
+	_, date, err := a.noteTarget(req.Context(), b, key, false, p.user.ID)
+	if a.noteTargetFailed(w, err) {
 		return
 	}
 	if !a.imageRoom(w, req.Context(), p) {
@@ -295,7 +393,7 @@ func (a *app) adminNotes(w http.ResponseWriter, req *http.Request, p *principal)
 	}
 	out := []notes.Note{}
 	for _, n := range list {
-		if _, found := b.workouts[n.WorkoutID]; !found {
+		if _, found := noteDay(b, n); !found {
 			out = append(out, n)
 		}
 	}

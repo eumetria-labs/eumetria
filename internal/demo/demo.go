@@ -394,8 +394,8 @@ func Lifts(today time.Time) []lifts.Entry {
 	day := today.AddDate(0, 0, -2)
 	out = append(out, lifts.Entry{
 		ID: id + 1, Lift: "Power Clean", Kg: best + 2.5, Reps: 1, Date: day.Format(time.DateOnly), Note: "Finally!",
-		FitbitWorkout: "demo-" + day.Format("20060102"),
-		CreatedBy:     "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day,
+		FitbitWorkout: "demo-" + day.Format("20060102"), SessionID: ptr(int64(Training)),
+		CreatedBy: "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day,
 	})
 	// One lift not done for eight months: offered for a retest.
 	for i, back := range []int{300, 245} {
@@ -457,6 +457,7 @@ func Wods(today time.Time) ([]wods.Workout, []wods.Result) {
 	add(1, fran-6, 0, false, today.AddDate(0, 0, -2), "Unbroken thrusters")
 	// Done in that day's Fitbit workout (History makes it a HIIT session).
 	results[len(results)-1].FitbitWorkout = "demo-" + today.AddDate(0, 0, -2).Format("20060102")
+	results[len(results)-1].SessionID = ptr(int64(Training))
 	// Cindy: rounds and reps.
 	rounds, reps := 14, 3
 	for d := -320; d < 0; d += 70 + r.IntN(40) {
@@ -506,9 +507,15 @@ func Checkins(today time.Time) []checkins.Checkin {
 	return out
 }
 
-// Sessions are sample training sessions of the last eight weeks, two a
-// week: Mondays squats and presses, Thursdays deadlifts and pull-ups, a
-// little heavier each week.
+// Training is the id of the sample training two days ago: that day's
+// workout, with the new Power Clean best and the Fran result in it (no sets).
+const Training = 1000
+
+func ptr[T any](v T) *T { return &v }
+
+// Sessions are sample trainings: sessions of the last eight weeks, two a
+// week (Mondays squats and presses, Thursdays deadlifts and pull-ups, a
+// little heavier each week), and the Training of two days ago.
 func Sessions(today time.Time) []sessions.Session {
 	var out []sessions.Session
 	set := func(lift, typ string, reps int, kg float64) sessions.Set {
@@ -538,9 +545,12 @@ func Sessions(today time.Time) []sessions.Session {
 				continue
 			}
 			rpe := 7 + (7-w)%3
-			out = append(out, sessions.Session{ID: int64(len(out) + 1), Date: day.Format(time.DateOnly), Title: s.title, RPE: &rpe, Sets: s.sets,
+			out = append(out, sessions.Session{ID: int64(len(out) + 1), Date: day.Format(time.DateOnly), Workouts: []sessions.Ref{}, Title: s.title, RPE: &rpe, Sets: s.sets,
 				CreatedBy: "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day})
 		}
 	}
+	day := today.AddDate(0, 0, -2)
+	out = append(out, sessions.Session{ID: Training, Date: day.Format(time.DateOnly), Workouts: []sessions.Ref{{Source: sessions.Fitbit, ID: "demo-" + day.Format("20060102")}},
+		Sets: []sessions.Set{}, CreatedBy: "demo", UpdatedBy: "demo", CreatedAt: day, UpdatedAt: day})
 	return out
 }

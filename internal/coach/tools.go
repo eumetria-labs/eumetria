@@ -967,17 +967,18 @@ func sessionsTool(ctx context.Context, d *Data, args json.RawMessage) (any, erro
 		Date  string `json:"date"`
 		Title string `json:"title,omitempty"`
 		RPE   *int   `json:"rpe,omitempty"`
-		Note  string `json:"note,omitempty"`
 		Sets  []set  `json:"sets"`
 	}
 	rows := []row{}
 	n := 0
 	sort.SliceStable(all, func(i, j int) bool { return all[i].Date > all[j].Date })
 	for _, ss := range all {
-		if ss.Date < s.From || ss.Date > s.To {
+		// A training without sets (only a note or results, or nothing to
+		// add) is no session here.
+		if ss.Date < s.From || ss.Date > s.To || len(ss.Sets) == 0 {
 			continue
 		}
-		r := row{Date: ss.Date, Title: clip(ss.Title), RPE: ss.RPE, Note: clip(ss.Note), Sets: []set{}}
+		r := row{Date: ss.Date, Title: clip(ss.Title), RPE: ss.RPE, Sets: []set{}}
 		for _, st := range ss.Sets {
 			r.Sets = append(r.Sets, set{st.Lift, st.Type, st.Reps, st.Kg, st.RPE, clip(st.Note)})
 		}

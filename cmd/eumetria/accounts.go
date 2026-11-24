@@ -18,6 +18,7 @@ import (
 	sample "eumetria/internal/demo"
 	"eumetria/internal/lifts"
 	"eumetria/internal/mail"
+	"eumetria/internal/sessions"
 	"eumetria/internal/settings"
 	"eumetria/internal/wods"
 )
@@ -34,10 +35,23 @@ func setupAccounts(ctx context.Context, store *auth.Store, demo bool) error {
 		if err != nil {
 			return err
 		}
-		// Sample lifts, as -demo -out writes them for plain files.
+		// Sample lifts, as -demo -out writes them for plain files; one done
+		// in a workout goes into that workout's training.
+		trainings := &sessions.Store{DB: store.DB, Now: store.Now}
+		trainingOf := func(workout, date string) (*int64, error) {
+			if workout == "" {
+				return nil, nil
+			}
+			id, err := trainings.Resolve(ctx, sessions.Ref{Source: sessions.Fitbit, ID: workout}, date, nil, u.ID)
+			return &id, err
+		}
 		l := &lifts.Store{DB: store.DB, Now: store.Now}
 		for _, e := range sample.Lifts(store.Now()) {
-			in := lifts.Input{Lift: e.Lift, Kg: e.Kg, Reps: e.Reps, Date: e.Date, Note: e.Note, FitbitWorkout: e.FitbitWorkout}
+			session, err := trainingOf(e.FitbitWorkout, e.Date)
+			if err != nil {
+				return err
+			}
+			in := lifts.Input{Lift: e.Lift, Kg: e.Kg, Reps: e.Reps, Date: e.Date, Note: e.Note, FitbitWorkout: e.FitbitWorkout, SessionID: session}
 			if _, err := l.Add(ctx, in, u.ID); err != nil {
 				return err
 			}
@@ -54,7 +68,11 @@ func setupAccounts(ctx context.Context, store *auth.Store, demo bool) error {
 			ids[w.ID] = added.ID
 		}
 		for _, r := range results {
-			in := wods.ResultInput{Value: r.Value, Reps: r.Reps, Scaled: r.Scaled, Capped: r.Capped, FitbitWorkout: r.FitbitWorkout, Date: r.Date, Note: r.Note}
+			session, err := trainingOf(r.FitbitWorkout, r.Date)
+			if err != nil {
+				return err
+			}
+			in := wods.ResultInput{Value: r.Value, Reps: r.Reps, Scaled: r.Scaled, Capped: r.Capped, FitbitWorkout: r.FitbitWorkout, SessionID: session, Date: r.Date, Note: r.Note}
 			if _, err := ws.AddResult(ctx, ids[r.Workout], in, u.ID); err != nil {
 				return err
 			}

@@ -84,8 +84,14 @@ func TestStore(t *testing.T) {
 	if err != nil || first.ID == 0 || first.CreatedBy != "anna" || !first.CreatedAt.Equal(now) {
 		t.Fatalf("add = %+v, %v", first, err)
 	}
-	linked, err := s.Add(ctx, Input{Lift: "back squat", Kg: 120, Reps: 1, Date: "2026-09-01", FitbitWorkout: "w1"}, anna.ID)
-	if err != nil || linked.FitbitWorkout != "w1" {
+	// A training with the workout w1 (internal/sessions makes them).
+	if _, err := d.ExecContext(ctx, `INSERT INTO training_sessions (id, date, created_at, updated_at) VALUES (7, '2026-09-01', 0, 0);
+		INSERT INTO training_workouts (session_id, source, workout_id) VALUES (7, 'fitbit', 'w1')`); err != nil {
+		t.Fatal(err)
+	}
+	seven := int64(7)
+	linked, err := s.Add(ctx, Input{Lift: "back squat", Kg: 120, Reps: 1, Date: "2026-09-01", FitbitWorkout: "w1", SessionID: &seven}, anna.ID)
+	if err != nil || linked.FitbitWorkout != "w1" || linked.SessionID == nil || *linked.SessionID != 7 {
 		t.Fatalf("linked = %+v, %v", linked, err)
 	}
 	s.Add(ctx, Input{Lift: "Strict Press", Kg: 50, Reps: 1, Date: "2026-08-01"}, anna.ID)

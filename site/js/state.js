@@ -6,7 +6,8 @@ export const state = {
   notes: new Map(), // workout id → its note (notes.js)
   notesLoaded: false, // the server's list arrived: a workout not in it has no note
   lifts: [], // personal bests in lifts, every entry (lifts.js)
-  sessions: [], // training sessions, set by set (sessions.js)
+  sessions: [], // training sessions, set by set: the trainings with sets (sessions.js)
+  trainings: [], // every training: the hub of a workout's note, lifts, results and sets (sessions.js)
   liftsLoaded: false,
   wods: { workouts: [], results: [] }, // benchmark workouts and their results (wods.js)
   wodsLoaded: false,

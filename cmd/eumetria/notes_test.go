@@ -240,7 +240,8 @@ func TestNotesOfWorkoutsThatAreGone(t *testing.T) {
 		t.Errorf("deleting it without being an admin = %d, want 404", res.StatusCode)
 	}
 	_, body := e.do(t, admin, "GET", "/api/admin/notes", "")
-	if list := noteList(t, body); len(list) != 1 || list[0].Markdown != "keep me" || list[0].Date != "" {
+	// The day is the training's, kept from when the workout was there.
+	if list := noteList(t, body); len(list) != 1 || list[0].Markdown != "keep me" || list[0].Date != "2026-10-20" || list[0].WorkoutID != "w1" {
 		t.Fatalf("admin's list = %s", body)
 	}
 	if res, _ := e.do(t, admin, "DELETE", "/api/notes/w1", "", jsonBody...); res.StatusCode != 204 {

@@ -54,9 +54,8 @@ func (a *app) whiteboard(w http.ResponseWriter, req *http.Request, p *principal)
 		return
 	}
 	key := req.PathValue("key")
-	date, found := b.workouts[key]
-	if !found {
-		writeError(w, http.StatusNotFound, "not_found")
+	session, date, err := a.noteTarget(req.Context(), b, key, false, p.user.ID)
+	if a.noteTargetFailed(w, err) {
 		return
 	}
 	var in struct {
@@ -71,7 +70,7 @@ func (a *app) whiteboard(w http.ResponseWriter, req *http.Request, p *principal)
 		writeError(w, http.StatusBadRequest, "bad_image")
 		return
 	}
-	if ok, err := a.notes.MayRead(ctx, name, key, p.user.ID); err != nil || !ok {
+	if ok, err := a.notes.MayRead(ctx, name, session, p.user.ID); err != nil || !ok {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}

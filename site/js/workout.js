@@ -3,7 +3,7 @@
 // recorded with GPS, the route on a map.
 
 import { actLabel, actName, dfLong, fmt, fmtDistance, fmtDuration, parse } from './format.js';
-import { workoutSessions } from './sessions.js';
+import { trainingSection, workoutSessions } from './sessions.js';
 import { ZONES, speedLabel, workoutIcon, workoutName, zoneOf, zoneRuns, zoneShares } from './health.js';
 import { $, h, svg, emoji, showTip, hideTip, setHashParam, textWidth } from './dom.js';
 import { openDialog } from './dialog.js';
@@ -35,8 +35,10 @@ export function openWorkout(day, id, returnFocus) {
 
   const body = h('div', { class: 'wo-body' });
   body.append(stats(w));
-  // What was done: the lifts and benchmark results of this session, then
-  // the note.
+  // What was done: its training (PLAN 14), the lifts, sets and benchmark
+  // results in it, then the note.
+  const training = trainingSection(day, w, () => openWorkout(day, id, returnFocus));
+  if (training) body.append(training);
   const lifted = liftSection(day, w);
   if (lifted) body.append(lifted);
   const trained = workoutSessions(w);

@@ -268,3 +268,98 @@ func TestRolesMigrationKeepsUsersAndSessions(t *testing.T) {
 		t.Errorf("%d sessions left, want 2", n)
 	}
 }
+
+// 0033 puts everything noted for a Fitbit workout into one training: the
+// session linked to it, else a new one; notes, lifts and benchmark results
+// follow, a session's plain note joins the workout note, and two sessions
+// on one workout leave the second without it.
+func TestTrainingsMigration(t *testing.T) {
+	first := fstest.MapFS{}
+	all, err := list(migrations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range all {
+		if m.version >= 33 {
+			continue
+		}
+		data, err := migrations.ReadFile(m.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first[m.name] = &fstest.MapFile{Data: data}
+	}
+	file := filepath.Join(t.TempDir(), "app.db")
+	d, err := open(ctx, file, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		"INSERT INTO health_days (date, data) VALUES ('2026-11-10', '{}')",
+		"INSERT INTO workouts (id, date) VALUES ('cf', '2026-11-10')",
+		// Two sessions on cf; one with a plain note.
+		"INSERT INTO training_sessions (id, date, fitbit_workout, note, created_at, updated_at) VALUES (1, '2026-11-10', 'cf', 'Felt heavy', 10, 10), (2, '2026-11-10', 'cf', '', 20, 20), (3, '2026-11-12', '', 'no watch', 30, 30)",
+		"INSERT INTO notes (workout_id, markdown, created_at, updated_at) VALUES ('cf', '# WOD', 5, 5), ('gone', 'old', 1, 1)",
+		"INSERT INTO lifts (id, lift, kg, reps, date, fitbit_workout, created_at, updated_at) VALUES (1, 'Snatch', 60, 1, '2026-11-10', 'cf', 0, 0), (2, 'Clean', 90, 1, '2026-11-11', 'run', 0, 0), (3, 'Jerk', 90, 1, '2026-11-01', '', 0, 0)",
+		"INSERT INTO wods (id, name, scoring, created_at, updated_at) VALUES (1, 'Fran', 'time', 0, 0)",
+		"INSERT INTO wod_results (id, wod_id, value, date, fitbit_workout, created_at, updated_at) VALUES (1, 1, 300, '2026-11-11', 'run', 0, 0)",
+	} {
+		if _, err := d.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	d.Close()
+
+	d, err = Open(ctx, file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	of := func(workout string) (id int64) {
+		d.QueryRow("SELECT session_id FROM training_workouts WHERE source = 'fitbit' AND workout_id = ?", workout).Scan(&id)
+		return id
+	}
+	if of("cf") != 1 || of("run") == 0 || of("gone") == 0 || of("run") == of("gone") {
+		t.Fatalf("trainings: cf %d, run %d, gone %d", of("cf"), of("run"), of("gone"))
+	}
+	var n int
+	if d.QueryRow("SELECT count(*) FROM training_workouts WHERE session_id = 2").Scan(&n); n != 0 {
+		t.Errorf("the second session on cf has %d workouts", n)
+	}
+	var date string
+	d.QueryRow("SELECT date FROM training_sessions WHERE id = ?", of("gone")).Scan(&date)
+	if date != "1970-01-01" {
+		t.Errorf("a gone workout's training day = %q", date)
+	}
+	d.QueryRow("SELECT date FROM training_sessions WHERE id = ?", of("run")).Scan(&date)
+	if date != "2026-11-11" {
+		t.Errorf("run's training day = %q", date)
+	}
+	links := map[int64]int64{}
+	rows, _ := d.Query("SELECT id, coalesce(session_id, 0) FROM lifts")
+	for rows.Next() {
+		var id, s int64
+		rows.Scan(&id, &s)
+		links[id] = s
+	}
+	rows.Close()
+	if links[1] != 1 || links[2] != of("run") || links[3] != 0 {
+		t.Errorf("lift links = %v", links)
+	}
+	var result int64
+	if d.QueryRow("SELECT session_id FROM wod_results WHERE id = 1").Scan(&result); result != of("run") {
+		t.Errorf("result link = %d", result)
+	}
+	notes := map[int64]string{}
+	rows, _ = d.Query("SELECT session_id, markdown FROM training_notes")
+	for rows.Next() {
+		var id int64
+		var md string
+		rows.Scan(&id, &md)
+		notes[id] = md
+	}
+	rows.Close()
+	if len(notes) != 3 || notes[1] != "# WOD\n\nFelt heavy" || notes[of("gone")] != "old" || notes[3] != "no watch" {
+		t.Errorf("notes = %v", notes)
+	}
+}

@@ -111,10 +111,12 @@ export function renderLayout(host) {
 
   const save = (next, focusId, dir) => {
     if (!account.user) return;
-    // The retest setting stays when the cards change, and the other way round.
+    // The retest setting and the workout types that ask to be logged
+    // (unlogged.js) stay when the cards change, and the other way round.
     const before = layout().retest_months;
-    next = { retest_months: before, ...next };
+    next = { retest_months: before, prompt_types: layout().prompt_types, ...next };
     if (next.retest_months == null) delete next.retest_months;
+    if (next.prompt_types == null) delete next.prompt_types;
     account.user.layout = next;
     if (next.retest_months !== before) document.dispatchEvent(new Event('phases-change'));
     applyLayout();
