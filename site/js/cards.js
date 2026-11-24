@@ -15,7 +15,7 @@ import { drawHeartRate, loadRoute } from './workout.js';
 import { drawHypnogram } from './recovery.js';
 import { recipeOf } from './recipe.js';
 import { notedOn } from './wods.js';
-import { chart, legendRow, list, meterBlock, openShare, photo, photoData, photoStrip, shareButton, shareTools, splitBar, textLines, textW, tiles } from './share.js';
+import { chart, legendRow, list, meterBlock, openShare, photo, photoData, photoStrip, shareButton, shareTools, noteText, splitBar, textW, tiles } from './share.js';
 import { t } from './i18n.js';
 
 const sum = (items, k) => items.reduce((a, it) => a + (it[k] || 0), 0);
@@ -116,10 +116,12 @@ export async function workoutCard(day, w, { route: withRoute, note: withNote } =
   if (w.name && actName(w.name) !== workoutName(w.type)) sub.unshift(w.name);
   const shares = w.zones?.some((z) => z > 0) ? zoneShares(w.zones) : null;
   const note = withNote ? noteOf(w.id) : null;
+  const head = { icon: workoutIcon(w.type), title: actLabel(workoutName(w.type)), sub: sub.join(' · '), accent: 'z3' };
   // The lifts and benchmark results noted in this session, new bests marked.
   const done = notedOn(day.date).filter((x) => x.session === w.id);
-  return {
-    icon: workoutIcon(w.type), title: actLabel(workoutName(w.type)), sub: sub.join(' · '), accent: 'z3',
+  const overview = {
+    ...head,
+    part: t('Workout'),
     blocks: [
       tiles(items),
       done.length && list(done.map((x) => ({
@@ -128,12 +130,17 @@ export async function workoutCard(day, w, { route: withRoute, note: withNote } =
         note: x.pb ? [t('New PB'), x.gain].filter(Boolean).join(' · ') : x.note,
         value: x.value,
       })), t('Done in this session'), { rowH: 34, minRows: 1 }),
-      note && textLines(noteLines(note.markdown), t('Note')),
       w.hr?.length > 1 && chart((g, box) => drawHeartRate(g, w, box.w, box.h), { h: 170, min: 100, max: 240, title: t('Heart rate') }),
       shares && splitBar(ZONES.map((z, i) => ({ cls: z.cls, label: z.label, value: `${shares[i].min} min`, share: shares[i].pct / 100 })).reverse(), t('Heart rate zones')),
       route?.length > 1 && chart((g, box) => drawRoute(g, route, w, box), { h: 220, min: 110, max: 340, title: t('Route'), note: fmtDistance(w.dist || 0) }),
     ].filter(Boolean),
   };
+  if (!note) return overview;
+  // The note on a picture of its own: the same head and numbers, then all
+  // of the note, as large as fits.
+  const lines = noteLines(note.markdown);
+  if (!lines.length) return overview;
+  return [overview, { ...head, part: t('Note'), blocks: [tiles(items), noteText(lines)] }];
 }
 
 // Whether a workout has a route to offer.

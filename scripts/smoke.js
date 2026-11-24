@@ -87,8 +87,8 @@ const views = [
   { hash: 'range=30', expect: ['class="checkin-line"', 'phase-band ph-sick'] },
   // Insights: goal hit rates, and the scatter of the default pair.
   { hash: 'range=90', expect: ['class="hbars goal-hits"', 'class="ex-r"'] },
-  // The Training card's Sessions tab (the demo's eight weeks).
-  { hash: 'range=30', expect: ['class="ses-week"', 'class="ses-vol-row"'] },
+  // Personal bests: a best of several reps shows its estimated 1 RM.
+  { hash: 'range=30', expect: ['class="lift-e1rm"'] },
   // German ("#lang=de" in a link), page and a day.
   { hash: 'range=30&lang=de', expect: ['<html lang="de"', 'Tagesdetails', 'Meistgegessen'] },
   { hash: `range=30&lang=de&day=${day}`, expect: ['<dialog class="dlg sheet-overlay"', 'Vorheriger Tag'] },

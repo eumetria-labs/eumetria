@@ -229,19 +229,57 @@ export function textLines(lines, title) {
 }
 
 // A text in lines that fit the card; a word too long for a line is cut.
-function wrap(text, px, weight) {
+function wrap(text, px, weight, maxW = CW) {
   const out = [];
   let line = '';
   for (const word of text.split(' ')) {
     const next = line ? line + ' ' + word : word;
-    if (textW(next, px, weight) <= CW) line = next;
+    if (textW(next, px, weight) <= maxW) line = next;
     else {
       if (line) out.push(line);
-      line = fitText(word, px, weight, CW);
+      line = fitText(word, px, weight, maxW);
     }
   }
   out.push(line);
   return out;
+}
+
+// A whole text (a note's lines: { text, head }) that takes the rest of the
+// card, in the largest size from 15 down to 8.5 px at which all of it fits;
+// only what doesn't fit even then is cut, with "…". On a tile, like the
+// stats above it.
+export function noteText(lines) {
+  const pad = 14, gapHead = 0.35;
+  // The rows at a size, and the height they need.
+  const layout = (px) => {
+    const lineH = Math.round(px * 1.38 * 10) / 10;
+    const rows = [];
+    lines.forEach((l, i) => {
+      if (l.head && i) rows.push({ gap: lineH * gapHead });
+      for (const text of wrap(l.text, l.head ? px + 1 : px, l.head ? 650 : 400, CW - pad * 2)) rows.push({ text, head: l.head, h: lineH });
+    });
+    return { px, rows, need: pad * 2 + rows.reduce((a, r) => a + (r.gap || r.h), 0) };
+  };
+  const sizes = [];
+  for (let px = 15; px >= 8.5; px -= 0.5) sizes.push(px);
+  const at14 = layout(14), smallest = layout(8.5);
+  return {
+    h: at14.need, min: Math.min(smallest.need, 160), max: 4000,
+    draw(g, y, height) {
+      const fit = sizes.map(layout).find((l) => l.need <= height) || smallest;
+      g.append(svg('rect', { x: X, y, width: CW, height, rx: 16, class: 'c-tile' }));
+      let ty = y + pad;
+      for (const r of fit.rows) {
+        if (r.gap) { ty += r.gap; continue; }
+        if (ty + r.h > y + height - pad + 0.5) {
+          g.append(label(X + pad, ty + r.h * 0.78, '…', 'c-name', { 'font-size': fit.px }));
+          break;
+        }
+        g.append(label(X + pad, ty + r.h * 0.78, r.text, r.head ? 'c-head' : 'c-name', { 'font-size': r.head ? fit.px + 1 : fit.px }));
+        ty += r.h;
+      }
+    },
+  };
 }
 
 // A photo, cropped to fill its box. img is from photoData().
@@ -561,9 +599,38 @@ export function openShare(options, current, returnFocus) {
   const noteLabel = check('note', t('Include note'));
   controls.append(row);
 
-  const img = h('img', { class: 'share-img', alt: '' });
-  const preview = h('div', { class: 'share-preview' });
-  preview.append(img);
+  // One picture, or several (a workout and its note): each in its own frame.
+  const previews = h('div', { class: 'share-previews' });
+  const frame = () => {
+    const p = h('div', { class: 'share-preview' });
+    p.append(h('img', { class: 'share-img', alt: '' }));
+    return p;
+  };
+  previews.append(frame());
+  // With several: which of them the buttons act on, all or one (its index).
+  // Tapping a picture picks it, as the row above them does.
+  let chosen = 'all';
+  let parts = [];
+  const pickRow = h('div', { class: 'share-pick', hidden: '' });
+  const choose = (v) => {
+    chosen = v;
+    for (const b of pickRow.querySelectorAll('button')) b.setAttribute('aria-checked', String(b.dataset.pick === String(v)));
+    [...previews.children].forEach((p, i) => p.classList.toggle('picked', parts.length > 1 && (v === 'all' || v === i)));
+    const one = v !== 'all' || parts.length < 2;
+    copyBtn.hidden = !one;
+    saveBtn.textContent = one ? t('Save image') : t('Save images');
+  };
+  const drawPick = (cards) => {
+    parts = cards.map((c, i) => c.part || t('Image {n}', { n: i + 1 }));
+    if (chosen !== 'all' && chosen >= cards.length) chosen = 'all';
+    pickRow.hidden = cards.length < 2;
+    pickRow.replaceChildren(choices(t('Which image'), [['all', t('Both')], ...parts.map((p, i) => [String(i), p])], String(chosen), (v) => choose(v === 'all' ? 'all' : Number(v))));
+    for (const [i, b] of [...pickRow.querySelectorAll('button')].entries()) b.dataset.pick = i ? String(i - 1) : 'all';
+    choose(chosen);
+  };
+  drawPick.pick = (i) => choose(chosen === i ? 'all' : i);
+  // The pictures the buttons act on, with their index.
+  const selected = () => blobs.map((b, i) => [b, i]).filter(([, i]) => chosen === 'all' || chosen === i);
   const status = h('p', { class: 'share-status muted', role: 'status' });
 
   const actions = h('div', { class: 'share-actions' });
@@ -574,12 +641,14 @@ export function openShare(options, current, returnFocus) {
   if (canShareFiles) actions.append(shareBtn);
   actions.append(saveBtn);
   if (globalThis.ClipboardItem && navigator.clipboard?.write) actions.append(copyBtn);
-  const filename = () => `eumetria-${opt.name}.png`;
+  // Several pictures are numbered: eumetria-workout-…-1.png, -2.png.
+  const filename = (i = 0) => `eumetria-${opt.name}${blobs.length > 1 ? '-' + (i + 1) : ''}.png`;
+  let blobs = [];
 
   shareBtn.onclick = async () => {
     if (!blob) return;
     try {
-      await navigator.share({ files: [new File([blob], filename(), { type: 'image/png' })] });
+      await navigator.share({ files: selected().map(([b, i]) => new File([b], filename(i), { type: 'image/png' })) });
     } catch (err) {
       if (err.name !== 'AbortError') {
         console.error('sharing failed', err);
@@ -587,11 +656,12 @@ export function openShare(options, current, returnFocus) {
       }
     }
   };
-  saveBtn.onclick = () => { if (blob) download(filename(), 'image/png', blob); };
+  saveBtn.onclick = () => selected().forEach(([b, i]) => download(filename(i), 'image/png', b));
   copyBtn.onclick = async () => {
-    if (!blob) return;
+    const [first] = selected();
+    if (!first) return;
     try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': first[0] })]);
       status.textContent = t('Image copied');
     } catch (err) {
       console.error('copying the image failed', err);
@@ -603,33 +673,57 @@ export function openShare(options, current, returnFocus) {
     const mine = ++run;
     routeLabel.hidden = !opt.route;
     noteLabel.hidden = !opt.note;
-    preview.dataset.format = prefs.format;
-    preview.classList.add('busy');
+    for (const p of previews.children) {
+      p.dataset.format = prefs.format;
+      p.classList.add('busy');
+    }
     actions.querySelectorAll('button').forEach((b) => { b.disabled = true; });
     status.textContent = '';
     try {
-      const card = await opt.build({ route: prefs.route, note: prefs.note });
-      const png = await renderCard(card, prefs);
+      const cards = [].concat(await opt.build({ route: prefs.route, note: prefs.note }));
+      const pngs = await Promise.all(cards.map((c) => renderCard(c, prefs)));
       if (mine !== run) return;
-      blob = png;
+      blobs = pngs;
+      blob = pngs[0];
       // A data URL: the page's Content-Security-Policy allows no blob: images.
-      img.src = await dataUrl(png);
+      const urls = await Promise.all(pngs.map(dataUrl));
       if (mine !== run) return;
-      img.alt = t('Preview: {title}', { title: card.title });
+      while (previews.children.length < cards.length) previews.append(frame());
+      while (previews.children.length > cards.length) previews.lastChild.remove();
+      previews.classList.toggle('several', cards.length > 1);
+      [...previews.children].forEach((p, i) => {
+        p.dataset.format = prefs.format;
+        // A picture of several is a button that picks it.
+        if (cards.length > 1) {
+          p.setAttribute('role', 'button');
+          p.tabIndex = 0;
+          p.onclick = () => drawPick.pick(i);
+          p.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); drawPick.pick(i); } };
+        } else {
+          p.removeAttribute('role');
+          p.removeAttribute('tabindex');
+          p.onclick = p.onkeydown = null;
+        }
+        const img = p.firstChild;
+        img.src = urls[i];
+        img.alt = cards.length > 1 ? t('Preview {n} of {of}: {title}', { n: i + 1, of: cards.length, title: cards[i].title }) : t('Preview: {title}', { title: cards[i].title });
+      });
+      drawPick(cards);
       actions.querySelectorAll('button').forEach((b) => { b.disabled = false; });
     } catch (err) {
       if (mine !== run) return;
       console.error('drawing the share image failed', err);
       blob = null;
+      blobs = [];
       status.textContent = t('The image could not be drawn.');
     } finally {
-      if (mine === run) preview.classList.remove('busy');
+      if (mine === run) for (const p of previews.children) p.classList.remove('busy');
     }
   }
 
   const panel = h('div', { class: 'wo-panel share-panel' });
   const body = h('div', { class: 'wo-body share-body' });
-  body.append(controls, preview, status, actions);
+  body.append(controls, previews, pickRow, status, actions);
   panel.append(head, body);
   win = openDialog({
     cls: 'wo-overlay', labelledBy: 'share-title', content: [panel], returnFocus,

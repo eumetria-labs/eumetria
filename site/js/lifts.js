@@ -6,7 +6,7 @@
 // (the heaviest, more reps at the same weight), the rest is its history.
 
 import { NUM_LOCALE, actLabel, dfLong, dfShort, dfMonthYear, fmt, fmtDuration, parse } from './format.js';
-import { COMMON_LIFTS, DEFAULT_RETEST, retestDue, sessionEntries, bestDays, bestsReadiness, liftBoard, liftMarks, linkableWorkouts, liftSet, loadable, oneRepMax, percentages, platesFor, strengthTrend, wodBestDays, workoutIcon, workoutName } from './health.js';
+import { COMMON_LIFTS, DEFAULT_RETEST, retestDue, sessionEntries, bestDays, bestsReadiness, liftBoard, liftEstimate, liftMarks, linkableWorkouts, liftSet, loadable, oneRepMax, percentages, platesFor, strengthTrend, wodBestDays, workoutIcon, workoutName } from './health.js';
 import { openWorkout } from './workout.js';
 import { $, emoji, h, nameCell } from './dom.js';
 import { drawProgress, progressChart } from './charts.js';
@@ -134,7 +134,12 @@ export function renderLifts() {
     const name = nameCell(r.lift, false, '🏋️');
     if (r.recent) name.append(h('span', { class: 'lift-new', title: t('Set in the last 30 days') }, t('New')));
     else if (due.has('lift:' + r.key)) name.append(retestBadge(r.entries.at(-1).date));
-    row.append(name, h('span', { class: 'amt' }, detail), h('span', { class: 'val' }, fmtSet(r.best)), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
+    // The one-rep max, estimated unless the best is a single.
+    const est = liftEstimate(r.entries);
+    const amt = h('span', { class: 'amt' });
+    if (est && !est.tested) amt.append(h('span', { class: 'lift-e1rm', title: t('Estimated 1 RM, from {set}', { set: fmtSet(est.from) }) }, t('e1RM {value}', { value: fmtKg(loadable(est.kg)) })), ' ');
+    amt.append(detail);
+    row.append(name, amt, h('span', { class: 'val' }, fmtSet(r.best)), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
     row.addEventListener('click', () => openLift(r.key, row));
     return row;
   }));
@@ -186,9 +191,33 @@ export function openLift(key, returnFocus) {
     const bw = bodyweight(r.best);
     sub.textContent = [t('Best {value} on {date}', { value: fmtSet(r.best), date: dfLong.format(parse(r.best.date)) }), bw ? t('{x}× bodyweight', { x: nfX.format(bw) }) : ''].filter(Boolean).join(' · ');
     const plates = plateSection(r.best.kg);
-    body.replaceChildren(...[progressSection(r), repMaxSection(r), strengthSection(r), liftSessions(r.key), percentSection(r, plates.show), plates.sec, historySection(r, draw)].filter(Boolean));
+    body.replaceChildren(...[liftStats(r, bw), progressSection(r), repMaxSection(r), strengthSection(r), liftSessions(r.key), percentSection(r, plates.show), plates.sec, historySection(r, draw)].filter(Boolean));
   };
   draw();
+}
+
+// The lift in numbers at the top of its window: the best, the one-rep max
+// (estimated from the result that gives the most, or tested), the multiple
+// of the bodyweight and how many results there are.
+function liftStats(r, bw) {
+  const est = liftEstimate(r.entries);
+  const grid = h('div', { class: 'wo-stats lift-stats' });
+  const tile = (label, value, unit, note, cls = '') => {
+    const d = h('div', { class: cls });
+    const b = h('b', {}, value);
+    if (unit) b.append(h('small', {}, unit));
+    d.append(h('span', {}, label), b);
+    if (note) d.append(h('small', { class: 'muted tile-note' }, note));
+    grid.append(d);
+  };
+  tile(t('Best'), nfKg.format(r.best.kg), r.reps > 1 ? `kg × ${r.reps}` : 'kg', shortDate(r.best.date));
+  if (est) {
+    tile(est.tested ? t('1 RM') : t('Est. 1 RM'), nfKg.format(loadable(est.kg)), 'kg',
+      est.tested ? t('tested on {date}', { date: shortDate(est.from.date) }) : t('from {set}', { set: fmtSet(est.from) }), 'lift-1rm');
+  }
+  if (bw) tile(t('Bodyweight'), nfX.format(bw) + '×', '', t('at the best'));
+  tile(t('Results'), String(r.entries.length), '', t('since {date}', { date: dfMonthYear.format(parse(r.entries[0].date)) }));
+  return grid;
 }
 
 // A result as a multiple of the bodyweight that week (the average of the
@@ -328,10 +357,11 @@ function strengthSection(r) {
 // The weights at a share of the one-rep max, estimated from a rep max. A
 // weight picked here shows its plates (pick).
 function percentSection(r, pick) {
-  const max = oneRepMax(r.best.kg, r.reps);
+  const est = liftEstimate(r.entries);
+  const max = est.kg;
   const sec = h('section', { class: 'wo-sec' });
   const hd = h('div', { class: 'wo-sec-head' });
-  hd.append(h('h3', {}, t('Training weights')), h('span', { class: 'muted' }, r.reps > 1
+  hd.append(h('h3', {}, t('Training weights')), h('span', { class: 'muted' }, !est.tested
     ? t('from an estimated 1 RM of {value}', { value: fmtKg(loadable(max)) })
     : t('share of your 1 RM')));
   const grid = h('div', { class: 'lift-pct' });
@@ -427,23 +457,27 @@ function historySection(r, redraw) {
     name.append(h('span', { class: 'txt' }, dfLong.format(parse(e.date))));
     if (pb) name.append(h('span', { class: 'lift-new pb' }, 'PB'));
     const session = liftWorkout(e);
-    if (session) {
-      // Just its icon: the row has little room beside the date.
-      const label = t('Open the workout: {name}', { name: session.label });
-      const open = h('button', { class: 'icon-btn lift-session', type: 'button', title: label, 'aria-label': label });
-      open.append(emoji(workoutIcon(session.w.type)));
-      open.onclick = () => openWorkout(session.day, session.w.id, open);
-      name.append(open);
-    }
     const ready = readinessOn(e.date);
     const bw = bodyweight(e);
-    const note = [pb ? liftGain(e, before) : '', session ? sessionSummary(session.w) : '', bw ? t('{x}× BW', { x: nfX.format(bw) }) : '', ready != null ? t('Readiness {value}', { value: ready }) : '', e.note].filter(Boolean).join(' · ');
-    row.append(name, h('span', { class: 'amt' }, note), h('span', { class: 'val' }, fmtSet(e)));
+    const note = [pb ? liftGain(e, before) : '', bw ? t('{x}× BW', { x: nfX.format(bw) }) : '', ready != null ? t('Readiness {value}', { value: ready }) : '', e.note].filter(Boolean).join(' · ');
+    // On a line of its own: the training it was lifted in (a link to its
+    // workout), then the rest.
+    const amt = h('span', { class: 'amt lift-hist-note' });
+    if (session) {
+      const open = h('button', { class: 'link-btn lift-session', type: 'button', 'aria-label': t('Open the workout: {name}', { name: session.label }) });
+      open.append(emoji(workoutIcon(session.w.type)), ' ', [session.label, sessionSummary(session.w)].filter(Boolean).join(' · '));
+      open.onclick = () => openWorkout(session.day, session.w.id, open);
+      amt.append(open);
+      if (note) amt.append(h('span', {}, note));
+    } else amt.append(note);
+    row.classList.add('lift-hist');
+    row.append(name, h('span', { class: 'val' }, fmtSet(e)));
     if (mayEditLifts()) {
       const edit = h('button', { class: 'icon-btn lift-edit', type: 'button', 'aria-label': t('Change the result of {date}', { date: dfLong.format(parse(e.date)) }), title: t('Edit') }, '✎');
       edit.onclick = () => openLiftForm({ entry: e, returnFocus: edit, after: redraw });
       row.append(edit);
     }
+    if (amt.textContent) row.append(amt);
     sec.append(row);
   }
   return sec;

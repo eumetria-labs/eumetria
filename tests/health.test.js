@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, liftBetter, linkSuggestions, unclaimedWorkouts, unreviewedWorkouts, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares, strengthTrend, retestDue, sessionVolumes, sessionWeeks, sessionEntries, bestCandidates } from '../site/js/health.js';
+import { trainingDays, trainingSummary, wodBestResults, bestEntries, platesFor, bestDays, bestsReadiness, betterResult, fmtClock, parseClock, wodBestDays, wodBoard, dayActivities, liftBoard, liftBetter, linkSuggestions, liftEstimate, unclaimedWorkouts, unreviewedWorkouts, loadLabel, oneRepMax, percentages, nightBreaks, personalBests, speedLabel, trainingWeek, stageRow, workoutName, zoneOf, zoneRuns, zoneShares, strengthTrend, retestDue, sessionVolumes, sessionWeeks, sessionEntries, bestCandidates } from '../site/js/health.js';
 
 test('zoneOf uses the lower bounds of moderate, vigorous and peak', () => {
   const limits = [109, 133, 163];
@@ -331,4 +331,16 @@ test('not logged: workouts of the last 7 days without a training, by type, the n
   assert.deepEqual(ids(unreviewedWorkouts(byDate, trainings, '2026-11-24', ['CROSSFIT', 'WALKING'])), ['2026-11-24:w', '2026-11-24:a', '2026-11-18:e']);
   assert.deepEqual(unreviewedWorkouts(byDate, trainings, '2026-11-24', []), []);
   assert.deepEqual(unreviewedWorkouts(null, trainings, '2026-11-24'), []);
+});
+
+test('one-rep max of a lift: the highest estimate of its results, a tested single as it is', () => {
+  const e = (id, kg, reps) => ({ id, kg, reps, date: '2026-11-0' + id });
+  // 3 × 90 → 99 beats a single at 97,5.
+  const x = liftEstimate([e(1, 97.5, 1), e(2, 90, 3)]);
+  assert.deepEqual([Math.round(x.kg * 100) / 100, x.from.id, x.tested], [99, 2, false]);
+  // A single above every estimate.
+  assert.equal(liftEstimate([e(1, 100, 1), e(2, 90, 3)]).tested, true);
+  // Equal: the fewer reps (the tested one) wins.
+  assert.equal(liftEstimate([e(2, 90, 3), e(1, 99, 1)]).from.id, 1);
+  assert.equal(liftEstimate([]), null);
 });

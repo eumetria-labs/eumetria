@@ -5,7 +5,7 @@
 // selected range on one map.
 
 import { actLabel, addDays, avgOf, dfLong, dfMonth, dfShort, fmt, fmtDistance, fmtDuration, fmtRatio, iso, parse, signed } from './format.js';
-import { hasSessions, renderSessions } from './sessions.js';
+import { hasTrainings } from './sessions.js';
 import { LOAD_ZONE, bestDays, loadLabel, personalBests, speedLabel, trainingDays, trainingSummary, trainingWeek, wodBestDays, workoutIcon, workoutName } from './health.js';
 import { $, h, svg, nameCell, panelTabs, showTip, hideTip } from './dom.js';
 import { timeChart, bucketTitle, fadeArea, smoothPath, valuePill, resizer } from './charts.js';
@@ -24,13 +24,12 @@ export function renderTraining(s) {
   const card = $('#training-card');
   const days = state.data.days;
   const workouts = days.some((d) => d.workouts?.length);
-  card.hidden = !workouts && !hasLifts() && !hasWods() && !hasSessions();
+  card.hidden = !workouts && !hasLifts() && !hasWods() && !hasTrainings();
   if (card.hidden) return;
   const routes = days.some((d) => d.workouts?.some((w) => w.route_src || w.route?.length > 1));
   panelTabs($('#training-tabs'), [
     workouts && ['overview', t('Overview'), '📈'],
     ['bests', t('Personal bests'), '🏆'],
-    hasSessions() && ['sessions', t('Sessions'), '📋'],
     ['calendar', t('Calendar'), '📅'],
     routes && ['routes', t('Routes'), '🗺️'],
   ].filter(Boolean), store.get('trainingTab'), (key) => store.set('trainingTab', key));
@@ -42,7 +41,6 @@ export function renderTraining(s) {
   }
   renderLifts();
   renderWods();
-  renderSessions();
   renderLinkNotice();
   $('#workout-bests-part').hidden = !workouts;
   renderBests(days);
@@ -56,7 +54,7 @@ onBestsChange(renderLinkNotice);
 // After lifts or benchmark workouts changed without new data: only the list is drawn again
 // (the map keeps its zoom), unless the card appears or goes.
 export function refreshLifts(s) {
-  const hide = !state.data.days.some((d) => d.workouts?.length) && !hasLifts() && !hasWods() && !hasSessions();
+  const hide = !state.data.days.some((d) => d.workouts?.length) && !hasLifts() && !hasWods() && !hasTrainings();
   if (hide !== $('#training-card').hidden) return renderTraining(s);
   if (!hide) {
     renderLifts();

@@ -217,6 +217,18 @@ export const oneRepMax = (kg, reps) => (reps > 1 ? kg * (1 + reps / 30) : kg);
 // Round to what a barbell can be loaded to, in half kilos.
 export const loadable = (kg) => Math.round(kg * 2) / 2;
 
+// A lift's one-rep max from its results: the highest estimate of any of
+// them (a tested single counts as it is), and the result it comes from.
+// { kg, from, tested }, or null without results.
+export function liftEstimate(entries) {
+  let best = null;
+  for (const e of entries) {
+    const kg = oneRepMax(e.kg, e.reps);
+    if (!best || kg > best.kg + 1e-9 || (Math.abs(kg - best.kg) < 1e-9 && e.reps < best.from.reps)) best = { kg, from: e };
+  }
+  return best && { ...best, tested: best.from.reps === 1 };
+}
+
 // A lift's strength over time, all rep counts together: each day's best
 // estimated 1 RM, and as a multiple of the bodyweight then (bwAt(date), null
 // without weigh-ins). pb marks a day that raised the estimate.

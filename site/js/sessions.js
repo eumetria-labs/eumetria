@@ -2,23 +2,22 @@
 // done in a workout. A training wraps the device workouts it was recorded
 // in ({source, id}), and its sets, note (notes.js), lifts (lifts.js) and
 // benchmark results (wods.js) belong to it (their session_id).
-// state.trainings holds them all; state.sessions only those with sets, the
-// training sessions set by set that the rest of the page counts. The
-// Training card's Sessions tab lists those by week with the volume per
-// lift; the form (quick log "+ Session") takes exercises with sets of
-// reps × kg, and offers a work set that beats a lift's best as a new best,
-// ticked. view.health reads them, edit.lifts writes them.
+// state.trainings holds them all; state.sessions only those with sets, which
+// the rest of the page counts (volume, strength over time). The Training
+// form ("+ Log → Training", the workout window) takes the workouts, sets of
+// reps × kg (a work set that beats a lift's best offered as a new best,
+// ticked), a benchmark result and the note. view.health reads them,
+// edit.lifts writes them.
 
-import { actLabel, dfLong, dfShort, fmt, fmtDuration, parse } from './format.js';
-import { $, emoji, h } from './dom.js';
+import { actLabel, dfShort, fmt, fmtDuration, parse } from './format.js';
+import { emoji, h } from './dom.js';
 import { openDialog } from './dialog.js';
 import { api, reason } from './account.js';
 import { can, state } from './state.js';
-import { COMMON_LIFTS, EVERYDAY, bestCandidates, liftKey, sessionVolumes, sessionWeeks, unclaimedWorkouts, workoutIcon, workoutName } from './health.js';
+import { COMMON_LIFTS, EVERYDAY, bestCandidates, liftKey, sessionVolumes, unclaimedWorkouts, workoutIcon, workoutName } from './health.js';
 import { fmtKg, fmtSet, loadLifts, mayEditLifts, notifyBests, openLift, openLiftForm } from './lifts.js';
 import { fmtResult, openResultForm, openWorkoutForm, renderWods, resultInputs } from './wods.js';
 import { mayEditNotes, noteInput, saveNote } from './notes.js';
-import { openDay } from './sheet.js';
 import { t, tn } from './i18n.js';
 
 // loadSessions reads the sessions that go with data. Plain files (no
@@ -68,7 +67,8 @@ export async function knowTraining(id) {
 // The training's own Fitbit workouts, without the one given.
 const otherWorkouts = (x, id) => (x?.workouts || []).filter((r) => !(r.source === 'fitbit' && r.id === id));
 
-export const hasSessions = () => state.sessions.length > 0 || (mayEditLifts() && !!state.sessionsLoaded);
+// Whether there are trainings, which keep the Training card on show.
+export const hasTrainings = () => state.trainings.length > 0;
 
 // fmtSets writes work sets compactly: runs of the same reps and weight as
 // "5×5 @ 100 kg", single sets as "3 @ 105 kg", bodyweight as "BW".
@@ -83,62 +83,6 @@ export function fmtSets(sets) {
 }
 
 const volumeText = (v) => (v.kg ? `${fmt(v.kg)} kg` : tn(v.reps, '{n} rep', '{n} reps'));
-
-// The lifts of a session in a line: "Back Squat 5×5 @ 100 kg · Pull-up …".
-const sessionLine = (x) => [...new Set(x.sets.map((s) => s.lift))]
-  .map((lift) => `${lift} ${fmtSets(x.sets.filter((s) => s.lift === lift && s.type !== 'warmup'))}`).join(' · ');
-
-/* ---------- the Training card's Sessions tab ---------- */
-
-let shownWeeks = 6;
-
-export function renderSessions() {
-  const host = $('#train-sessions');
-  if (!host) return;
-  const add = $('#session-add');
-  add.hidden = !mayEditLifts();
-  add.onclick = () => openSessionForm({ returnFocus: add });
-  const weeks = sessionWeeks(state.sessions);
-  $('#sessions-sub').textContent = weeks.length ? tn(state.sessions.length, '{n} session', '{n} sessions') : '';
-  if (!weeks.length) {
-    host.replaceChildren(h('p', { class: 'empty-tab' }, !state.sessionsLoaded ? t('The sessions could not be loaded.')
-      : mayEditLifts() ? t('No sessions yet. Log one with + Session: sets of reps × kg, a new best offered as you go.') : t('No sessions noted yet.')));
-    return;
-  }
-  const parts = weeks.slice(0, shownWeeks).map((w) => {
-    const sec = h('section', { class: 'ses-week' });
-    const hd = h('div', { class: 'ses-week-head' });
-    hd.append(h('h4', {}, t('Week of {date}', { date: dfShort.format(parse(w.monday)) })),
-      h('span', { class: 'muted' }, [tn(w.sessions.length, '{n} session', '{n} sessions'), tn(w.sets, '{n} work set', '{n} work sets')].join(' · ')));
-    // Volume per lift: work sets and kg × reps, warm-ups left out.
-    const vol = h('div', { class: 'ses-volume' });
-    const cap = h('div', { class: 'ses-vol-row ses-vol-cap' });
-    cap.append(h('span', {}, t('Work sets')), h('span', {}), h('span', {}, t('Volume (kg × reps)')));
-    vol.append(cap);
-    for (const [lift, v] of [...w.volumes].sort((a, b) => b[1].kg - a[1].kg || b[1].sets - a[1].sets)) {
-      const row = h('div', { class: 'ses-vol-row' });
-      row.append(h('span', { class: 'name' }, lift), h('span', { class: 'muted' }, tn(v.sets, '{n} set', '{n} sets')), h('b', {}, volumeText(v)));
-      vol.append(row);
-    }
-    sec.append(hd, vol);
-    for (const x of [...w.sessions].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)) {
-      const row = h('button', { class: 'day-item workout-row lift-row ses-row', type: 'button' });
-      const name = h('span', { class: 'name' });
-      name.append(emoji('🏋️'), x.title || dfLong.format(parse(x.date)));
-      row.append(name, h('span', { class: 'amt' }, sessionLine(x)), h('span', { class: 'val' }, dfShort.format(parse(x.date))), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
-      row.setAttribute('aria-label', `${x.title || ''} ${dfLong.format(parse(x.date))}: ${sessionLine(x)}`);
-      row.onclick = () => (mayEditLifts() ? openSessionForm({ session: x, returnFocus: row }) : openDay(x.date));
-      sec.append(row);
-    }
-    return sec;
-  });
-  if (weeks.length > shownWeeks) {
-    const more = h('button', { class: 'pill-btn ses-more', type: 'button' }, t('Show older weeks'));
-    more.onclick = () => { shownWeeks += 8; renderSessions(); };
-    parts.push(more);
-  }
-  host.replaceChildren(...parts);
-}
 
 /* ---------- in other windows ---------- */
 
@@ -597,6 +541,3 @@ export function openTrainingForm({ training, date, link, strength, returnFocus, 
     };
   }
 }
-
-// openSessionForm: the Training form from the Sessions tab, sets first.
-export const openSessionForm = ({ session, ...rest } = {}) => openTrainingForm({ training: session, strength: !session, ...rest });
