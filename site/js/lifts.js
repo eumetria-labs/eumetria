@@ -107,6 +107,75 @@ export function notifyBests() {
 // Whether the tab has anything to show or to add.
 export const hasLifts = () => state.lifts.length > 0 || (mayEditLifts() && state.liftsLoaded);
 
+/* ---------- the Personal bests tab: one part at a time ---------- */
+
+// The tab holds lifts, benchmark workouts and the records of the recorded
+// workouts; a switch shows one of them, so the tab is as tall as one list.
+// Each part says whether it has anything (data-none, set where it is
+// drawn); the switch offers those that do, and remembers the pick.
+const PARTS = [['lifts', () => t('Lifts')], ['wods', () => t('Benchmarks')], ['workouts', () => t('Workouts|records')]];
+
+export function renderBestsSwitch() {
+  const row = $('#bests-switch');
+  if (!row) return;
+  const parts = PARTS.map(([key, label]) => ({ key, label, el: document.querySelector(`#training-records [data-part="${key}"]`) }))
+    .filter((p) => p.el && p.el.dataset.none !== 'true');
+  const wanted = store.get('bestsPart');
+  const on = parts.find((p) => p.key === wanted) || parts[0];
+  for (const [key] of PARTS) {
+    const el = document.querySelector(`#training-records [data-part="${key}"]`);
+    if (el) el.hidden = el.dataset.none === 'true' || (!!on && on.key !== key);
+  }
+  row.hidden = parts.length < 2;
+  row.replaceChildren(...parts.map((p) => {
+    const b = h('button', { class: 'seg-btn', type: 'button', role: 'radio', 'aria-checked': String(p === on) }, p.label());
+    b.onclick = () => pickBestsPart(p.key);
+    return b;
+  }));
+}
+
+// pickBestsPart shows a part of the Personal bests tab ("lifts", "wods",
+// "workouts"), as the switch does.
+export function pickBestsPart(key) {
+  store.set('bestsPart', key);
+  renderBestsSwitch();
+}
+
+// A long list in the tab: the first CAP rows, the rest behind "Show all";
+// with more than FILTER_AT rows a box above it filters by name (then every
+// match shows). rows: [{ name, el }]. kind keeps its state apart.
+const CAP = 8, FILTER_AT = 12;
+const listState = new Map(); // kind → { open, filter }
+export function cappedList(host, rows, kind, words) {
+  const st = listState.get(kind) || { open: false, filter: '' };
+  listState.set(kind, st);
+  // The filter box stays put (and keeps the focus) while the list is drawn again.
+  let box = host.previousElementSibling?.classList.contains('bests-filter') ? host.previousElementSibling : null;
+  if (rows.length > FILTER_AT && !box) {
+    box = h('input', { class: 'field bests-filter', type: 'search', placeholder: words.filter, 'aria-label': words.filter, autocomplete: 'off', value: st.filter });
+    box.oninput = () => { st.filter = box.value; draw(); };
+    host.before(box);
+  } else if (rows.length <= FILTER_AT && box) {
+    box.remove();
+    box = null;
+    st.filter = '';
+  }
+  const draw = () => {
+    const q = st.filter.trim().toLowerCase();
+    const matches = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows;
+    const shown = q || st.open ? matches : matches.slice(0, CAP);
+    const parts = shown.map((r) => r.el);
+    if (!matches.length) parts.push(h('p', { class: 'empty-tab' }, words.none));
+    if (!q && rows.length > CAP) {
+      const more = h('button', { class: 'pill-btn small bests-more', type: 'button', 'aria-expanded': String(st.open) }, st.open ? t('Show fewer') : words.all(rows.length));
+      more.onclick = () => { st.open = !st.open; draw(); more.isConnected || host.querySelector('.bests-more')?.focus(); };
+      parts.push(more);
+    }
+    host.replaceChildren(...parts);
+  };
+  draw();
+}
+
 /* ---------- the list in the card ---------- */
 
 export function renderLifts() {
@@ -120,29 +189,35 @@ export function renderLifts() {
   renderReadiness();
   // Viewers see the part only when there is something in it, or nothing
   // else in the tab.
-  $('#lifts-part').hidden = !rows.length && !mayEditLifts() && state.wods.workouts.length > 0;
+  $('#lifts-part').dataset.none = String(!rows.length && !mayEditLifts() && state.wods.workouts.length > 0);
+  renderBestsSwitch();
   if (!rows.length) {
     host.replaceChildren(h('p', { class: 'empty-tab' }, !state.liftsLoaded ? t('The lifts could not be loaded.')
       : mayEditLifts() ? t('No lifts yet. Add your first personal best.') : t('No lifts noted yet.')));
     return;
   }
   const due = dueKeys();
-  host.replaceChildren(...rows.map((r) => {
-    const bw = bodyweight(r.best);
-    const detail = [shortDate(r.best.date), liftGain(r.best, r.prev), bw ? t('{x}× bodyweight', { x: nfX.format(bw) }) : ''].filter(Boolean).join(' · ');
-    const row = h('button', { class: 'day-item workout-row lift-row', type: 'button', 'aria-label': t('{label}: {value}, {detail}. Show history', { label: r.lift, value: fmtSet(r.best), detail }) });
-    const name = nameCell(r.lift, false, '🏋️');
-    if (r.recent) name.append(h('span', { class: 'lift-new', title: t('Set in the last 30 days') }, t('New')));
-    else if (due.has('lift:' + r.key)) name.append(retestBadge(r.entries.at(-1).date));
-    // The one-rep max, estimated unless the best is a single.
-    const est = liftEstimate(r.entries);
-    const amt = h('span', { class: 'amt' });
-    if (est && !est.tested) amt.append(h('span', { class: 'lift-e1rm', title: t('Estimated 1 RM, from {set}', { set: fmtSet(est.from) }) }, t('e1RM {value}', { value: fmtKg(loadable(est.kg)) })), ' ');
-    amt.append(detail);
-    row.append(name, amt, h('span', { class: 'val' }, fmtSet(r.best)), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
-    row.addEventListener('click', () => openLift(r.key, row));
-    return row;
-  }));
+  cappedList(host, rows.map((r) => ({ name: r.lift, el: liftRow(r, due) })), 'lifts', {
+    filter: t('Filter lifts'), none: t('No lift by that name.'), all: (n) => t('Show all {n} lifts', { n }),
+  });
+}
+
+// A lift's row in the list: name, marks, details, best.
+function liftRow(r, due) {
+  const bw = bodyweight(r.best);
+  const detail = [shortDate(r.best.date), liftGain(r.best, r.prev), bw ? t('{x}× bodyweight', { x: nfX.format(bw) }) : ''].filter(Boolean).join(' · ');
+  const row = h('button', { class: 'day-item workout-row lift-row', type: 'button', 'aria-label': t('{label}: {value}, {detail}. Show history', { label: r.lift, value: fmtSet(r.best), detail }) });
+  const name = nameCell(r.lift, false, '🏋️');
+  if (r.recent) name.append(h('span', { class: 'lift-new', title: t('Set in the last 30 days') }, t('New')));
+  else if (due.has('lift:' + r.key)) name.append(retestBadge(r.entries.at(-1).date));
+  // The one-rep max, estimated unless the best is a single.
+  const est = liftEstimate(r.entries);
+  const amt = h('span', { class: 'amt' });
+  if (est && !est.tested) amt.append(h('span', { class: 'lift-e1rm', title: t('Estimated 1 RM, from {set}', { set: fmtSet(est.from) }) }, t('e1RM {value}', { value: fmtKg(loadable(est.kg)) })), ' ');
+  amt.append(detail);
+  row.append(name, amt, h('span', { class: 'val' }, fmtSet(r.best)), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
+  row.addEventListener('click', () => openLift(r.key, row));
+  return row;
 }
 
 // Whether new bests (lifts and benchmark workouts) came on ready mornings:

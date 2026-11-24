@@ -379,23 +379,24 @@
               </div>
             </div>
           </div>
-          <div class="card-panel training-split" id="training-records" role="tabpanel" data-tab="bests" hidden>
+          <div class="card-panel bests-panel" id="training-records" role="tabpanel" data-tab="bests" hidden>
             <div class="link-notice" id="bests-link" hidden></div>
-            <div id="lifts-part">
+            <div class="seg bests-switch" id="bests-switch" role="radiogroup" aria-label="Personal bests" hidden></div>
+            <div id="lifts-part" data-part="lifts">
               <div class="mini-head">
                 <h3 class="mini-title">Lifts <span class="muted" id="lifts-sub"></span></h3>
                 <button class="pill-btn" id="lift-add" type="button" hidden>Add result</button>
               </div>
               <div id="lifts"></div>
             </div>
-            <div id="wods-part">
+            <div id="wods-part" data-part="wods">
               <div class="mini-head">
                 <h3 class="mini-title">Benchmark workouts <span class="muted" id="wods-sub"></span></h3>
                 <button class="pill-btn" id="wod-add" type="button" hidden>New workout</button>
               </div>
               <div id="wods"></div>
             </div>
-            <div id="workout-bests-part">
+            <div id="workout-bests-part" data-part="workouts">
               <h3 class="mini-title">Workouts <span class="muted">all time</span></h3>
               <div id="training-bests"></div>
             </div>

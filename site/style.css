@@ -2475,3 +2475,14 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .day-item.lift-entry.lift-hist { grid-template-columns: minmax(0, 1fr) auto auto; row-gap: 2px; }
 .lift-hist .lift-hist-note { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; text-align: left; white-space: normal; }
 .lift-hist .lift-session { flex: 0 1 auto; min-width: 0; font-size: 12.5px; text-align: left; white-space: normal; }
+
+/* ---------- Personal bests: one part at a time (lifts.js) ---------- */
+.bests-panel { display: grid; gap: 12px; margin-top: 4px; }
+.bests-panel > * { min-width: 0; }
+.bests-panel [data-part][hidden], .bests-switch[hidden] { display: none; }
+.bests-switch { justify-self: start; max-width: 100%; overflow-x: auto; }
+.bests-switch button { transition: background .2s, color .2s; }
+.bests-switch button[aria-checked="true"] { background: var(--ink); color: var(--surface); }
+.bests-filter { width: 100%; margin: 2px 0 6px; }
+.bests-more { justify-self: start; margin-top: 8px; }
+#lifts, #wods { display: grid; }

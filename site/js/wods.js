@@ -14,7 +14,7 @@ import { drawProgress, progressChart } from './charts.js';
 import { chart, list, shareTools, textLines, tiles } from './share.js';
 import { openDialog } from './dialog.js';
 import { api, reason } from './account.js';
-import { dueKeys, fmtKg, fmtSet, liftGain, liftSeries, mayEditLifts, notifyBests, openLift, retestBadge, sessionSummary } from './lifts.js';
+import { cappedList, dueKeys, fmtKg, renderBestsSwitch, fmtSet, liftGain, liftSeries, mayEditLifts, notifyBests, openLift, retestBadge, sessionSummary } from './lifts.js';
 import { state } from './state.js';
 import { inWorkout, knowTraining } from './sessions.js';
 import { t } from './i18n.js';
@@ -77,7 +77,8 @@ export function renderWods() {
   const rows = wodBoard(state.wods.workouts, state.wods.results, state.today);
   const edit = mayEditLifts();
   // Viewers see the part only when there is something in it.
-  $('#wods-part').hidden = !rows.length && !edit;
+  $('#wods-part').dataset.none = String(!rows.length && !edit);
+  renderBestsSwitch();
   const add = $('#wod-add');
   add.hidden = !edit;
   add.onclick = () => openWorkoutForm({ returnFocus: add });
@@ -88,23 +89,28 @@ export function renderWods() {
     return;
   }
   const due = dueKeys();
-  host.replaceChildren(...rows.map((r) => {
-    const name = r.workout.name + (r.scaled ? ` · ${t('Scaled')}` : '');
-    const detail = (short) => (r.best ? [shortDate(r.best.date), r.prev ? t('was {result}', { result: fmtResult(r.workout.scoring, r.prev, short) }) : ''].filter(Boolean).join(' · ') : t('No result yet'));
-    const value = (short) => (r.best ? fmtResult(r.workout.scoring, r.best, short) : '–');
-    const row = h('button', { class: 'day-item workout-row lift-row', type: 'button', 'aria-label': t('{label}: {value}, {detail}. Show history', { label: name, value: value(false), detail: detail(false) }) });
-    const cell = nameCell(r.workout.name, false, '⏱️');
-    if (r.scaled) cell.append(h('span', { class: 'lift-rm' }, t('Scaled')));
-    if (r.recent && r.prev) cell.append(h('span', { class: 'lift-new', title: t('Set in the last 30 days') }, t('New')));
-    // Rx and scaled share one hint: the workout's last result, any.
-    else if (due.has('wod:' + r.workout.id) && r.best) {
-      const last = state.wods.results.filter((x) => x.workout === r.workout.id).reduce((a, x) => (x.date > a ? x.date : a), '');
-      if (r.entries.some((x) => x.date === last)) cell.append(retestBadge(last));
-    }
-    row.append(cell, h('span', { class: 'amt' }, detail(true)), h('span', { class: 'val' }, value(true)), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
-    row.addEventListener('click', () => openWod(r.workout.id, row));
-    return row;
-  }));
+  cappedList(host, rows.map((r) => ({ name: r.workout.name, el: wodRow(r, due) })), 'wods', {
+    filter: t('Filter benchmark workouts'), none: t('No benchmark workout by that name.'), all: (n) => t('Show all {n} benchmark workouts', { n }),
+  });
+}
+
+// A benchmark workout's row in the list (Rx and scaled each have one).
+function wodRow(r, due) {
+  const name = r.workout.name + (r.scaled ? ` · ${t('Scaled')}` : '');
+  const detail = (short) => (r.best ? [shortDate(r.best.date), r.prev ? t('was {result}', { result: fmtResult(r.workout.scoring, r.prev, short) }) : ''].filter(Boolean).join(' · ') : t('No result yet'));
+  const value = (short) => (r.best ? fmtResult(r.workout.scoring, r.best, short) : '–');
+  const row = h('button', { class: 'day-item workout-row lift-row', type: 'button', 'aria-label': t('{label}: {value}, {detail}. Show history', { label: name, value: value(false), detail: detail(false) }) });
+  const cell = nameCell(r.workout.name, false, '⏱️');
+  if (r.scaled) cell.append(h('span', { class: 'lift-rm' }, t('Scaled')));
+  if (r.recent && r.prev) cell.append(h('span', { class: 'lift-new', title: t('Set in the last 30 days') }, t('New')));
+  // Rx and scaled share one hint: the workout's last result, any.
+  else if (due.has('wod:' + r.workout.id) && r.best) {
+    const last = state.wods.results.filter((x) => x.workout === r.workout.id).reduce((a, x) => (x.date > a ? x.date : a), '');
+    if (r.entries.some((x) => x.date === last)) cell.append(retestBadge(last));
+  }
+  row.append(cell, h('span', { class: 'amt' }, detail(true)), h('span', { class: 'val' }, value(true)), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'));
+  row.addEventListener('click', () => openWod(r.workout.id, row));
+  return row;
 }
 
 /* ---------- in the day window ---------- */

@@ -10,7 +10,7 @@ import { highlights, macroGoal } from './insights.js';
 import { t, tn } from './i18n.js';
 import { renderTodayScores } from './scores.js';
 import { liftBoard, retestDue, wodBoard } from './health.js';
-import { fmtSet, onBestsChange, openLift, retestMonths } from './lifts.js';
+import { fmtSet, onBestsChange, openLift, pickBestsPart, retestMonths } from './lifts.js';
 import { fmtResult, openWod } from './wods.js';
 import { offeredYear, openYear } from './yearreview.js';
 import { renderPhaseStatus } from './phases.js';
@@ -102,7 +102,7 @@ function bestChips() {
   const names = [...new Set(all.map((x) => x.short))].join(', ');
   const b = h('button', { class: 'highlight', type: 'button', role: 'listitem', title: t('Show the personal bests') });
   b.append(emoji('🏆'), h('b', {}, tn(all.length, '{n} new PB', '{n} new PBs')), h('span', { class: 'hl-text' }, names), h('b', {}, '›'));
-  b.onclick = () => showBests(() => all[0].open(b));
+  b.onclick = () => showBests(all[0].icon === '🏋️' ? 'lifts' : 'wods', () => all[0].open(b));
   return [b, ...retestChip()];
 }
 
@@ -122,7 +122,7 @@ function retestChip() {
   } else {
     b.title = t('Show the personal bests');
     b.append(emoji('🔁'), h('b', {}, tn(due.length, '{n} to retest', '{n} to retest')), h('span', { class: 'hl-text' }, due.map((d) => d.name).join(', ')), h('b', {}, '›'));
-    b.onclick = () => showBests(() => (x.kind === 'lift' ? openLift(x.key, b) : openWod(x.key, b)));
+    b.onclick = () => showBests(x.kind === 'lift' ? 'lifts' : 'wods', () => (x.kind === 'lift' ? openLift(x.key, b) : openWod(x.key, b)));
   }
   return [b];
 }
@@ -138,13 +138,15 @@ onBestsChange(() => {
   renderHighlights();
 });
 
-// The Training card's Personal bests tab, scrolled to; when the card is
-// hidden or turned off, fallback instead.
-function showBests(fallback) {
+// The Training card's Personal bests tab, scrolled to, with its part
+// ("lifts" or "wods") on show; when the card is hidden or turned off,
+// fallback instead.
+function showBests(part, fallback) {
   const card = $('#training-card');
   const tab = $('#training-tabs [data-tab="bests"]');
   if (!tab || card.hidden || card.hasAttribute('data-off')) return fallback();
   if (tab.getAttribute('aria-selected') !== 'true') tab.click();
+  pickBestsPart(part);
   card.scrollIntoView({ behavior: reduceMotion.matches ? 'auto' : 'smooth', block: 'start' });
   tab.focus({ preventScroll: true });
 }

@@ -2017,4 +2017,14 @@ export const DE = {
   "Which image": "Welches Bild",
   "Both": "Beide",
   "Image {n}": "Bild {n}",
+  // Personal bests, one part at a time.
+  "Benchmarks": "Benchmarks",
+  "Workouts|records": "Trainings",
+  "Show fewer": "Weniger zeigen",
+  "Filter lifts": "Lifts filtern",
+  "No lift by that name.": "Kein Lift mit diesem Namen.",
+  "Show all {n} lifts": "Alle {n} Lifts zeigen",
+  "Filter benchmark workouts": "Benchmark-Workouts filtern",
+  "No benchmark workout by that name.": "Kein Benchmark-Workout mit diesem Namen.",
+  "Show all {n} benchmark workouts": "Alle {n} Benchmark-Workouts zeigen",
 };

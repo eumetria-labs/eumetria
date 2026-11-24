@@ -10,7 +10,7 @@ import { LOAD_ZONE, bestDays, loadLabel, personalBests, speedLabel, trainingDays
 import { $, h, svg, nameCell, panelTabs, showTip, hideTip } from './dom.js';
 import { timeChart, bucketTitle, fadeArea, smoothPath, valuePill, resizer } from './charts.js';
 import { state, store } from './state.js';
-import { hasLifts, onBestsChange, renderLifts } from './lifts.js';
+import { hasLifts, onBestsChange, renderBestsSwitch, renderLifts } from './lifts.js';
 import { renderLinkNotice } from './links.js';
 import { hasWods, renderWods } from './wods.js';
 import { openDay } from './sheet.js';
@@ -42,8 +42,9 @@ export function renderTraining(s) {
   renderLifts();
   renderWods();
   renderLinkNotice();
-  $('#workout-bests-part').hidden = !workouts;
+  $('#workout-bests-part').dataset.none = String(!workouts);
   renderBests(days);
+  renderBestsSwitch();
   renderCalendar();
   if (routes) renderRoutes(s.rows);
 }
