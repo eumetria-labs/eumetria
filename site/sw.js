@@ -21,9 +21,12 @@
 // are kept, never a 401 or the sign-in; the page clears the data when the
 // user signs out, gets a 401 or another user signs in (account.js).
 
-const CACHE = 'stats-v73';
+const CACHE = 'stats-v74';
 const DATA = 'stats-data-v1';
 const FLAGS = 'eumetria-flags';
+// Photos shared to the installed app (manifest share_target), waiting for
+// the page to take them: on this device only, and only until it does.
+const SHARED = 'eumetria-shared';
 const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/main.js', 'js/format.js', 'js/insights.js', 'js/state.js', 'js/dom.js', 'js/charts.js', 'js/sheet.js', 'js/lightbox.js', 'js/admin.js',
@@ -43,13 +46,17 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== DATA && k !== FLAGS).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== DATA && k !== FLAGS && k !== SHARED).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
+  if (e.request.method === 'POST' && url.origin === location.origin && url.pathname === new URL('share-target', self.registration.scope).pathname) {
+    e.respondWith(receiveShare(e.request));
+    return;
+  }
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   // Of the API only the data is kept for offline use; sign-in, sync and the
   // rest always hit the network.
@@ -64,6 +71,24 @@ self.addEventListener('fetch', (e) => {
     return IMMUTABLE.test(url.pathname) ? cacheFirst(e.request) : networkFirst(e.request, key);
   })());
 });
+
+// receiveShare keeps the images shared to the app (Android's share sheet)
+// and opens the page, which puts them into a training's note
+// (shell.js takeShared). Nothing goes to the server here.
+async function receiveShare(request) {
+  const page = new URL('./', self.registration.scope);
+  try {
+    const form = await request.formData();
+    const files = form.getAll('image').filter((f) => f instanceof File && f.type.startsWith('image/')).slice(0, 8);
+    const cache = await caches.open(SHARED);
+    for (const key of await cache.keys()) await cache.delete(key);
+    await Promise.all(files.map((f, i) => cache.put(new URL('shared/' + i, page).href, new Response(f, { headers: { 'content-type': f.type } }))));
+    page.hash = 'shared=' + files.length;
+  } catch {
+    page.hash = 'shared=0';
+  }
+  return Response.redirect(page.href, 303);
+}
 
 // offlineOk reports whether this device may keep the user's data.
 async function offlineOk() {

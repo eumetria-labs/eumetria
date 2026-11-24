@@ -24,7 +24,7 @@ import { renderDevice, renderNotices } from './device.js';
 import { initAdmin } from './admin.js';
 import { account, forgetData, initAccount, onUserChange, reason, signedIn } from './account.js';
 import { openPrefs } from './prefs.js';
-import { initShell, showGreeting, showQuick } from './shell.js';
+import { initShell, showGreeting, showQuick, takeLaunch } from './shell.js';
 import { loadNotes } from './notes.js';
 import { loadLifts } from './lifts.js';
 import { loadWods } from './wods.js';
@@ -162,6 +162,8 @@ async function load(force) {
     // Lets the service worker drop cached photos, routes and year files that
     // this data no longer uses.
     navigator.serviceWorker?.controller?.postMessage({ keep: referencedFiles(next) });
+    // Opened from a shortcut on the app's icon, or with images shared to it.
+    if (first) takeLaunch();
     // A shared link like "#day=2026-10-13" opens that day.
     const day = hashParam('day');
     if (first && day && state.byDate.has(day)) {

@@ -19,6 +19,7 @@ Eumetria puts the data of the apps you already use onto one page on your own ser
 - 🥫 Nutri-Score and NOVA badges from Open Food Facts
 - 📤 Export as CSV/JSON (with workout notes, lifts, benchmark workouts, phases, weekly reviews and goal changes), a printable report with scores and training, share cards for Instagram & co.
 - 🌗 Light and dark mode, English and German, installable on your phone, works offline (when you sign in with "Keep me signed in")
+- 📲 Installed on Android: long-press the icon for **Log training** and **Check-in**; share a photo (e.g. of the whiteboard) to Eumetria from the camera or gallery, and it lands in the note of a training you pick, ready for **Read the whiteboard**
 
 It runs as one small Docker container that serves the page and syncs on a timer.
 

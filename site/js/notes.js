@@ -315,6 +315,8 @@ export function noteInput({ key, initial = '', onInput, label = t('Note in Markd
     parts: [tabs, area, preview, photos, status, error],
     addImage: [addImage, picker],
     value: () => area.value,
+    // Images from elsewhere (shared to the app), uploaded as if picked.
+    addFiles: (files) => upload(files),
     busy: () => uploading > 0,
     focus: () => area.focus(),
     error: showError,

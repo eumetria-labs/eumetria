@@ -143,17 +143,18 @@ export function showQuick() {
 // pickTraining asks what today's training is about: a workout recorded
 // today that no training wraps yet (the newest first), a training of today
 // to change, or one without a recorded workout. With just one workout and
-// no training today, the form opens straight away.
-function pickTraining(returnFocus) {
+// no training today, the form opens straight away. photos (shared to the
+// app) go into the note of the training picked.
+function pickTraining(returnFocus, photos) {
   const today = state.today;
   const day = state.byDate?.get(today);
   const free = unclaimedWorkouts(day, state.trainings);
   const mine = state.trainings.filter((x) => x.date === today);
   // Workouts of the days before that still wait (unlogged.js).
-  const earlier = unlogged().filter((x) => x.date !== today);
+  const earlier = photos ? [] : unlogged().filter((x) => x.date !== today);
   if (free.length + mine.length <= 1 && !earlier.length) {
-    if (free.length) return openTrainingForm({ link: { id: free[0].id, date: today }, returnFocus });
-    return openTrainingForm({ training: mine[0], date: today, returnFocus });
+    if (free.length) return openTrainingForm({ link: { id: free[0].id, date: today }, returnFocus, photos });
+    return openTrainingForm({ training: mine[0], date: today, returnFocus, photos });
   }
   const panel = h('div', { class: 'wo-panel pick-panel' });
   const list = h('div', { class: 'pick-list' });
@@ -165,13 +166,13 @@ function pickTraining(returnFocus) {
     b.onclick = done(fn);
     list.append(b);
   };
-  for (const w of free) item(workoutIcon(w.type), workoutLine(w), t('recorded, not logged yet'), () => openTrainingForm({ link: { id: w.id, date: today }, returnFocus }));
+  for (const w of free) item(workoutIcon(w.type), workoutLine(w), t('recorded, not logged yet'), () => openTrainingForm({ link: { id: w.id, date: today }, returnFocus, photos }));
   for (const x of mine) {
     const ws = x.workouts.map((r) => day?.workouts?.find((w) => w.id === r.id)).filter(Boolean);
-    item('🏋️', x.title || (ws.length ? ws.map(workoutLine).join(' + ') : t('Training')), t('logged · change it'), () => openTrainingForm({ training: x, returnFocus }));
+    item('🏋️', x.title || (ws.length ? ws.map(workoutLine).join(' + ') : t('Training')), t('logged · change it'), () => openTrainingForm({ training: x, returnFocus, photos }));
   }
   const none = h('button', { class: 'pill-btn', type: 'button' }, '＋ ' + t('Without a recorded workout'));
-  none.onclick = done(() => openTrainingForm({ date: today, returnFocus }));
+  none.onclick = done(() => openTrainingForm({ date: today, returnFocus, photos }));
   if (earlier.length) {
     const more = h('button', { class: 'pick-item pick-training', type: 'button' });
     more.append(emoji('📝'), h('span', {}, tn(earlier.length, '{n} earlier workout not logged', '{n} earlier workouts not logged')), h('small', { class: 'muted' }, t('log it, add it to a training, or nothing to add')));
@@ -187,10 +188,59 @@ function pickTraining(returnFocus) {
   const body = h('div', { class: 'wo-body' });
   body.append(list, none);
   panel.append(head, body);
-  const win = openDialog({ cls: 'wo-overlay', labelledBy: 'pick-title', content: [panel], returnFocus });
+  const win = openDialog({ cls: 'wo-overlay', labelledBy: 'pick-title', content: [panel], returnFocus, photos });
   close.onclick = () => win.close();
   (list.firstChild || none).focus();
 }
+
+/* ---------- the installed app's shortcuts and share sheet ---------- */
+
+// takeLaunch acts on how the installed app was opened, once the data is
+// shown: a shortcut on its icon ("#log=training", "#log=checkin") or images
+// shared to it from another app ("#shared=n": the service worker keeps
+// them until now, sw.js). The address forgets it at once, so a reload
+// doesn't do it again.
+export async function takeLaunch() {
+  const log = hashParam('log');
+  const shared = hashParam('shared');
+  if (log == null && shared == null) return;
+  setHashParam('log', null);
+  setHashParam('shared', null);
+  await trainingsKnown();
+  if (log === 'checkin' && mayCheckin()) return openCheckin({});
+  if (log === 'training' && mayEditLifts()) return pickTraining(null);
+  if (shared != null) {
+    const photos = await takeShared();
+    if (!photos.length) return;
+    if (!mayEditLifts()) return alert(t('Your role can’t log trainings, so the shared photo can’t be added.'));
+    pickTraining(null, photos);
+  }
+}
+
+// The images shared to the app, as Files; taken out of the cache.
+async function takeShared() {
+  try {
+    const cache = await caches.open('eumetria-shared');
+    const keys = await cache.keys();
+    const files = [];
+    for (const [i, key] of keys.entries()) {
+      const res = await cache.match(key);
+      const blob = await res.blob();
+      files.push(new File([blob], `shared-${i + 1}.${(blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')}`, { type: blob.type }));
+      await cache.delete(key);
+    }
+    return files;
+  } catch {
+    return [];
+  }
+}
+
+// The trainings, which the pick list needs; loaded after the data.
+const trainingsKnown = () => (state.sessionsLoaded ? Promise.resolve() : new Promise((ok) => {
+  const done = () => { document.removeEventListener('trainings-change', done); ok(); };
+  document.addEventListener('trainings-change', done);
+  setTimeout(done, 5000);
+}));
 
 /* ---------- card tabs that don't fit ---------- */
 

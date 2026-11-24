@@ -2020,4 +2020,7 @@ export const DE = {
   "Filter benchmark workouts": "Benchmark-Workouts filtern",
   "No benchmark workout by that name.": "Kein Benchmark-Workout mit diesem Namen.",
   "Show all {n} benchmark workouts": "Alle {n} Benchmark-Workouts zeigen",
+  // Photos shared to the installed app.
+  "Your role can’t write notes, so the shared photo can’t be added.": "Deine Rolle darf keine Notizen schreiben, das geteilte Foto kann nicht hinzugefügt werden.",
+  "Your role can’t log trainings, so the shared photo can’t be added.": "Deine Rolle darf keine Trainings eintragen, das geteilte Foto kann nicht hinzugefügt werden.",
 };

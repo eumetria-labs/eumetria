@@ -596,13 +596,13 @@ export async function signOut(everywhere) {
 }
 
 // forgetData deletes the data this device kept for offline use: the
-// stats, the notes and the files the stats point to (sw.js). The page code
-// stays.
+// stats, the notes, the files the stats point to and photos shared to the
+// app but not taken yet (sw.js). The page code stays.
 export async function forgetData() {
   await keepOffline(false);
   try {
     for (const name of await caches.keys()) {
-      if (name.startsWith('stats-data')) await caches.delete(name);
+      if (name.startsWith('stats-data') || name === 'eumetria-shared') await caches.delete(name);
       else {
         const cache = await caches.open(name);
         for (const path of ['api/stats', 'api/notes']) await cache.delete(path, { ignoreSearch: true });

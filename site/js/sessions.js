@@ -168,8 +168,9 @@ let win = null;
 // openTrainingForm opens a training to change, or a new one: for date, or
 // wrapping the Fitbit workout link ({ id, date }). A workout with a training
 // already opens that one. strength adds an empty exercise to start with;
-// after runs once it is saved or deleted.
-export function openTrainingForm({ training, date, link, strength, returnFocus, after } = {}) {
+// photos (Files, shared to the app) go into the note at once; after runs
+// once it is saved or deleted.
+export function openTrainingForm({ training, date, link, strength, photos, returnFocus, after } = {}) {
   win?.close(true);
   if (!training && link) training = trainingOf(link.id) || undefined;
   let saved = training || null; // what the server has, once saved
@@ -428,7 +429,7 @@ export function openTrainingForm({ training, date, link, strength, returnFocus, 
     note = noteInput({ key: () => (saved ? 'training-' + saved.id : 'new'), initial: before, label: t('Note on the training, in Markdown'), rows: 6 });
     const photoRow = h('div', { class: 'sec-row note-actions' });
     photoRow.append(...note.addImage);
-    form.append(section(t('Note'), !!before || !training, h('p', { class: 'muted hint' }, t('The WOD from the whiteboard, how it went: a photo can be written out by Claude.')), ...note.parts, photoRow));
+    form.append(section(t('Note'), !!before || !training || !!photos?.length, h('p', { class: 'muted hint' }, t('The WOD from the whiteboard, how it went: a photo can be written out by Claude.')), ...note.parts, photoRow));
   }
 
   const error = h('p', { class: 'lock-error', role: 'alert', hidden: '' });
@@ -449,6 +450,14 @@ export function openTrainingForm({ training, date, link, strength, returnFocus, 
   win = openDialog({ cls: 'wo-overlay', labelledBy: 'session-title', content: [panel], returnFocus, onClose: () => { win = null; } });
   close.onclick = cancel.onclick = () => win?.close();
   (exs[0] ? (exs[0].name.value ? exs[0].sets[0]?.reps : exs[0].name) : title).focus();
+  // Shared photos: uploaded into the note, ready for "Read the whiteboard".
+  if (photos?.length) {
+    if (note) note.addFiles(photos);
+    else {
+      error.textContent = t('Your role can’t write notes, so the shared photo can’t be added.');
+      error.hidden = false;
+    }
+  }
 
   const busy = (on) => { for (const b of [save, cancel, del]) if (b) b.disabled = on; };
   const fail = (text, focus = save) => {
