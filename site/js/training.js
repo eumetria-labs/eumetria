@@ -29,7 +29,7 @@ export function renderTraining(s) {
   const routes = days.some((d) => d.workouts?.some((w) => w.route_src || w.route?.length > 1));
   panelTabs($('#training-tabs'), [
     workouts && ['overview', t('Overview'), '📈'],
-    ['bests', t('Personal bests'), '🏆'],
+    ['bests', [t('Personal bests'), t('Bests|tab')], '🏆'],
     ['calendar', t('Calendar'), '📅'],
     routes && ['routes', t('Routes'), '🗺️'],
   ].filter(Boolean), store.get('trainingTab'), (key) => store.set('trainingTab', key));
@@ -83,8 +83,9 @@ function renderWeek(days) {
     if (unit) v.append(h('small', {}, unit));
     let note = t('Last 7 days');
     if (before != null) {
-      note = t('4-week avg {value}', { value: f(before) + (unit ? ' ' + unit : '') });
-      if (before > 0) note += ` · ${signed(Math.round((value / before - 1) * 100))} %`;
+      // No-break spaces: a number keeps its unit on narrow phones.
+      note = t('4-week avg {value}', { value: f(before) + (unit ? '\u00a0' + unit : '') });
+      if (before > 0) note += ` · ${signed(Math.round((value / before - 1) * 100))}\u00a0%`;
     }
     el.append(v, h('p', { class: 'note' }, note));
     return el;

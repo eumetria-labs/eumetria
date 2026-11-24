@@ -42,7 +42,12 @@ export function nameCell(name, ai, icon) {
 export function tabButton(key, label, icon, count, thumb) {
   const b = h('button', { role: 'tab', 'data-tab': key, type: 'button' });
   const line = h('span', { class: 'tab-label' });
-  line.append(label);
+  // [long, short]: phones show the short word ("Bests" for "Personal bests").
+  if (Array.isArray(label)) {
+    line.append(h('span', { class: 'tab-long' }, label[0]), h('span', { class: 'tab-short', 'aria-hidden': 'true' }, label[1]));
+    b.title = label[0];
+    b.setAttribute('aria-label', label[0]);
+  } else line.append(label);
   if (count) line.append(h('span', { class: 'tab-count' }, ` ${fmt(count)}`));
   b.append(thumb ? thumbImg(thumb, 'tab-thumb') : emoji(icon, 'tab-icon'), line);
   return b;

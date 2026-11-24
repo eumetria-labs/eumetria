@@ -15,13 +15,11 @@ let win = null;
 // canCoach: the role may ask the coach.
 export const canCoach = () => !!account.user?.scopes?.includes('use.coach');
 
-// showCoach shows the coach's buttons to those who may ask it.
+// showCoach shows the coach's button to those who may ask it.
 export function showCoach() {
   const btn = $('#coach-btn');
   btn.hidden = !canCoach();
   btn.onclick = () => openCoach(btn);
-  const more = $('#more-coach');
-  if (more) more.hidden = !canCoach();
 }
 
 const EXAMPLES = () => [

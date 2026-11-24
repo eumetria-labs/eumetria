@@ -12,7 +12,7 @@
 // -demo -now <time> gives the same result on any day: a failure in CI can be
 // repeated locally with the time the run prints.
 //
-// Then it loads some views as a phone (360 and 320 px wide, through the
+// Then it loads some views as a phone (412 and 360 px wide, through the
 // DevTools protocol: a headless window can't be narrower than about 500 px)
 // and fails if the page or an open window is wider than the screen.
 
@@ -119,7 +119,7 @@ try {
   failed += await phones([
     'range=7', 'range=30&lang=de', 'range=all',
     // Each part of the page a phone's tab bar shows.
-    'range=30&view=nutrition', 'range=30&view=body', 'range=30&lang=de&view=training', 'range=30&view=more',
+    'range=30&view=nutrition', 'range=30&view=body', 'range=30&lang=de&view=training', 'range=30&view=insights',
     `range=30&lang=de&day=${day}`,
     ...(workout ? [`range=30&day=${wday.date}&workout=${workout.id}`] : []),
     ...(food ? [`range=30&food=${encodeURIComponent(food)}`] : []),
@@ -138,7 +138,7 @@ process.exit(failed ? 1 : 0);
 // content that doesn't fit. It returns the number of failed views.
 async function phones(hashes) {
   let failures = 0;
-  for (const width of [360, 320]) {
+  for (const width of [412, 360]) {
     for (const hash of hashes) {
       await browser.view(page + hash, { width, height: 800, mobile: true });
       const res = await browser.eval(`new Promise((ok) => {

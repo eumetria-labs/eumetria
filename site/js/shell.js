@@ -16,12 +16,10 @@ import { openUnlogged, renderUnlogged, unlogged } from './unlogged.js';
 import { mayEditLifts } from './lifts.js';
 import { openPhaseForm } from './phases.js';
 import { openDialog } from './dialog.js';
-import { openPrefs } from './prefs.js';
-import { openYear } from './yearreview.js';
-import { openCoach, showCoach } from './coach.js';
+import { showCoach } from './coach.js';
 import { GROUP } from './layout.js';
 
-const VIEWS = ['today', 'nutrition', 'body', 'training', 'more'];
+const VIEWS = ['today', 'nutrition', 'body', 'training', 'insights'];
 const wide = matchMedia('(min-width: 900px)');
 
 export function initShell() {
@@ -29,7 +27,6 @@ export function initShell() {
   initSide();
   initTabbar();
   initQuick();
-  initMore();
   fitTabs();
   onUserChange(showUser);
 }
@@ -72,10 +69,12 @@ function initSide() {
     if (wide.matches) {
       $('#side-foot').prepend($('#device'));
       me.prepend($('#account'));
+      $('#coach-btn').after($('#search'));
       $('#search').before($('#quick'));
     } else {
-      // Phones: the watch and you at the top right, next to the greeting.
-      $('#top-me').append($('#device'), $('#account'));
+      // Phones: search, the watch and you at the top right, next to the
+      // greeting (the row below is full with the range, sync and coach).
+      $('#top-me').append($('#search'), $('#device'), $('#account'));
       // Out of the header: its backdrop filter would pin a fixed button to it.
       document.body.append($('#quick'));
     }
@@ -108,6 +107,8 @@ function initTabbar() {
 
 // setView shows one part of the page on phones; wide screens show all.
 export function setView(view, remember = true) {
+  // "#view=more" from before the Insights tab took its place.
+  if (view === 'more') view = 'insights';
   if (!VIEWS.includes(view)) view = 'today';
   document.documentElement.dataset.view = view;
   for (const a of $('#tabbar').querySelectorAll('a')) {
@@ -117,24 +118,6 @@ export function setView(view, remember = true) {
   if (remember) setHashParam('view', view === 'today' ? null : view);
   // Charts drawn while hidden have no size: they draw on resize (charts.js).
   dispatchEvent(new Event('resize'));
-}
-
-// The "More" part on phones: what lives elsewhere on wide screens.
-function initMore() {
-  const card = h('section', { class: 'card more-card', id: 'more-card', 'data-group': 'more' });
-  const item = (label, note, run) => {
-    const b = h('button', { class: 'more-item', type: 'button' });
-    b.append(h('b', {}, label), h('span', {}, note));
-    b.onclick = () => run(b);
-    return b;
-  };
-  card.append(h('h2', {}, t('More')),
-    item(t('Search'), t('Foods, activities and days'), () => $('#search').click()),
-    item(t('Year in review'), t('The year’s numbers, bests and favourite foods'), (b) => openYear((state.today || '').slice(0, 4), b)),
-    Object.assign(item(t('Coach'), t('Ask Claude about your data'), (b) => openCoach(b)), { id: 'more-coach', hidden: true }),
-    item(t('Profile'), t('Account, Customize Dashboard, Phases & Events'), (b) => openPrefs('profile', '', { returnFocus: b })),
-    item(t('Settings'), t('Sign-in, devices and the site'), (b) => openPrefs('settings', '', { returnFocus: b })));
-  $('#cards').after(card);
 }
 
 /* ---------- "+ Log" ---------- */

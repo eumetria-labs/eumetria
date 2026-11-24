@@ -6,7 +6,7 @@
 // It starts the binary with -demo on a free port and an empty data folder,
 // makes an admin (with an authenticator app) and a viewer, signs in as each
 // and checks:
-//   - every section they may see opens, at 1280, 390 and 320 px, without a
+//   - every section they may see opens, at 1280, 412 and 360 px, without a
 //     JavaScript error and without anything wider than the screen;
 //   - the viewer doesn't get the admin's sections;
 //   - the menu, the theme switch, the eye on password fields, the save bar
@@ -129,7 +129,7 @@ const overflow = () => ev(`(() => {
   });
   return out.filter((el) => !out.some((o) => o !== el && el.contains(o))).slice(0, 4).map((el) => el.tagName.toLowerCase() + '.' + el.className).join(', ');
 })()`);
-const sizes = [['1280', { width: 1280, height: 900 }], ['390', { width: 390, height: 844, mobile: true }], ['320', { width: 320, height: 700, mobile: true }]];
+const sizes = [['1280', { width: 1280, height: 900 }], ['412', { width: 412, height: 915, mobile: true }], ['360', { width: 360, height: 780, mobile: true }]];
 
 async function sections(who, expect) {
   for (const [side, keys] of Object.entries(expect)) {
@@ -271,7 +271,7 @@ await open('admin=roles', { width: 1280, height: 900 });
 check('#admin=roles leads to Settings → Roles', await ev(`location.hash.includes('settings=roles')`), await ev('location.hash'));
 await open('security', { width: 1280, height: 900 });
 check('#security leads to Settings → Sign-in', await ev(`location.hash.includes('settings=sign-in')`), await ev('location.hash'));
-await open('settings=', { width: 390, height: 844, mobile: true });
+await open('settings=', { width: 412, height: 915, mobile: true });
 check('phones get the list of sections', await ev(`document.querySelector('.pf').dataset.mode === 'list'`));
 await ev(`document.querySelector('.pf-list a[data-key=google]').click()`);
 await wait(700);
@@ -313,16 +313,17 @@ check('"+ Log" offers training, check-in and phase, nothing else', await ev(`!do
 await browser.view(base + '/#range=30', { width: 1000, height: 800 });
 await wait(600);
 check('medium screens: the sidebar keeps its icons', await ev(`document.getElementById('side').getBoundingClientRect().width === 72`), await ev(`document.getElementById('side').getBoundingClientRect().width`));
-await browser.view(base + '/#range=30', { width: 390, height: 844, mobile: true });
+await browser.view(base + '/#range=30', { width: 412, height: 915, mobile: true });
 await wait(800);
 check('phone: tab bar, the account at the top right', await ev(`getComputedStyle(document.getElementById('tabbar')).display === 'grid' && !!document.querySelector('#top-me #account-btn') && getComputedStyle(document.getElementById('side')).display === 'none'`));
 await ev(`document.querySelector('#tabbar a[data-view=training]').click()`);
 await wait(500);
 check('phone: Training shows only training', await ev(`location.hash.includes('view=training') && getComputedStyle(document.getElementById('training-card')).display !== 'none' && getComputedStyle(document.getElementById('energy-card')).display === 'none' && getComputedStyle(document.getElementById('today')).display === 'none'`));
 check('phone: the round "+" sits above the tab bar', await ev(`(() => { const q = document.getElementById('quick-btn').getBoundingClientRect(), bar = document.getElementById('tabbar').getBoundingClientRect(); return q.bottom <= bar.top && q.right <= innerWidth && q.width > 40; })()`));
-await ev(`document.querySelector('#tabbar a[data-view=more]').click()`);
+await ev(`document.querySelector('#tabbar a[data-view=insights]').click()`);
 await wait(400);
-check('phone: More has search, year in review, coach, profile and settings', await ev(`[...document.querySelectorAll('#more-card .more-item')].filter((b) => !b.hidden).length === 5 && !document.getElementById('more-coach').hidden && getComputedStyle(document.getElementById('more-card')).display !== 'none'`));
+check('phone: Insights shows the insights and the daily data, with room between', await ev(`(() => { const a = document.getElementById('insights-card'), d = document.getElementById('data-card'); const shown = (el) => getComputedStyle(el).display !== 'none'; return location.hash.includes('view=insights') && shown(a) && shown(d) && getComputedStyle(document.getElementById('training-card')).display === 'none' && d.getBoundingClientRect().top - a.getBoundingClientRect().bottom >= 8; })()`), await ev(`String(document.getElementById('data-card').getBoundingClientRect().top - document.getElementById('insights-card').getBoundingClientRect().bottom)`));
+check('phone: search and coach in the top bar', await ev(`[document.getElementById('search'), document.getElementById('coach-btn')].every((b) => { const r = b.getBoundingClientRect(); return !b.hidden && r.width > 0 && r.right <= innerWidth; })`));
 check('phone: nothing wider than the screen', await ev(`document.documentElement.scrollWidth <= innerWidth`));
 
 /* ---------- the daily check-in ---------- */
@@ -340,8 +341,8 @@ check('phone: nothing wider than the screen', await ev(`document.documentElement
   check('check-in: Readiness says rest on a sick day', await ev(`[...document.querySelectorAll('#today-scores .sc-word')].some((w) => w.textContent.includes('Sick: rest first'))`), await ev(`document.getElementById('today-scores').textContent`));
 }
 
-/* ---------- a training session, at 320 px ---------- */
-await browser.view(base + '/#range=30', { width: 320, height: 700, mobile: true });
+/* ---------- a training session, at 360 px ---------- */
+await browser.view(base + '/#range=30', { width: 360, height: 780, mobile: true });
 await wait(800);
 await ev(`document.getElementById('quick-btn').click()`);
 await wait(200);
@@ -360,7 +361,7 @@ check('training: the form has strength, benchmark and note', await ev(`document.
 // Strength folded with nothing in it: open it, add an exercise.
 await ev(`(() => { const d = document.querySelector('.session-form .ses-part'); d.open = true; if (!document.querySelector('.ses-lift')) [...d.querySelectorAll('.pill-btn')].find((b) => b.textContent.includes('Exercise')).click(); })()`);
 await wait(200);
-check('session: nothing wider than a 320 px screen', await ev(`(() => { const W = innerWidth; return [...document.querySelectorAll('.session-panel *')].every((el) => { const r = el.getBoundingClientRect(); return !r.width || r.right <= W + 0.5; }); })()`),
+check('session: nothing wider than a 360 px screen', await ev(`(() => { const W = innerWidth; return [...document.querySelectorAll('.session-panel *')].every((el) => { const r = el.getBoundingClientRect(); return !r.width || r.right <= W + 0.5; }); })()`),
   await ev(`[...document.querySelectorAll('.session-panel *')].filter((el) => el.getBoundingClientRect().right > innerWidth + 0.5).map((el) => el.className).slice(0, 5).join()`));
 await ev(`(() => {
   const set = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
@@ -387,7 +388,7 @@ await wait(1200);
 
 /* ---------- not logged yet (PLAN 14c) ---------- */
 {
-  await browser.view(base + '/#range=30', { width: 390, height: 844, mobile: true });
+  await browser.view(base + '/#range=30', { width: 412, height: 915, mobile: true });
   await wait(1000);
   const count = () => ev(`Number(document.querySelector('#quick-btn .log-badge')?.textContent || 0)`);
   const before = await count();
@@ -401,7 +402,7 @@ await wait(1200);
   check('not logged: "Nothing to add" takes one off', await count() === before - 1 && await ev(`document.querySelectorAll('.unlogged-row').length`) === before - 1, String(await count()));
   // No type asks: no count.
   await fetch(base + '/api/profile/layout', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: adminSession.cookie, origin: base }, body: JSON.stringify({ order: [], hidden: [], prompt_types: [] }) });
-  await browser.view(base + '/#range=30', { width: 390, height: 844, mobile: true });
+  await browser.view(base + '/#range=30', { width: 412, height: 915, mobile: true });
   await wait(1000);
   check('not logged: no type picked, no count', await count() === 0);
   await fetch(base + '/api/profile/layout', { method: 'PUT', headers: { 'content-type': 'application/json', cookie: adminSession.cookie, origin: base }, body: JSON.stringify({ order: [], hidden: [] }) });

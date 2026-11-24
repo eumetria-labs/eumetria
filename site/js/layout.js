@@ -21,8 +21,8 @@ export const GROUP = {
   today: 'today', 'review-card': 'today', tiles: 'today',
   'energy-card': 'nutrition', 'foods-card': 'nutrition', 'sources-card': 'nutrition', 'quality-card': 'nutrition',
   'weight-card': 'body', 'movement-card': 'body', 'recovery-card': 'body',
-  'training-card': 'training', 'top-activities-card': 'training', 'insights-card': 'more',
-  'data-card': 'more', 'more-card': 'more',
+  'training-card': 'training', 'top-activities-card': 'training', 'insights-card': 'insights',
+  'data-card': 'insights',
 };
 // The labels between the cards on wide screens follow the sidebar's parts.
 const LABEL = {

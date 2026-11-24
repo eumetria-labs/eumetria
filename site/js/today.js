@@ -217,7 +217,7 @@ export function renderTiles(s) {
   let wGood = false;
   if (rangeW.length >= 2) {
     const diff = rangeW.at(-1).weight - rangeW[0].weight;
-    wCtx = `${diff < 0 ? '▼' : diff > 0 ? '▲' : ''} ` + t('{kg} kg since {date}', { kg: signed(diff, 1), date: dfShort.format(parse(rangeW[0].date)) });
+    wCtx = `${diff < 0 ? '▼' : diff > 0 ? '▲' : ''} ` + t('{kg} kg since {date}', { kg: signed(diff, 1), date: dfShort.format(parse(rangeW[0].date)).replace(' ', '\u00a0') });
     wGood = !!g.weight && Math.abs(rangeW.at(-1).weight - g.weight) < Math.abs(rangeW[0].weight - g.weight);
   }
 

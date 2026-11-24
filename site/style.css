@@ -1965,7 +1965,6 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .side-label { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 -10px 12px; }
 .group-label { grid-column: 1 / -1; margin: 14px 2px -6px; }
 .group-label h2 { font-size: 12.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.more-card { display: none; }
 
 @media (min-width: 900px) {
   body { padding-left: 248px; }
@@ -2044,6 +2043,14 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .tabs.icons .tab-icon { display: block; font-size: 17px; line-height: 1.2; }
 .tabs.icons .tab-thumb { display: block; }
 .tabs.icons .tab-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tabs .tab-short { display: none; }
+@media (max-width: 640px) {
+  /* Modern phones (360–430 px): room for the words, short ones where given. */
+  .tabs button { padding: 6px 10px; }
+  .tabs .tab-long { display: none; }
+  .tabs .tab-short { display: inline; }
+  .tabs.icons .tab-long { display: inline; } /* the screen reader's word */
+}
 .sheet .tabs { margin-left: 20px; margin-right: 20px; max-width: calc(100% - 40px); }
 
 /* Today: score and meal tiles as quiet insets */
@@ -2088,13 +2095,8 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
   html[data-view="nutrition"] .page [data-group]:not([data-group="nutrition"]),
   html[data-view="body"] .page [data-group]:not([data-group="body"]),
   html[data-view="training"] .page [data-group]:not([data-group="training"]),
-  html[data-view="more"] .page [data-group]:not([data-group="more"]) { display: none !important; }
-  .more-card:not([hidden]) { display: grid; gap: 8px; margin-bottom: 16px; }
-  .more-card h2 { font-size: 15.5px; margin-bottom: 4px; }
-  .more-item { display: grid; gap: 2px; text-align: left; font: inherit; color: var(--ink); background: var(--surface-2); border: 0; border-radius: 12px; padding: 12px 14px; cursor: pointer; }
-  .more-item b { font-size: 15px; font-weight: 600; }
-  .more-item span { font-size: 12.5px; color: var(--muted); }
-  html[data-view="more"] #data-card { display: block; }
+  html[data-view="insights"] .page [data-group]:not([data-group="insights"]) { display: none !important; }
+  html[data-view="insights"] #data-card { display: block; }
   /* Tabs share the width; too many words switch to icons (shell.js) */
   .tabs { display: flex; width: 100%; }
   .tabs button { flex: 1 0 auto; padding: 7px 10px; }
@@ -2106,17 +2108,16 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 }
 @media print {
   body { padding-left: 0 !important; }
-  .side, .tabbar, .quick, .group-label, .more-card { display: none !important; }
+  .side, .tabbar, .quick, .group-label { display: none !important; }
 }
-/* Phones: the watch and you sit at the top right, beside the greeting; the
-   range and sync get the row below; search lives in More */
+/* Phones: search, the watch and you sit at the top right, beside the
+   greeting; the range, sync and coach get the row below */
 .top-me { display: none; }
 @media (max-width: 899px) {
   .top-inner { position: relative; }
   .top-me { position: absolute; top: 12px; right: 16px; display: flex; align-items: center; gap: 8px; }
   .top .brand { min-width: 0; }
-  .top .brand h1 { padding-right: 96px; }
-  .top .controls #search { display: none; }
+  .top .brand h1 { padding-right: 140px; }
   .top .controls { width: 100%; }
   .top .controls .seg { flex: 1; justify-content: space-between; margin-right: 0; }
   .top-me .device-btn { padding: 0 9px; font-size: 0; gap: 0; }
@@ -2486,3 +2487,15 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .bests-filter { width: 100%; margin: 2px 0 6px; }
 .bests-more { justify-self: start; margin-top: 8px; }
 #lifts, #wods { display: grid; }
+
+/* Phones: a form's Save and Cancel stay at the bottom of its sheet while
+   it scrolls, in reach of the thumb on tall screens. */
+@media (max-width: 899px) {
+  .lift-form > .lift-actions {
+    position: sticky; bottom: -24px; z-index: 2; margin: 0 -20px -24px;
+    padding: 12px 20px calc(16px + env(safe-area-inset-bottom));
+    background: var(--surface); border-top: 1px solid var(--border);
+  }
+}
+/* German's "Körper & Schlaf" is the longest tab label: a touch tighter. */
+@media (max-width: 899px) { html[lang="de"] .tabbar a { font-size: 10.5px; letter-spacing: -0.01em; } }
