@@ -82,9 +82,9 @@ certbot certonly --webroot -w /var/www/letsencrypt -d eumetria.example.com \
 
 ## 5. Updates
 
-Copy [`deploy/cron`](https://github.com/eumetria-labs/eumetria/blob/main/deploy/cron) to `/etc/cron.d/eumetria` (mode 644). Every night at 04:00 it pulls the newest image; Compose restarts the container only when the image changed. Backups run inside the app; see [Backups and restore](/eumetria/operations/backups/).
+Copy [`deploy/cron`](https://github.com/eumetria-labs/eumetria/blob/main/deploy/cron) to `/etc/cron.d/eumetria` (mode 644). Every night at 04:00 it pulls the newest image of the tag in `compose.yaml`; Compose restarts the container only when the image changed. Backups run inside the app; see [Backups and restore](/eumetria/operations/backups/).
 
-To update by hand: `docker compose pull && docker compose up -d`. To go back to an older version, set `image: ghcr.io/eumetria-labs/eumetria:<commit>` in `compose.yaml` and run `docker compose up -d`.
+`compose.yaml` uses `:1`, the newest 1.x release. To follow every commit on main instead, to pin a release or to go back to an older one, see [Updates and releases](/eumetria/operations/updates/).
 
 ## Optional: Claude Code runner
 

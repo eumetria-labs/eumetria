@@ -211,7 +211,17 @@ function generalTab(body, data) {
     back.onclick = () => send(body, back, () => api('admin/settings', 'PUT', { reset: ['timezone'] }));
     sec.append(back);
   }
+  if (data.version) sec.append(versionLine(data.version));
   return [sec];
+}
+
+// The version the server runs; a release links to its notes.
+function versionLine(version) {
+  const p = h('p', { class: 'muted set-version' }, t('Eumetria {version}', { version }));
+  if (/^\d+\.\d+\.\d+$/.test(version)) {
+    p.append(' · ', h('a', { href: `https://github.com/eumetria-labs/eumetria/releases/tag/v${version}`, target: '_blank', rel: 'noopener noreferrer' }, t('What’s new')));
+  }
+  return p;
 }
 
 /* ---------- sync ---------- */

@@ -1,9 +1,14 @@
 # /srv/eumetria/compose.yaml — see the docs: https://eumetria-labs.github.io/eumetria/install/server/
 # Replace UID:GID with the ids of the eumetria user (`id eumetria`).
 
+# :1 is the stable channel: the newest 1.x release, with weekly security
+# rebuilds. :latest follows every commit on main instead; :1.2.3 pins one
+# release (docs: https://eumetria-labs.github.io/eumetria/operations/updates/).
+# Keep both images on the same channel.
+
 services:
   eumetria:
-    image: ghcr.io/eumetria-labs/eumetria:latest
+    image: ghcr.io/eumetria-labs/eumetria:1
     container_name: eumetria
     restart: unless-stopped
     user: "UID:GID"
@@ -33,7 +38,7 @@ services:
   # with `docker compose --profile claude up -d` once claude-runner.env holds
   # the token (docs: https://eumetria-labs.github.io/eumetria/connect/claude/). No ports: only Eumetria reaches it.
   claude-runner:
-    image: ghcr.io/eumetria-labs/eumetria-claude-runner:latest
+    image: ghcr.io/eumetria-labs/eumetria-claude-runner:1
     container_name: claude-runner
     profiles: [claude]
     restart: unless-stopped

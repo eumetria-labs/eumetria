@@ -187,7 +187,7 @@ func mcpInitialize(params json.RawMessage) any {
 	return map[string]any{
 		"protocolVersion": version,
 		"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-		"serverInfo":      map[string]any{"name": mcpServerName, "title": "Eumetria", "version": "1"},
+		"serverInfo":      map[string]any{"name": mcpServerName, "title": "Eumetria", "version": appVersion},
 		"instructions":    mcpInstructions,
 	}
 }

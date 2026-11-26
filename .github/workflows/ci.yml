@@ -1,6 +1,7 @@
-# Tests for every push and pull request; on main, the container image the
-# server runs (docs: install/server), pushed to GitHub's registry as
-# :latest and :<short commit>. The server's nightly cron pulls :latest.
+# Tests for every push and pull request; on main, the container image,
+# pushed to GitHub's registry as :latest and :<short commit>: the edge
+# channel, newest commit first (docs: operations/updates). Releases, the
+# :1 / :1.2 / :1.2.3 tags, come from release.yml.
 #
 # Also weekly, so the image gets Go's patch releases (and the base image's
 # fixes) in weeks without a push, and govulncheck looks at the code again:
@@ -88,6 +89,7 @@ jobs:
           context: .
           pull: true
           push: true
+          build-args: VERSION=main-${{ steps.tag.outputs.short }}
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.short }}

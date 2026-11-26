@@ -2,5 +2,6 @@
 SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# 04:00 nightly update to the newest image (only restarts if it changed).
+# 04:00 nightly update to the newest image of the tag in compose.yaml (:1, the
+# stable channel, by default); only restarts if it changed.
 0 4 * * * root cd /srv/eumetria && docker compose pull -q && docker compose up -d --remove-orphans >/dev/null 2>&1

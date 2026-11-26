@@ -163,7 +163,7 @@ func serve(ctx context.Context, cfg config, o serveOptions) error {
 
 	errc := make(chan error, 1)
 	go func() {
-		log.Printf("serving %s on %s, syncing every %s", from, o.addr, o.interval)
+		log.Printf("eumetria %s serving %s on %s, syncing every %s", appVersion, from, o.addr, o.interval)
 		errc <- srv.ListenAndServe()
 	}()
 	select {

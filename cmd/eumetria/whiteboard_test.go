@@ -106,7 +106,9 @@ func TestWhiteboard(t *testing.T) {
 	}))
 	t.Cleanup(rs.Close)
 	whiteboardRunner = func(settings.Values) ai.Runner { return ai.Runner{URL: rs.URL, Key: "k"} }
-	t.Cleanup(func() { whiteboardRunner = func(v settings.Values) ai.Runner { return ai.Runner{URL: v.RunnerURL, Key: v.RunnerKey} } })
+	t.Cleanup(func() {
+		whiteboardRunner = func(v settings.Values) ai.Runner { return ai.Runner{URL: v.RunnerURL, Key: v.RunnerKey} }
+	})
 	e.runner.settings.Save(ctx, map[string]string{"whiteboard_backend": "claude"}, nil)
 	code, m = read(patrick, "w1", up.Src) // now in the note: readable for another writer
 	if code != 200 || m["backend"] != "claude" || !strings.Contains(m["markdown"].(string), "Back squat") {

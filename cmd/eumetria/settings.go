@@ -105,6 +105,7 @@ func (a *app) settingsGet(w http.ResponseWriter, req *http.Request, _ *principal
 		"status":      a.runner.status(),
 		"mail":        a.outbox.Status(), // how sending went lately (email.go)
 		"claude":      a.claudeStatus(ctx, v),
+		"version":     appVersion,
 	})
 }
 

@@ -22,7 +22,7 @@ On your own computer, with Docker:
 echo "SETTINGS_KEY=$(openssl rand -hex 32)" > eumetria.env
 docker run -d --name eumetria -p 127.0.0.1:8080:8080 -v eumetria-data:/data \
   --env-file eumetria.env -e PUBLIC_URL=http://localhost:8080 \
-  ghcr.io/eumetria-labs/eumetria:latest
+  ghcr.io/eumetria-labs/eumetria:1
 ```
 
 Open [http://localhost:8080](http://localhost:8080): it says there's no account yet. Create the first admin:
@@ -33,7 +33,7 @@ docker exec -it eumetria /eumetria -create-user admin -role admin
 
 It asks for a password and prints an enrolment link. Open it, sign in, add a passkey or an authenticator app, then enter your Yazio account under **Settings → Yazio**. The [Quick Start](https://eumetria-labs.github.io/eumetria/start/quick-start/) walks through it with screenshots, and [Install on a server](https://eumetria-labs.github.io/eumetria/install/server/) sets it up for good with nginx and HTTPS.
 
-Just looking? `docker run --rm -p 127.0.0.1:8080:8080 ghcr.io/eumetria-labs/eumetria:latest -demo -serve :8080` and sign in as `demo` / `demo`.
+Just looking? `docker run --rm -p 127.0.0.1:8080:8080 ghcr.io/eumetria-labs/eumetria:1 -demo -serve :8080` and sign in as `demo` / `demo`.
 
 ## 🛠️ Local development
 

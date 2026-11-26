@@ -141,6 +141,7 @@ func run() error {
 		interval = flag.Duration("interval", envDuration("SYNC_INTERVAL", 30*time.Minute), "time between syncs in serve mode")
 		siteDir  = flag.String("site", "", "serve the page files from this folder instead of the compiled-in ones (serve mode; for working on the page without rebuilding)")
 		health   = flag.String("healthcheck", "", "GET this URL, exit 0 if it answers 200 (Docker healthcheck) and exit")
+		showVer  = flag.Bool("version", false, "print the version and exit")
 
 		googleAuthFlag = flag.Bool("google-auth", false, "authorize access to Google Health (Fitbit / Pixel Watch) in the browser, save the refresh token and exit")
 		debugWeek      = flag.String("debug-week", "", "write the AI review of the calendar week (Monday to Sunday) that contains this day (YYYY-MM-DD) from the local history and print it (needs ANTHROPIC_API_KEY; AI_MODEL, AI_EFFORT)")
@@ -195,6 +196,10 @@ func run() error {
 		cfg.interval = *interval
 	}
 
+	if *showVer {
+		fmt.Println("eumetria", appVersion)
+		return nil
+	}
 	if *health != "" {
 		return healthcheck(*health)
 	}

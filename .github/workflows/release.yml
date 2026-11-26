@@ -1,0 +1,134 @@
+# Releases: a tag vX.Y.Z (git tag -a v1.2.0 -m "Eumetria 1.2.0" && git push
+# origin v1.2.0) builds the images from that tag and pushes them as
+# :1.2.0, :1.2 and :1, then makes the GitHub release with that version's
+# section of CHANGELOG.md as its notes. The stable channel (docs:
+# operations/updates) follows :1; ci.yml keeps :latest on main.
+#
+# Also weekly, after ci.yml's rebuild: the newest release is built again
+# from its tag, so the stable channel gets Go's patch releases and the base
+# image's fixes too. Same code, new digest; no new release is made.
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+  schedule:
+    - cron: "47 4 * * 1" # Mondays, 04:47 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  # Which release to build: the pushed tag, or else the newest one.
+  pick:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: pick
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release: ${tag:-none yet}"
+
+  test:
+    needs: pick
+    if: needs.pick.outputs.tag != ''
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Berlin
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.pick.outputs.tag }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: go vet ./...
+      - run: go test ./...
+      - run: node --test tests/*.test.js
+      # A tag without its CHANGELOG.md section fails here, before any image
+      # is pushed.
+      - run: scripts/release-notes.sh "${{ needs.pick.outputs.tag }}" > /dev/null
+
+  image:
+    needs: [pick, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: release-image
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.pick.outputs.tag }}
+      - id: v
+        env:
+          TAG: ${{ needs.pick.outputs.tag }}
+        run: |
+          v="${TAG#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "minor=${v%.*}" >> "$GITHUB_OUTPUT"
+          echo "major=${v%%.*}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          pull: true
+          push: true
+          build-args: VERSION=${{ steps.v.outputs.version }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.v.outputs.version }}
+            ghcr.io/${{ github.repository }}:${{ steps.v.outputs.minor }}
+            ghcr.io/${{ github.repository }}:${{ steps.v.outputs.major }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/claude-runner/Dockerfile
+          pull: true
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-claude-runner:${{ steps.v.outputs.version }}
+            ghcr.io/${{ github.repository }}-claude-runner:${{ steps.v.outputs.minor }}
+            ghcr.io/${{ github.repository }}-claude-runner:${{ steps.v.outputs.major }}
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
+
+  # Only for a pushed tag: the weekly rebuild changes no release.
+  release:
+    needs: [pick, image]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.pick.outputs.tag }}
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.pick.outputs.tag }}
+        run: |
+          scripts/release-notes.sh "$TAG" > notes.md
+          gh release create "$TAG" --verify-tag --title "Eumetria ${TAG#v}" --notes-file notes.md

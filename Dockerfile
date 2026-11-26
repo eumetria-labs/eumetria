@@ -1,7 +1,7 @@
 # Self-hosted dashboard: one container serves the site and syncs on a schedule.
 # See the docs: docs/src/content/docs/install/ (Docker Compose setup).
 
-# golang:1.26 is always the newest 1.26 patch release (the build pulls it
+# golang:1.27 is always the newest 1.27 patch release (the build pulls it
 # afresh), so security fixes of the standard library come with every build;
 # CI rebuilds weekly for weeks without a push (pentest F13).
 FROM golang:1.27 AS build
@@ -13,7 +13,10 @@ COPY internal ./internal
 # The page files are compiled into the binary (site/embed.go names them;
 # stats.json, photos, routes and days are never included).
 COPY site ./site
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eumetria ./cmd/eumetria
+# The version Settings → General and -version show: CI passes the release
+# ("1.2.0") or "main-<commit>"; a build by hand is "dev".
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.appVersion=${VERSION}" -o /out/eumetria ./cmd/eumetria
 # Empty data and backup folders for the image (distroless has no shell to
 # make them there): owned by nonroot, so a named volume mounted on them
 # (docker run -v eumetria-data:/data, the Quick Start) starts out writable.

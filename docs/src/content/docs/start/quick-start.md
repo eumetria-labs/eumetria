@@ -17,7 +17,7 @@ docker run -d --name eumetria \
   --env-file eumetria.env \
   -e PUBLIC_URL=http://localhost:8080 \
   -e TZ=Europe/Berlin \
-  ghcr.io/eumetria-labs/eumetria:latest
+  ghcr.io/eumetria-labs/eumetria:1
 ```
 
 - `eumetria-data` is a Docker volume that keeps the database, photos and settings.
@@ -89,7 +89,7 @@ Press **Open settings**, or go to your avatar → **Settings → Yazio**, and en
 To see Eumetria with sample data and without any accounts of your own, start it in demo mode and sign in as `demo` / `demo`:
 
 ```sh
-docker run --rm -p 127.0.0.1:8080:8080 ghcr.io/eumetria-labs/eumetria:latest -demo -serve :8080
+docker run --rm -p 127.0.0.1:8080:8080 ghcr.io/eumetria-labs/eumetria:1 -demo -serve :8080
 ```
 
 ## Next steps

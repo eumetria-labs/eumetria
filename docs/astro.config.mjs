@@ -77,6 +77,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Backups and restore', slug: 'operations/backups' },
 						{ label: 'Maintenance', slug: 'operations/maintenance' },
+						{ label: 'Updates and releases', slug: 'operations/updates' },
 					],
 				},
 				{
