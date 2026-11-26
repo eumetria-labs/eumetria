@@ -4,12 +4,14 @@
 // leaves it out.
 
 import { logged, mean } from './format.js';
-import { bestEntries, liftBetter, liftKey, trainingDays, wodBestResults } from './health.js';
+import { EVERYDAY, bestEntries, liftBetter, liftKey, trainingDays, wodBestResults, workoutName } from './health.js';
 
 // The years with data, newest first.
 export const yearsOf = (days) => [...new Set(days.map((d) => d.date.slice(0, 4)))].sort().reverse();
 
-export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], results: [] }, sessions = [] } = {}) {
+// trainings are all of them (sessions.js state.trainings): each one is a day
+// trained, and those with sets count their work sets and volume.
+export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], results: [] }, trainings = [] } = {}) {
   const days = allDays.filter((d) => d.date.startsWith(year));
   const inYear = (date) => date.startsWith(year);
   const eaten = days.filter(logged);
@@ -25,12 +27,20 @@ export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], 
   const stepDays = days.filter((d) => d.steps > 0);
   const topSteps = stepDays.reduce((a, d) => (!a || d.steps > a.steps ? d : a), null);
 
-  // Training: the Fitbit workouts, and days with a noted result.
+  // Training: the Fitbit workouts, and days with a training or a noted result.
   const workouts = days.flatMap((d) => (d.workouts || []).map((w) => ({ ...w, date: d.date })));
-  const noted = [...lifts.map((e) => e.date), ...wods.results.map((r) => r.date), ...sessions.map((x) => x.date)].filter(inYear);
-  // Sessions noted set by set: their work sets and volume (kg × reps).
-  const mySessions = sessions.filter((x) => inYear(x.date));
+  const myTrainings = trainings.filter((x) => inYear(x.date));
+  const noted = [...lifts.map((e) => e.date), ...wods.results.map((r) => r.date)].filter(inYear).concat(myTrainings.map((x) => x.date));
+  // Trainings noted set by set: their work sets and volume (kg × reps).
+  const mySessions = myTrainings.filter((x) => x.sets?.length);
   const work = mySessions.flatMap((x) => x.sets.filter((s) => s.type !== 'warmup'));
+  // The kinds of workout done most often (walks aside), at most three.
+  const kinds = new Map();
+  for (const w of workouts) {
+    const name = workoutName(w.type);
+    if (!EVERYDAY.has(name)) kinds.set(name, (kinds.get(name) || 0) + 1);
+  }
+  const top = [...kinds.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3);
   const trained = [...trainingDays(days, noted).entries()].filter(([date]) => inYear(date));
   const longest = workouts.reduce((a, w) => (!a || (w.dur || 0) > (a.dur || 0) ? w : a), null);
 
@@ -93,6 +103,8 @@ export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], 
       hours: workouts.reduce((a, w) => a + (w.dur || 0), 0) / 3600,
       km: workouts.reduce((a, w) => a + (w.dist || 0), 0) / 1000,
       longest: longest ? { date: longest.date, type: longest.type, dur: longest.dur, dist: longest.dist } : null,
+      top,
+      trainings: myTrainings.length,
       sessions: mySessions.length, sets: work.length, volume: work.reduce((a, s) => a + s.kg * s.reps, 0),
     } : null,
     bests: liftBests.length || wodBests.length ? { lifts: liftBests, wods: wodBests, n: liftBests.reduce((a, b) => a + b.n, 0) + wodBests.reduce((a, b) => a + b.n, 0) } : null,

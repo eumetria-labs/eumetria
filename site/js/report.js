@@ -301,7 +301,7 @@ function scoresSection(buckets, weekly) {
 // noted in the range, the new bests marked.
 function trainingSection(rows) {
   const from = rows[0].date, to = rows.at(-1).date;
-  const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date), ...state.sessions.map((x) => x.date)];
+  const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date), ...state.trainings.map((x) => x.date)];
   const trained = trainingDays(state.data.days, noted, [...bestDays(state.lifts), ...wodBestDays(state.wods.workouts, state.wods.results)]);
   const sum = trainingSummary(trained, from, to);
   const results = rows.flatMap((r) => notedOn(r.date).map((x) => ({ date: r.date, ...x })));

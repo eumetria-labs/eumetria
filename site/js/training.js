@@ -375,7 +375,7 @@ function renderCalendar() {
   const host = $('#train-cal');
   if (!host) return;
   const { byDate } = state;
-  const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date), ...state.sessions.map((x) => x.date)];
+  const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date), ...state.trainings.map((x) => x.date)];
   const trained = trainingDays(state.data.days, noted, [...bestDays(state.lifts), ...wodBestDays(state.wods.workouts, state.wods.results)]);
   const end = parse(state.today || state.data.days.at(-1).date);
   const draw = () => {

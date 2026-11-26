@@ -59,3 +59,28 @@ test('the year counts the days without alcohol, when there were any with', () =>
   assert.deepEqual(y.alcohol, { free: 2, days: 3 });
   assert.equal(yearSummary([day('2026-01-02', 0)], '2026').alcohol, null);
 });
+
+test('every training is a day trained; only those with sets count sets', () => {
+  const trainings = [
+    { id: 1, date: '2026-03-03', workouts: [], sets: [] }, // a note only, no device workout
+    { id: 2, date: '2026-03-04', workouts: [], sets: [{ lift: 'Back Squat', type: 'warmup', reps: 5, kg: 60 }, { lift: 'Back Squat', type: 'work', reps: 5, kg: 100 }] },
+    { id: 3, date: '2025-12-30', workouts: [], sets: [] }, // another year
+  ];
+  const y = yearSummary([{ date: '2026-03-03' }, { date: '2026-03-04' }], '2026', { trainings });
+  assert.equal(y.training.days, 2);
+  assert.equal(y.training.trainings, 2);
+  assert.equal(y.training.sessions, 1);
+  assert.equal(y.training.sets, 1);
+  assert.equal(y.training.volume, 500);
+  assert.equal(y.months[2].trained, 2);
+});
+
+test('the kinds of workout done most often, walks aside', () => {
+  const w = (type) => ({ type, dur: 600 });
+  const days = [
+    { date: '2026-01-01', workouts: [w('CROSSFIT'), w('WALKING'), w('WALKING')] },
+    { date: '2026-01-02', workouts: [w('CROSSFIT'), w('RUNNING')] },
+    { date: '2026-01-03', workouts: [w('HIIT'), w('BIKING'), w('RUNNING')] },
+  ];
+  assert.deepEqual(yearSummary(days, '2026').training.top, [['CrossFit', 2], ['Running', 2], ['Cycling', 1]]);
+});

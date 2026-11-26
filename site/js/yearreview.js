@@ -2,7 +2,7 @@
 // with a picture to share. It opens from the Today card in December and
 // January, from the Training card's calendar, and from "#year=2026".
 
-import { compact, dfLong, dfMonth, fmt, fmtDistance, fmtDuration, parse } from './format.js';
+import { actLabel, compact, dfLong, dfShort, dfMonth, fmt, fmtDistance, fmtDuration, parse } from './format.js';
 import { $, emoji, h, setHashParam } from './dom.js';
 import { openDialog } from './dialog.js';
 import { state } from './state.js';
@@ -20,17 +20,19 @@ export function offeredYear(today) {
   return m === '12' ? String(y) : m === '01' ? String(y - 1) : null;
 }
 
-const summary = (year) => yearSummary(state.data.days, year, { lifts: state.lifts || [], wods: state.wods || { workouts: [], results: [] }, sessions: state.sessions || [] });
+const summary = (year) => yearSummary(state.data.days, year, { lifts: state.lifts || [], wods: state.wods || { workouts: [], results: [] }, trainings: state.trainings || [] });
 
 const signedKg = (kg) => (kg > 0 ? '+' : kg < 0 ? '−' : '±') + fmt(Math.abs(kg), 1) + ' kg';
 
-// The key numbers, for the window and the picture alike: [label, value, unit].
-function keyNumbers(y) {
+// The key numbers: [label, value, unit]. The picture leaves out the counts
+// of what was logged, so its tiles stay at three rows of three.
+function keyNumbers(y, { card = false } = {}) {
   return [
     y.training && [t('Days trained'), fmt(y.training.days), ''],
+    !card && y.training?.trainings > 0 && [t('Trainings logged'), fmt(y.training.trainings), ''],
     y.training?.hours >= 1 && [t('Hours of workouts'), fmt(y.training.hours), 'h'],
     y.training?.km >= 1 && [t('Distance'), fmt(y.training.km), 'km'],
-    y.training?.sets > 0 && [t('Work sets logged'), fmt(y.training.sets), ''],
+    !card && y.training?.sets > 0 && [t('Work sets logged'), fmt(y.training.sets), ''],
     y.bests && [t('New bests'), fmt(y.bests.n), ''],
     y.steps && [t('Steps a day'), fmt(y.steps.avg), ''],
     y.sleep && [t('Asleep a night'), fmtSleep(y.sleep.asleep), ''],
@@ -82,12 +84,18 @@ export function openYear(year, returnFocus) {
 
   const y = summary(year);
   title.replaceChildren(emoji('🎉', 'lift-emoji'), t('Your {year}', { year }));
+  sub.textContent = subtitle(y, dfLong);
+  body.replaceChildren(...[numbersSection(y), monthsSection(y), bestsSection(y), moreSection(y), foodsSection(y)].filter(Boolean));
+}
+
+// The days with data, and their span when they don't fill the year (a first
+// year, or the one still running).
+function subtitle(y, df) {
   const partial = y.first && y.last && (y.first.slice(5) !== '01-01' || y.last.slice(5) !== '12-31');
-  sub.textContent = [
-    partial ? `${dfLong.format(parse(y.first))} – ${dfLong.format(parse(y.last))}` : '',
+  return [
+    partial ? `${df.format(parse(y.first))} – ${df.format(parse(y.last))}` : '',
     tn(y.n, '{n} day with data', '{n} days with data'),
   ].filter(Boolean).join(' · ');
-  body.replaceChildren(...[numbersSection(y), monthsSection(y), bestsSection(y), moreSection(y), foodsSection(y)].filter(Boolean));
 }
 
 function section(name, note) {
@@ -164,15 +172,19 @@ function moreSection(y) {
   if (y.steps) {
     lines.push(['👟', t('{total} steps in all; the most on {date}: {top}.', { total: compact.format(y.steps.total), date: dfLong.format(parse(y.steps.top.date)), top: fmt(y.steps.top.steps) })]);
   }
+  if (y.training?.top.length) {
+    lines.push(['🏅', t('Done most often: {list}.', { list: y.training.top.map(([name, n]) => `${actLabel(name)} ${fmt(n)}×`).join(', ') })]);
+  }
   if (y.training?.longest?.dur) {
     const l = y.training.longest;
-    lines.push(['⏱️', t('Longest workout: {what} on {date}, {dur}.', { what: workoutName(l.type), date: dfLong.format(parse(l.date)), dur: fmtDuration(l.dur / 60) + (l.dist ? ', ' + fmtDistance(l.dist) : '') })]);
+    lines.push(['⏱️', t('Longest workout: {what} on {date}, {dur}.', { what: actLabel(workoutName(l.type)), date: dfLong.format(parse(l.date)), dur: fmtDuration(l.dur / 60) + (l.dist ? ', ' + fmtDistance(l.dist) : '') })]);
   }
   if (y.sleep) {
     const parts = [t('{time} asleep a night on average', { time: fmtSleep(y.sleep.asleep) })];
     if (y.sleep.readiness != null) parts.push(t('Readiness {n} on average', { n: fmt(y.sleep.readiness) }));
     if (y.sleep.bestMonth) parts.push(t('the best sleep in {month}', { month: dfMonth.format(new Date(Date.UTC(Number(y.year), y.sleep.bestMonth.month, 1))) }));
-    lines.push(['😴', parts.join(', ') + '.']);
+    const text = parts.join(', ');
+    lines.push(['😴', text.charAt(0).toUpperCase() + text.slice(1) + '.']);
   }
   if (y.nutrition) {
     lines.push(['🥗', t('{n} days logged, {kcal} kcal and {protein} g protein a day on average.', { n: fmt(y.nutrition.logged), kcal: fmt(y.nutrition.kcal), protein: fmt(y.nutrition.protein) })]);
@@ -204,9 +216,9 @@ function foodsSection(y) {
 function yearCard(y) {
   const bests = y.bests ? bestRows(y) : [];
   return {
-    icon: '🎉', title: t('Your {year}', { year: y.year }), sub: tn(y.n, '{n} day with data', '{n} days with data'), accent: 's1',
+    icon: '🎉', title: t('Your {year}', { year: y.year }), sub: subtitle(y, dfShort), accent: 's1',
     blocks: [
-      tiles(keyNumbers(y)),
+      tiles(keyNumbers(y, { card: true })),
       bests.length && list(bests.map((b) => ({ icon: b.icon, name: b.name, note: b.note, value: b.value })), t('New bests'), { rowH: 28, minRows: 2 }),
       y.foods.length && list(y.foods.map(([name, n]) => ({ name, value: `${fmt(n)}×` })), t('Eaten most often'), { rowH: 28, minRows: 2 }),
     ].filter(Boolean),
