@@ -13,6 +13,7 @@ import { goalChangesIn, rangeSummary, weightGoalAt, weightGoalLine, weightTrendA
 import { KINDS, isEvent, phaseName, phaseSummary } from './phase.js';
 import { t, tn } from './i18n.js';
 import { alcoholSummary } from './nutrients.js';
+import { promptTypes } from './unlogged.js';
 import { QUESTIONS, dayTags, tagName } from './checkin.js';
 
 const W = 688; // the A4 text width at 96 dpi, so chart text prints at its real size
@@ -296,13 +297,13 @@ function scoresSection(buckets, weekly) {
   return section(t('Scores'), (weekly ? t('Weekly averages') : t('Per day')) + ' · ' + t('Eumetria’s own, 0 to 100; the legend shows the averages'), legend(items), svgEl);
 }
 
-// Training: the days trained (Fitbit workouts without walks, and days with
+// Training: the days trained (Fitbit workouts of the training types, and days with
 // a noted lift or benchmark result), zone minutes, VO2 max and every result
 // noted in the range, the new bests marked.
 function trainingSection(rows) {
   const from = rows[0].date, to = rows.at(-1).date;
   const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date), ...state.trainings.map((x) => x.date)];
-  const trained = trainingDays(state.data.days, noted, [...bestDays(state.lifts), ...wodBestDays(state.wods.workouts, state.wods.results)]);
+  const trained = trainingDays(state.data.days, noted, [...bestDays(state.lifts), ...wodBestDays(state.wods.workouts, state.wods.results)], promptTypes());
   const sum = trainingSummary(trained, from, to);
   const results = rows.flatMap((r) => notedOn(r.date).map((x) => ({ date: r.date, ...x })));
   if (!sum.days && !results.length) return null;

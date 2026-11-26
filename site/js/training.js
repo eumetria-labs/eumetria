@@ -19,6 +19,7 @@ import { t, tn } from './i18n.js';
 import { legendToggles } from './legend.js';
 import { openYear } from './yearreview.js';
 import { yearsOf } from './year.js';
+import { promptTypes } from './unlogged.js';
 
 export function renderTraining(s) {
   const card = $('#training-card');
@@ -376,7 +377,7 @@ function renderCalendar() {
   if (!host) return;
   const { byDate } = state;
   const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date), ...state.trainings.map((x) => x.date)];
-  const trained = trainingDays(state.data.days, noted, [...bestDays(state.lifts), ...wodBestDays(state.wods.workouts, state.wods.results)]);
+  const trained = trainingDays(state.data.days, noted, [...bestDays(state.lifts), ...wodBestDays(state.wods.workouts, state.wods.results)], promptTypes());
   const end = parse(state.today || state.data.days.at(-1).date);
   const draw = () => {
     const W = host.clientWidth;

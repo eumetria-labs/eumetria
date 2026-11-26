@@ -33,7 +33,7 @@ The first release. Everything Eumetria does so far, in one container:
 
 - A Training is the container for a workout: its device workouts, sets, lifts, benchmark results and the note, logged with one form.
 - Personal bests for lifts and benchmark workouts, e1RM and strength over time, a training calendar.
-- "Not logged yet": workouts without a training, by the workout types you choose (Profile → Training).
+- "Not logged yet": workouts without a training, by the workout types you choose (Profile → Training). The same types decide the days trained in the calendar, the report and the year in review.
 - Whiteboard photos in notes, transcribed by Claude when wanted.
 
 ### Claude

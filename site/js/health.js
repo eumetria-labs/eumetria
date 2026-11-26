@@ -406,10 +406,13 @@ export const wodBestDays = (workouts, results) => wodBestResults(workouts, resul
 // Workouts that are everyday movement rather than training.
 export const EVERYDAY = new Set(['Walking']);
 
-// Each day trained: the minutes of its Fitbit workouts (walks aside), how
-// many, whether a result was noted (a lift or benchmark workout counts as
-// training without a recording) and whether a best got better (bestDates).
-export function trainingDays(days, notedDates = [], bestDates = []) {
+// Each day trained: the minutes of its Fitbit workouts of the person's
+// training types (Profile → Training, see prompts: all but walks unless
+// set), how many, whether a result was noted (a lift, benchmark workout or
+// training counts without a recording) and whether a best got better
+// (bestDates).
+export function trainingDays(days, notedDates = [], bestDates = [], types = null) {
+  const counts = prompts(types);
   const out = new Map();
   const at = (date) => {
     if (!out.has(date)) out.set(date, { min: 0, sessions: 0, noted: false, pb: false });
@@ -417,7 +420,7 @@ export function trainingDays(days, notedDates = [], bestDates = []) {
   };
   for (const d of days) {
     for (const w of d.workouts || []) {
-      if (EVERYDAY.has(workoutName(w.type))) continue;
+      if (!counts(w)) continue;
       const x = at(d.date);
       x.sessions++;
       x.min += (w.dur || 0) / 60;

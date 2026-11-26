@@ -11,6 +11,7 @@ import { fmtSet } from './lifts.js';
 import { fmtResult } from './wods.js';
 import { list, shareTools, tiles } from './share.js';
 import { yearSummary, yearsOf } from './year.js';
+import { promptTypes } from './unlogged.js';
 import { t, tn } from './i18n.js';
 
 // The year the Today card offers: this one in December, the last in January.
@@ -20,7 +21,7 @@ export function offeredYear(today) {
   return m === '12' ? String(y) : m === '01' ? String(y - 1) : null;
 }
 
-const summary = (year) => yearSummary(state.data.days, year, { lifts: state.lifts || [], wods: state.wods || { workouts: [], results: [] }, trainings: state.trainings || [] });
+const summary = (year) => yearSummary(state.data.days, year, { lifts: state.lifts || [], wods: state.wods || { workouts: [], results: [] }, trainings: state.trainings || [], types: promptTypes() });
 
 const signedKg = (kg) => (kg > 0 ? '+' : kg < 0 ? '−' : '±') + fmt(Math.abs(kg), 1) + ' kg';
 

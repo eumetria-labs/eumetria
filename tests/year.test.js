@@ -84,3 +84,17 @@ test('the kinds of workout done most often, walks aside', () => {
   ];
   assert.deepEqual(yearSummary(days, '2026').training.top, [['CrossFit', 2], ['Running', 2], ['Cycling', 1]]);
 });
+
+test('the training types from Profile decide days trained and the kinds', () => {
+  const w = (type) => ({ type, dur: 600 });
+  const days = [
+    { date: '2026-01-01', workouts: [w('CROSSFIT'), w('FISHING')] },
+    { date: '2026-01-02', workouts: [w('FISHING')] },
+    { date: '2026-01-03', workouts: [w('WALKING')] },
+  ];
+  // Unset: all but walks, Fishing included.
+  assert.equal(yearSummary(days, '2026').training.days, 2);
+  const y = yearSummary(days, '2026', { types: ['CROSSFIT', 'WALKING'] });
+  assert.equal(y.training.days, 2); // Jan 1 and the walk on Jan 3
+  assert.deepEqual(y.training.top, [['CrossFit', 1], ['Walking', 1]]);
+});

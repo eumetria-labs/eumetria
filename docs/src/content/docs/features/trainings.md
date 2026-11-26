@@ -44,7 +44,7 @@ A recorded workout of the last 7 days that no training has counts as **not logge
 - **Add to…** adds it to a training of the same day, for a workout recorded in two parts.
 - **Nothing to add** saves an empty training, so the workout counts as reviewed on every device.
 
-**Profile → Training** picks which workout types ask, from those recorded in the last 90 days: by default all but walks, and with none ticked nothing is counted.
+**Profile → Training** picks which workout types ask, from those recorded in the last 90 days: by default all but walks, and with none ticked nothing is counted. The same types decide what counts as a day trained in the Training calendar, the report and the year in review (a logged training or noted result always counts).
 
 ![Profile → Training](../../../assets/screens/profile-training.png)
 

@@ -4,14 +4,16 @@
 // leaves it out.
 
 import { logged, mean } from './format.js';
-import { EVERYDAY, bestEntries, liftBetter, liftKey, trainingDays, wodBestResults, workoutName } from './health.js';
+import { bestEntries, liftBetter, liftKey, prompts, trainingDays, wodBestResults, workoutName } from './health.js';
 
 // The years with data, newest first.
 export const yearsOf = (days) => [...new Set(days.map((d) => d.date.slice(0, 4)))].sort().reverse();
 
 // trainings are all of them (sessions.js state.trainings): each one is a day
-// trained, and those with sets count their work sets and volume.
-export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], results: [] }, trainings = [] } = {}) {
+// trained, and those with sets count their work sets and volume. types are
+// the person's training types (Profile → Training; null: all but walks):
+// only those workouts make a day trained or a kind done most often.
+export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], results: [] }, trainings = [], types = null } = {}) {
   const days = allDays.filter((d) => d.date.startsWith(year));
   const inYear = (date) => date.startsWith(year);
   const eaten = days.filter(logged);
@@ -34,14 +36,15 @@ export function yearSummary(allDays, year, { lifts = [], wods = { workouts: [], 
   // Trainings noted set by set: their work sets and volume (kg × reps).
   const mySessions = myTrainings.filter((x) => x.sets?.length);
   const work = mySessions.flatMap((x) => x.sets.filter((s) => s.type !== 'warmup'));
-  // The kinds of workout done most often (walks aside), at most three.
+  // The kinds of workout done most often (of the training types), at most three.
+  const isTraining = prompts(types);
   const kinds = new Map();
-  for (const w of workouts) {
+  for (const w of workouts.filter(isTraining)) {
     const name = workoutName(w.type);
-    if (!EVERYDAY.has(name)) kinds.set(name, (kinds.get(name) || 0) + 1);
+    kinds.set(name, (kinds.get(name) || 0) + 1);
   }
   const top = [...kinds.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3);
-  const trained = [...trainingDays(days, noted).entries()].filter(([date]) => inYear(date));
+  const trained = [...trainingDays(days, noted, [], types).entries()].filter(([date]) => inYear(date));
   const longest = workouts.reduce((a, w) => (!a || (w.dur || 0) > (a.dur || 0) ? w : a), null);
 
   // The bests set this year, one row per lift (any reps) or benchmark

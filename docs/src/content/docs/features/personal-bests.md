@@ -48,7 +48,7 @@ A lift or benchmark workout without a result for six months gets a **Retest?** m
 
 ## Calendar and year in review
 
-The Training card's **Calendar** shows the last year with every day trained, darker the longer the workouts were (walks aside); a day with a noted result counts too, and a dot marks a new best. Below it: days trained, per week, the longest run of weeks with training, and days with a new best.
+The Training card's **Calendar** shows the last year with every day trained, darker the longer the workouts of your training types were (Profile → Training; all but walks unless set); a day with a noted result counts too, and a dot marks a new best. Below it: days trained, per week, the longest run of weeks with training, and days with a new best.
 
 ![The training calendar](../../../assets/screens/card-training-calendar.png)
 
