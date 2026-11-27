@@ -64,7 +64,7 @@ func TestInvitation(t *testing.T) {
 	}
 	// Signed in, the address confirmed, and her first factor set up with
 	// the enrolment token that came with it.
-	if _, body := e.do(t, c, "GET", "/api/me", ""); !strings.Contains(body, `"name":"carla"`) {
+	if _, body := e.do(t, c, "GET", "/api/me", ""); !strings.Contains(body, `"name":"carla"`) || !strings.Contains(body, `"version":"`+appVersion+`"`) {
 		t.Errorf("me = %s", body)
 	}
 	if v, _ := e.store.VerifiedEmail(context.Background(), mustUser(t, e, "carla")); v != "carla@example.org" {

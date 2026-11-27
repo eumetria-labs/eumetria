@@ -2174,6 +2174,10 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
   html:not([data-locked]) .foot #foot-sync { flex: none; }
   html:not([data-locked]) .foot #foot-off::before, html:not([data-locked]) .foot .foot-note::before { content: "·"; margin: 0 8px; }
   html:not([data-locked]) .foot .foot-repo { flex: none; margin-left: auto; padding-left: 16px; }
+  /* The version, then the source: together at the right end. */
+  html:not([data-locked]) .foot .foot-version { flex: none; margin-left: auto; padding-left: 16px; }
+  html:not([data-locked]) .foot .foot-version:not([hidden]) + .foot-repo { margin-left: 0; padding-left: 0; }
+  html:not([data-locked]) .foot .foot-version:not([hidden]) + .foot-repo::before { content: "·"; margin: 0 8px; }
   html:not([data-locked]) .foot .repo-link { margin: 0; }
   html:not([data-locked]) .foot .repo-link svg { width: 14px; height: 14px; }
 }
@@ -2181,6 +2185,7 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
   .foot { margin-top: 20px; font-size: 12px; line-height: 1.4; }
   .foot p { margin: 0 0 2px; }
 }
+.foot-version a { color: inherit; }
 @media (min-width: 900px) {
   html:not([data-locked]) .foot #foot-off { flex: 0 1 auto; }
   html:not([data-locked]) .foot .foot-note { flex: 0 100 auto; }

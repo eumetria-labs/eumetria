@@ -724,6 +724,9 @@ type me struct {
 	Remember bool `json:"remember"`
 	// -demo: notes and lifts can be written without one (app.demo).
 	Demo bool `json:"demo,omitempty"`
+	// The version the server runs (1.2.3, main-<commit>, dev), for the
+	// footer. Only to signed-in accounts: the sign-in page doesn't say it.
+	Version string `json:"version"`
 }
 
 // writeMe answers who u is; session is the Key of the session asking ("" for
@@ -762,7 +765,8 @@ func (a *app) writeMe(w http.ResponseWriter, ctx context.Context, u *auth.User, 
 	writeJSON(w, http.StatusOK, me{Name: u.Name, FirstName: prof.FirstName, Sex: prof.Sex, BirthDate: prof.BirthDate, Owner: owner == u.ID,
 		NutrientRefs: stats.References(prof.Sex, prof.BirthDate, time.Now()), Role: string(u.Role), Avatar: avatar, Scopes: scopes,
 		Sync: u.Can(auth.ScopeSync) && f.Any(), SecondFactor: f.Any(), NeedsSecondFactor: a.needsFactor(u) && !f.Any(), Demo: a.demo,
-		NeedsEnrolLink: !a.demo && a.needsFactor(u) && !f.Any(), Notices: notices, Remember: remember, Layout: layout})
+		NeedsEnrolLink: !a.demo && a.needsFactor(u) && !f.Any(), Notices: notices, Remember: remember, Layout: layout,
+		Version: appVersion})
 }
 
 func (a *app) me(w http.ResponseWriter, req *http.Request, p *principal) {

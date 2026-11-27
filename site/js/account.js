@@ -126,6 +126,20 @@ export async function refreshUser() {
   if (res?.ok) await welcome(await res.json());
 }
 
+// The footer's version: a release links to its notes, an edge build
+// (main-<commit>) to its commit; a development build is just "dev".
+const REPO = 'https://github.com/eumetria-labs/eumetria';
+function showVersion(version) {
+  const el = $('#foot-version');
+  if (!el) return;
+  el.hidden = !version;
+  if (!version) return;
+  const edge = version.match(/^main-([0-9a-f]{7,40})$/);
+  const label = edge ? 'Eumetria ' + t('edge {commit}', { commit: edge[1] }) : t('Eumetria {version}', { version });
+  const href = /^\d+\.\d+\.\d+$/.test(version) ? `${REPO}/releases/tag/v${version}` : edge ? `${REPO}/commit/${edge[1]}` : '';
+  el.replaceChildren(href ? h('a', { href, target: '_blank', rel: 'noopener noreferrer', title: t('What’s new') }, label) : label);
+}
+
 async function welcome(user) {
   if (store.get('user') !== user.name) {
     await forgetData();
@@ -136,6 +150,7 @@ async function welcome(user) {
   // nothing kept before (by an older page, or another session).
   if (user.remember) await keepOffline(true);
   else await forgetData();
+  showVersion(user.version);
   $('#account-initial').textContent = user.name.slice(0, 1).toUpperCase();
   showPicture(user.avatar);
   $('#account-name').textContent = user.name;
