@@ -94,11 +94,19 @@ try {
     reloaded = await ev(`!window.__e2e && document.documentElement.dataset.rendered === 'true'`).catch(() => false);
   }
   check('the page reloads by itself when Eumetria runs again', reloaded);
-  await wait(2500);
-  const after = JSON.parse(await ev(`(() => {
-    const sec = [...document.querySelectorAll('.wo-sec')].find((x) => x.querySelector('.wo-sec-head')?.textContent.startsWith('Updater'));
-    return JSON.stringify({ head: sec?.querySelector('.wo-sec-head')?.textContent || '', newest: sec?.querySelector('.set-run')?.textContent || '' });
-  })()`).catch(() => '{}'));
+  // Eumetria can be back before the updater's job ends (its health check,
+  // then the handover): the page shows the steps until then and redraws
+  // with the history. Wait for that, not a fixed time (fast CI runners).
+  let after = {};
+  for (let i = 0; i < 45; i++) {
+    await wait(2000);
+    after = JSON.parse(await ev(`(() => {
+      const sec = [...document.querySelectorAll('.wo-sec')].find((x) => x.querySelector('.wo-sec-head')?.textContent.startsWith('Updater'));
+      return JSON.stringify({ head: sec?.querySelector('.wo-sec-head')?.textContent || '', newest: sec?.querySelector('.set-run')?.textContent || '',
+        busy: !!document.querySelector('.upd-progress') });
+    })()`).catch(() => '{}'));
+    if (!after.busy && /Installed · 1\.3\.0/.test(after.newest || '')) break;
+  }
   check('the newest update in the history: installed, 1.3.0', /Installed · 1\.3\.0/.test(after.newest || ''), JSON.stringify(after));
   check('the updater is on the stable tag now', /Tag 1$/.test(after.head || '') && tagBefore.includes('latest'), `${tagBefore} → ${after.head}`);
 } finally {
