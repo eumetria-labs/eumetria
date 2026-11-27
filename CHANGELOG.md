@@ -11,6 +11,12 @@ The section of a release becomes its notes on GitHub; see
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-27
+
+### Fixed
+
+- Settings → Update: the Install / Switch button was hidden. Automatic installs weren't affected.
+
 ## [1.0.0] - 2026-11-27
 
 The first release. Everything Eumetria does so far, in one container:
@@ -54,5 +60,6 @@ The first release. Everything Eumetria does so far, in one container:
 - An optional updater container (`eumetria-updater`) installs an update with one click: a backup first, then the new images, a health check, and the old version back if the new one doesn't come up. Stable updates and security rebuilds install by themselves at 04:00 unless switched off. It replaces the nightly cron (`deploy/cron` is gone).
 - A new major version is a notice with its steps, never installed on its own.
 
-[Unreleased]: https://github.com/eumetria-labs/eumetria/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/eumetria-labs/eumetria/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/eumetria-labs/eumetria/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/eumetria-labs/eumetria/releases/tag/v1.0.0
