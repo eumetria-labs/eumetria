@@ -114,6 +114,9 @@ import (
 //	GET    /api/admin/backups  the last backups (backup.go)                        admin
 //	POST   /api/admin/backups  backs up now, in the background                     admin
 //	POST   /api/admin/backups/test-drive  uploads and deletes a small file         admin
+//	GET    /api/admin/update  version, channel, last update check, system (update.go)  admin
+//	POST   /api/admin/update/check  checks GitHub for an update now                admin
+//	POST   /api/admin/update  {kind}: backs up, then has the updater install (apply.go)  admin, recent sign-in
 //	GET    /api/google/callback  where Google sends the browser back               admin
 //	DELETE /api/google        disconnects                                          admin, recent sign-in
 //	GET    /api/coach         the coach chat: on or off, the user's threads (coach.go)  use.coach
@@ -235,6 +238,8 @@ type app struct {
 	// the demo account (demo / demo, guarding nothing) can try them.
 	// Admin and sync rights still need one.
 	demo bool
+	// The update check (update.go).
+	updates *updates
 }
 
 func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, avatars string, store *auth.Store) http.Handler {
@@ -261,8 +266,13 @@ func newHandler(r *runner, pages fs.FS, data *published, photoDir, noteImages, a
 		unknownDevice: auth.NewLimiter(unknownBudget, time.Hour, time.Hour, 24*time.Hour),
 		uploads:       auth.NewLimiter(0, time.Hour, 0, 0),
 		mcpCalls:      auth.NewLimiter(0, time.Minute, 0, 0),
+		updates:       newUpdates(),
 	}
 	a.startMail()
+	// The daily update check; never with -demo, which doesn't go online.
+	if r != nil && r.settings != nil && !a.demo {
+		go a.updateLoop(context.Background())
+	}
 	mux := http.NewServeMux()
 	for _, rt := range a.routes() {
 		mux.Handle(rt.method+" "+rt.path, a.guard(rt))
@@ -366,6 +376,9 @@ func (a *app) routes() []route {
 		{"GET", "/api/admin/backups", adminOnly, a.backups},
 		{"POST", "/api/admin/backups", adminOnly, a.backupNow},
 		{"POST", "/api/admin/backups/test-drive", adminOnly, a.backupTestDrive},
+		{"GET", "/api/admin/update", adminOnly, a.updateGet},
+		{"POST", "/api/admin/update/check", adminOnly, a.updateCheck},
+		{"POST", "/api/admin/update", adminOnly, a.updateApply},
 		{"POST", "/api/google/connect", adminOnly, a.googleConnect},
 		{"GET", "/api/google/callback", adminOnly, a.googleCallbackRoute},
 		{"DELETE", "/api/google", adminOnly, a.googleDisconnect},

@@ -10,7 +10,8 @@ import { openDay } from './sheet.js';
 import { openWorkoutFromHash } from './workout.js';
 import { openRecipeFromHash } from './recipe.js';
 import { openActivity, openFood } from './history.js';
-import { renderToday, renderTiles } from './today.js';
+import { renderHighlights, renderToday, renderTiles } from './today.js';
+import { loadUpdate } from './updates.js';
 import { renderEnergy, renderEnergyTabs, renderMeals, renderWeekdays } from './energy.js';
 import { renderInsights, renderWeight } from './weight.js';
 import { renderMacros } from './macros.js';
@@ -164,6 +165,8 @@ async function load(force) {
     navigator.serviceWorker?.controller?.postMessage({ keep: referencedFiles(next) });
     // Opened from a shortcut on the app's icon, or with images shared to it.
     if (first) takeLaunch();
+    // The admin's update check: a chip on Today when there is one.
+    if (first) loadUpdate().then((u) => u && renderHighlights());
     // A shared link like "#day=2026-10-13" opens that day.
     const day = hashParam('day');
     if (first && day && state.byDate.has(day)) {

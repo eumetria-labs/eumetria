@@ -15,6 +15,8 @@ import { fmtResult, openWod } from './wods.js';
 import { offeredYear, openYear } from './yearreview.js';
 import { renderPhaseStatus } from './phases.js';
 import { renderCheckin } from './checkin.js';
+import { updateChip } from './updates.js';
+import { openPrefs } from './prefs.js';
 
 export function renderToday() {
   const { data } = state;
@@ -151,13 +153,16 @@ function showBests(part, fallback) {
   tab.focus({ preventScroll: true });
 }
 
+// "Check now" in Settings → Update found something, or nothing any more.
+document.addEventListener('update-changed', () => state.data?.days.length && renderHighlights());
+
 // At most this many chips; the rest behind a "+n" chip.
 const SHOWN = 3;
 let expanded = false;
 
-// The Today card's chips: the year in review (December and January), new
-// personal bests, then the records of the last 7 days, which open their
-// day.
+// The Today card's chips: an update for the admin, the year in review
+// (December and January), new personal bests, then the records of the last
+// 7 days, which open their day.
 export function renderHighlights() {
   const { data, byDate } = state;
   const items = highlights(data.days, byDate, data.goals || {}, state.today);
@@ -169,6 +174,8 @@ export function renderHighlights() {
     b.onclick = () => openYear(year, b);
     chips.unshift(b);
   }
+  const upd = updateChip((b) => openPrefs('settings', 'update', { returnFocus: b }));
+  if (upd) chips.unshift(upd);
   chips.push(...items.map((x) => {
     const [icon, text, value] = x.kind === 'best'
       ? ['🏅', t('New record: {what}', { what: x.label }),

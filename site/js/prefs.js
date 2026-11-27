@@ -28,6 +28,7 @@ import { renderPhases } from './phases.js';
 import { renderLayout } from './layout.js';
 import { renderPromptTypes } from './unlogged.js';
 import { mayEditLifts } from './lifts.js';
+import { available, loadUpdate, updateLabel } from './updates.js';
 
 const can = (scope) => !!account.user?.scopes?.includes(scope);
 const admin = () => can('admin');
@@ -68,6 +69,7 @@ const SECTIONS = [
     ['ai', () => t('AI'), 'spark', '#a24bc4', () => t('The weekly review and the coach chat, written by Claude.')],
     ['mail', () => t('E-mail'), 'mail', '#eb6834', () => t('Security alerts and links by e-mail.')],
     ['backups', () => t('Backups'), 'archive', '#4b5563', () => t('A daily archive on this server, and on Google Drive if you like.')],
+    ['update', () => t('Update'), 'update', '#1d8f6b', () => t('The version this server runs, new ones, and the system it runs on.')],
   ].map(([key, label, ic, color, desc]) => ({ side: 'settings', group: () => t('Site'), key, label, icon: ic, color, desc, when: admin,
     draw: (host, result) => renderSettings(host, key, result) })),
 ];
@@ -315,6 +317,11 @@ async function loadStatus(side, root) {
         const m = d.mail || {};
         out.mail = !v('smtp_host').value ? ['off', t('Off')] : m.last_error ? ['warn', t('Last mail failed')] : ['ok', t('On')];
         out.backups = /^(1|t|true)$/i.test(v('backups').value) ? ['ok', t('Daily')] : ['off', t('Off')];
+      }));
+      jobs.push(loadUpdate().then((u) => {
+        if (!u) return;
+        const target = available(u);
+        out.update = target ? ['warn', t('Update available: {version}', { version: updateLabel(target) })] : ['', u.version];
       }));
     }
   } else {

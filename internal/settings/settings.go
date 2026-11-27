@@ -114,6 +114,12 @@ var defs = []def{
 	{key: "backup_drive", fallback: "false", valid: boolean},
 	{key: "backup_folder", fallback: "Eumetria backups", valid: text(100, false)},
 	{key: "backup_drive_keep_days", fallback: "30", valid: number(1, 3650)},
+	// Updates (PLAN 15): the channel, automatic installs at a time, and a
+	// mail when a new version is out.
+	{key: "update_channel", fallback: "stable", valid: oneOf("stable", "edge")},
+	{key: "update_auto", fallback: "true", valid: boolean},
+	{key: "update_time", fallback: "04:00", valid: clock},
+	{key: "update_mail", fallback: "false", valid: boolean},
 	// E-mail (optional): security alerts and links (internal/mail).
 	{key: "smtp_host", env: "SMTP_HOST", valid: host},
 	{key: "smtp_port", env: "SMTP_PORT", fallback: "587", valid: number(1, 65535)},
@@ -492,6 +498,11 @@ type Values struct {
 	BackupFolder        string
 	BackupDriveKeepDays int
 
+	UpdateChannel string // "stable" or "edge"
+	UpdateAuto    bool
+	UpdateTime    string // "HH:MM" in the site's time zone
+	UpdateMail    bool
+
 	SMTP SMTP
 }
 
@@ -532,8 +543,9 @@ func resolve(get func(key string) string) Values {
 		WhiteboardBackend: get("whiteboard_backend"), WhiteboardModel: get("whiteboard_model"), WhiteboardEffort: get("whiteboard_effort"),
 		RunnerURL: get("runner_url"), RunnerKey: get("runner_key"), RunnerMCPURL: get("runner_mcp_url"),
 		BackupTime: get("backup_time"), BackupPassphrase: get("backup_passphrase"), BackupPassphraseAt: get("backup_passphrase_at"),
-		BackupFolder: get("backup_folder"),
-		PublicURL:    strings.TrimRight(get("public_url"), "/"),
+		BackupFolder:  get("backup_folder"),
+		UpdateChannel: get("update_channel"), UpdateTime: get("update_time"),
+		PublicURL: strings.TrimRight(get("public_url"), "/"),
 	}
 	v.Zone, v.ZoneName = envZone()
 	if name := get("timezone"); name != "" {
@@ -562,6 +574,11 @@ func resolve(get func(key string) string) Values {
 	v.ClaudeFallbackAPI, v.CoachOwn, v.ReviewOwn = onOff("claude_fallback_api"), onOff("coach_own"), onOff("review_own")
 	v.WhiteboardOwn = onOff("whiteboard_own")
 	v.Backups = onOff("backups")
+	v.UpdateAuto = onOff("update_auto")
+	v.UpdateMail, _ = strconv.ParseBool(get("update_mail"))
+	if v.UpdateChannel != "edge" {
+		v.UpdateChannel = "stable"
+	}
 	v.BackupDrive, _ = strconv.ParseBool(get("backup_drive"))
 	v.BackupKeepDays, _ = strconv.Atoi(get("backup_keep_days"))
 	if v.BackupKeepDays < 1 {

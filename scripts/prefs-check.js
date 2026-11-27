@@ -151,8 +151,18 @@ const adminSession = await signIn(...ADMIN, begun.secret);
 await useSession(adminSession);
 await sections('admin', {
   profile: ['account', 'training', 'layout', 'phases'],
-  settings: ['sign-in', 'devices', 'users', 'roles', 'sessions', 'notes', 'audit', 'yazio', 'google', 'sync', 'general', 'ai', 'mail', 'backups'],
+  settings: ['sign-in', 'devices', 'users', 'roles', 'sessions', 'notes', 'audit', 'yazio', 'google', 'sync', 'general', 'ai', 'mail', 'backups', 'update'],
 });
+
+// Settings → Update: the version, the schema, the system, the channel.
+await open('settings=update', { width: 1280, height: 900 });
+check('update: version, schema, system and channel', await ev(`(() => {
+  const text = document.querySelector('.pf-content').textContent;
+  return (document.querySelector('.upd-version')?.textContent || '').startsWith('Eumetria ') && text.includes('Database schema') && text.includes('Runs as')
+    && document.querySelectorAll('.set-fact').length >= 10 && !!document.querySelector('.pf-content select option[value=edge]')
+    && document.querySelector('.set-back')?.disabled === true; // the demo doesn't check
+})()`), await ev(`JSON.stringify({ version: document.querySelector('.upd-version')?.textContent, facts: document.querySelectorAll('.set-fact').length,
+  edge: !!document.querySelector('.pf-content select option[value=edge]'), check: document.querySelector('.set-back')?.disabled })`));
 
 await browser.view(base + '/#range=30', { width: 1280, height: 900 });
 await wait(600);

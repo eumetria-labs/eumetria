@@ -128,6 +128,13 @@ func (d *DB) migrate(ctx context.Context, scripts fs.FS) error {
 	return nil
 }
 
+// Latest is the number of the newest migration this program has: the
+// schema version a database gets when this program opens it.
+func Latest() int {
+	ms, _ := list(migrations)
+	return len(ms)
+}
+
 // Version is the number of the last migration applied.
 func (d *DB) Version(ctx context.Context) (int, error) {
 	var v int

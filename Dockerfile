@@ -37,7 +37,17 @@ ENV DATA_DIR=/data BACKUP_DIR=/backups
 # works harder before the kernel kills the process. Raise both together.
 ENV GOMEMLIMIT=200MiB
 EXPOSE 8080
-HEALTHCHECK --interval=1m --timeout=10s --start-period=30s \
+HEALTHCHECK --interval=1m --timeout=10s --start-period=30s --start-interval=2s \
   CMD ["/eumetria", "-healthcheck", "http://127.0.0.1:8080/healthz"]
+# What the updater (PLAN 15b) and `docker inspect` read without starting the
+# image: the version, the commit and the database schema it migrates to
+# (the number of migrations). CI passes them; a build by hand has none.
+ARG VERSION=dev
+ARG REVISION=
+ARG SCHEMA=0
+LABEL org.opencontainers.image.source="https://github.com/eumetria-labs/eumetria" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      eumetria.schema="${SCHEMA}"
 ENTRYPOINT ["/eumetria"]
 CMD ["-serve", ":8080"]

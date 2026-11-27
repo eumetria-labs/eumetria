@@ -83,13 +83,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: tag
-        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "schema=$(ls internal/db/migrations/*.sql | wc -l)" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v7
         with:
           context: .
           pull: true
           push: true
-          build-args: VERSION=main-${{ steps.tag.outputs.short }}
+          build-args: |
+            VERSION=main-${{ steps.tag.outputs.short }}
+            REVISION=${{ github.sha }}
+            SCHEMA=${{ steps.tag.outputs.schema }}
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.short }}
@@ -107,3 +112,18 @@ jobs:
             ghcr.io/${{ github.repository }}-claude-runner:${{ steps.tag.outputs.short }}
           cache-from: type=gha,scope=runner
           cache-to: type=gha,mode=max,scope=runner
+      # The updater (deploy/updater): in-place updates from Settings → Update.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/updater/Dockerfile
+          pull: true
+          push: true
+          build-args: |
+            VERSION=main-${{ steps.tag.outputs.short }}
+            REVISION=${{ github.sha }}
+          tags: |
+            ghcr.io/${{ github.repository }}-updater:latest
+            ghcr.io/${{ github.repository }}-updater:${{ steps.tag.outputs.short }}
+          cache-from: type=gha,scope=updater
+          cache-to: type=gha,mode=max,scope=updater

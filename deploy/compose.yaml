@@ -1,14 +1,16 @@
 # /srv/eumetria/compose.yaml — see the docs: https://eumetria-labs.github.io/eumetria/install/server/
 # Replace UID:GID with the ids of the eumetria user (`id eumetria`).
 
-# :1 is the stable channel: the newest 1.x release, with weekly security
-# rebuilds. :latest follows every commit on main instead; :1.2.3 pins one
-# release (docs: https://eumetria-labs.github.io/eumetria/operations/updates/).
-# Keep both images on the same channel.
+# The channel is EUMETRIA_TAG, which the updater keeps in .env next to this
+# file (Settings → Update): 1 is the stable channel, the newest 1.x release
+# with weekly security rebuilds; latest follows every commit on main. All
+# images use it, so they stay on the same channel. To pin one release by
+# hand, write its tag (:1.2.3) here instead and leave out the updater
+# (docs: https://eumetria-labs.github.io/eumetria/operations/updates/).
 
 services:
   eumetria:
-    image: ghcr.io/eumetria-labs/eumetria:1
+    image: ghcr.io/eumetria-labs/eumetria:${EUMETRIA_TAG:-1}
     container_name: eumetria
     restart: unless-stopped
     user: "UID:GID"
@@ -16,6 +18,8 @@ services:
     volumes:
       - /srv/eumetria/data:/data
       - /var/backups/eumetria:/backups
+      - updater:/updater:ro # the updater's token
+    networks: [default, updates]
     ports:
       - "127.0.0.1:8090:8080" # only nginx on this host can reach it
     read_only: true
@@ -38,7 +42,7 @@ services:
   # with `docker compose --profile claude up -d` once claude-runner.env holds
   # the token (docs: https://eumetria-labs.github.io/eumetria/connect/claude/). No ports: only Eumetria reaches it.
   claude-runner:
-    image: ghcr.io/eumetria-labs/eumetria-claude-runner:1
+    image: ghcr.io/eumetria-labs/eumetria-claude-runner:${EUMETRIA_TAG:-1}
     container_name: claude-runner
     profiles: [claude]
     restart: unless-stopped
@@ -58,6 +62,39 @@ services:
         max-size: 10m
         max-file: "3"
 
+  # In-place updates (Settings → Update). The only container with the
+  # Docker socket, which amounts to root on this host: no ports, no network
+  # but the internal one to Eumetria, and it only pulls and restarts
+  # Eumetria's own images (internal/updater). The daemon pulls the images,
+  # not this container. This folder is mounted at the same path as on the
+  # host, so docker compose in it works as it does here.
+  updater:
+    image: ghcr.io/eumetria-labs/eumetria-updater:${EUMETRIA_TAG:-1}
+    container_name: eumetria-updater
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /srv/eumetria:/srv/eumetria
+      - updater:/state
+    networks: [updates]
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  updater: # the updater's token and history
+
 # A fixed network, so nginx on the host always reaches the container from
 # the same address, its gateway: TRUSTED_PROXY in eumetria.env names it.
 # Pick another /24 if this one is taken on your host.
@@ -66,3 +103,6 @@ networks:
     ipam:
       config:
         - subnet: 172.30.90.0/24 # gateway 172.30.90.1 = nginx on the host
+  # Eumetria ↔ updater only: no way out, no way in.
+  updates:
+    internal: true

@@ -21,7 +21,7 @@
 // are kept, never a 401 or the sign-in; the page clears the data when the
 // user signs out, gets a 401 or another user signs in (account.js).
 
-const CACHE = 'stats-v74';
+const CACHE = 'stats-v75';
 const DATA = 'stats-data-v1';
 const FLAGS = 'eumetria-flags';
 // Photos shared to the installed app (manifest share_target), waiting for
@@ -31,7 +31,7 @@ const SHELL = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/main.js', 'js/format.js', 'js/insights.js', 'js/state.js', 'js/dom.js', 'js/charts.js', 'js/sheet.js', 'js/lightbox.js', 'js/admin.js',
   'js/health.js', 'js/workout.js', 'js/recovery.js', 'js/device.js', 'js/training.js', 'js/scores.js', 'js/layout.js', 'js/legend.js', 'js/year.js', 'js/yearreview.js', 'js/phase.js', 'js/phases.js', 'js/checkin.js', 'js/sleeptiming.js', 'js/correlate.js', 'js/insightscard.js', 'js/sessions.js', 'js/table.js', 'js/query.js', 'js/recipe.js', 'js/quality.js', 'js/foodquality.js', 'js/reviewtext.js', 'js/weekly.js', 'js/history.js', 'js/coach.js', 'js/unlogged.js',
-  'js/today.js', 'js/energy.js', 'js/weight.js', 'js/macros.js', 'js/movement.js', 'js/foods.js', 'js/dialog.js', 'js/sections.js', 'js/search.js', 'js/export.js', 'js/zip.js', 'js/report.js', 'js/snapshot.js', 'js/share.js', 'js/cards.js', 'js/account.js', 'js/security.js', 'js/stepup.js', 'js/manage.js', 'js/notes.js', 'js/lifts.js', 'js/links.js', 'js/wods.js', 'js/markdown.js', 'js/profile.js', 'js/settings.js', 'js/prefs.js', 'js/kit.js', 'js/shell.js', 'js/nutrients.js', 'js/upload.js', 'js/webauthn.js', 'js/sources.js', 'js/i18n.js', 'js/de.js',
+  'js/today.js', 'js/energy.js', 'js/weight.js', 'js/macros.js', 'js/movement.js', 'js/foods.js', 'js/dialog.js', 'js/sections.js', 'js/search.js', 'js/export.js', 'js/zip.js', 'js/report.js', 'js/snapshot.js', 'js/share.js', 'js/cards.js', 'js/account.js', 'js/security.js', 'js/stepup.js', 'js/manage.js', 'js/notes.js', 'js/lifts.js', 'js/links.js', 'js/wods.js', 'js/markdown.js', 'js/profile.js', 'js/settings.js', 'js/updates.js', 'js/prefs.js', 'js/kit.js', 'js/shell.js', 'js/nutrients.js', 'js/upload.js', 'js/webauthn.js', 'js/sources.js', 'js/i18n.js', 'js/de.js',
   'fonts/inter-latin-var.woff2', 'icons/icon-192.png', 'icons/mark.svg',
 ];
 const IMMUTABLE = /\/(photos|note-images|avatars|routes|days|fonts|icons|vendor)\//;

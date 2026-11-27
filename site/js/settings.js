@@ -10,6 +10,8 @@ import { api, reason } from './account.js';
 import { confirmNote } from './stepup.js';
 import { t } from './i18n.js';
 import { badge, revealable } from './kit.js';
+import { renderMarkdown } from './markdown.js';
+import { setUpdate, updateLabel } from './updates.js';
 
 const dfTime = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -18,7 +20,7 @@ const POLL_MS = 2000;
 let polling = 0; // the status poll that may go on; leaving the section ends it
 
 // renderSettings draws one part of the settings (general, sync, yazio,
-// google, ai, backups, mail) into body: a section of the Profile /
+// google, ai, backups, mail, update) into body: a section of the Profile /
 // Settings view. result is how Connect Google ended, when it brought the
 // browser back here.
 export function renderSettings(body, tab, result = '') {
@@ -48,9 +50,14 @@ async function load(body, tab, result) {
     data.backups = runs?.ok ? await runs.json() : { runs: [] };
     if (body.dataset.tab !== tab) return;
   }
+  if (tab === 'update') {
+    const up = await api('admin/update').catch(() => null);
+    data.update = up?.ok ? await up.json() : null;
+    if (body.dataset.tab !== tab) return;
+  }
   // tab comes from the URL (#settings=…): only the object's own tabs count,
   // not what every object has, such as "constructor" (pentest F8).
-  const tabs = { general: generalTab, sync: syncTab, yazio: yazioTab, google: googleTab, ai: aiTab, backups: backupsTab, mail: mailTab };
+  const tabs = { general: generalTab, sync: syncTab, yazio: yazioTab, google: googleTab, ai: aiTab, backups: backupsTab, mail: mailTab, update: updateTab };
   body.replaceChildren(...(Object.hasOwn(tabs, tab) ? tabs[tab] : generalTab)(body, data, result));
   // The save bar saves every form of the section in one request.
   body._saveAll = () => {
@@ -646,4 +653,248 @@ function backupsTab(body, data) {
   if (data.status.running) poll(body, line, () => load(body, 'backups'));
   state.append(line, now);
   return [...noKeyNote(data), when, passphraseSection(body, data), drive, state];
+}
+
+/* ---------- update ---------- */
+
+const RELEASES = 'https://github.com/eumetria-labs/eumetria/releases';
+
+// How long, roughly: "3 d 4 h", "5 h 12 min", "8 min".
+function span(secs) {
+  const d = Math.floor(secs / 86400), hh = Math.floor((secs % 86400) / 3600), m = Math.floor((secs % 3600) / 60);
+  if (d) return t('{d} d {h} h', { d, h: hh });
+  if (hh) return t('{h} h {m} min', { h: hh, m });
+  return t('{m} min', { m });
+}
+
+function factRow(label, value, mono = false) {
+  const row = h('div', { class: 'day-item sec-item set-fact' });
+  const name = h('span', { class: 'name' });
+  name.append(h('span', { class: 'txt' }, label));
+  row.append(name, h('span', { class: 'amt' + (mono ? ' mono' : '') }, value));
+  return row;
+}
+
+// A paragraph with a link that opens in a new tab.
+function link(href, text) {
+  const p = h('p');
+  p.append(h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, text));
+  return p;
+}
+
+// The release notes (Markdown) of one release, folded.
+function releaseNotes(r) {
+  const box = h('details', { class: 'upd-notes' });
+  const sum = h('summary');
+  sum.append(h('b', {}, r.version));
+  if (r.published) sum.append(' · ' + dfTime.format(new Date(r.published)));
+  box.append(sum);
+  if (r.notes) box.append(renderMarkdown(r.notes));
+  if (r.url) box.append(link(r.url, t('On GitHub')));
+  return box;
+}
+
+// updateTab is Settings → Update (PLAN 15a): the version, what the last
+// check found, the channel and automatic installs, and the system.
+function updateTab(body, data) {
+  const u = data.update;
+  if (!u) return [h('p', { class: 'empty-tab' }, t('This could not be loaded.'))];
+  const BUILDS = { release: t('Release'), edge: t('Edge build'), dev: t('Development build') };
+
+  const ver = section(t('Version'), BUILDS[u.build] || '');
+  const line = h('p', { class: 'upd-version' });
+  line.append(h('b', {}, 'Eumetria ' + u.version));
+  if (u.build === 'release') line.append(' · ', h('a', { href: `${RELEASES}/tag/v${u.version}`, target: '_blank', rel: 'noopener noreferrer' }, t('What’s new')));
+  ver.append(line, factRow(t('Database schema'), String(u.system.schema)));
+
+  const last = u.last;
+  const st = section(t('Updates'), last ? t('Checked {when}', { when: dfTime.format(new Date(last.checked_at)) }) : t('Not checked yet'));
+  if (u.demo) st.append(h('p', { class: 'muted' }, t('The demo doesn’t look for updates.')));
+  if (last?.error) st.append(h('p', { class: 'lock-error' }, t('Couldn’t check: {why}', { why: last.error })));
+  if (last?.available) {
+    st.append(h('p', { class: 'upd-avail' }, t('Update available: {version}', { version: updateLabel(last.target) })));
+    for (const r of last.releases || []) st.append(releaseNotes(r));
+    if (last.commits?.length) {
+      const list = h('ul', { class: 'upd-commits' });
+      for (const c of last.commits) {
+        const li = h('li');
+        li.append(h('a', { class: 'mono', href: c.url, target: '_blank', rel: 'noopener noreferrer' }, c.sha), ' ' + c.subject);
+        list.append(li);
+      }
+      st.append(list);
+      if (last.ahead > last.commits.length) st.append(h('p', { class: 'muted' }, t('… and {n} more', { n: last.ahead - last.commits.length })));
+    }
+    // Installing from here: the updater container (PLAN 15c); without it,
+    // the command.
+    if (!u.updater?.present) {
+      const how = h('div', { class: 'upd-box' });
+      how.append(h('p', {}, t('To install it, run on the server:')), h('pre', { class: 'mono upd-cmd' }, 'cd /srv/eumetria\ndocker compose pull && docker compose up -d'));
+      st.append(how);
+    }
+  } else if (last?.rebuild) {
+    st.append(h('p', { class: 'upd-avail' }, t('A security rebuild of this version is available.')));
+  } else if (last && !last.error) {
+    st.append(h('p', { class: 'upd-ok' }, u.build === 'dev' ? t('A development build: it is updated by hand.') : t('Up to date.')));
+  }
+  // With the updater: install from here (PLAN 15c), and see it through.
+  const up = u.updater?.status;
+  const canApply = !!up && !u.demo && u.build !== 'dev';
+  const busy = u.apply?.running || u.apply?.step === 'updating' || !!up?.job;
+  if (busy) st.append(progress(body, u));
+  else if (canApply) {
+    const switching = (u.channel === 'edge') !== (up.tag === 'latest');
+    const what = switching ? t('Switch to {channel} now', { channel: u.channel === 'edge' ? t('Edge') : t('Stable') })
+      : last?.available ? t('Install {version}', { version: updateLabel(last.target) })
+        : last?.rebuild ? t('Install the security rebuild') : '';
+    if (what) st.append(applyButton(body, u, 'update', what));
+    if (u.apply?.error) st.append(h('p', { class: 'lock-error' }, u.apply.error));
+  }
+  if (last?.major) {
+    const major = last.major.version.split('.')[0];
+    const box = h('div', { class: 'notice upd-major' });
+    box.append(h('p', {}, t('Eumetria {version} is out. A new major version needs steps by hand before it is installed: read them first.', { version: last.major.version })),
+      h('p', {}, t('Version {major}.x gets no more security fixes.', { major: u.version.split('.')[0] })));
+    if (last.major.url) box.append(link(last.major.url, t('What to do for {major}.0', { major })));
+    if (canApply && !busy) {
+      box.append(applyButton(body, u, 'major', t('Switch to {major}', { major }),
+        t('Did you do the steps for {major}.0? Eumetria makes a backup, then switches to version {major}. Going back to {old} isn’t possible afterwards.', { major, old: u.version.split('.')[0] })));
+    }
+    st.append(box);
+  }
+  const msg = h('p', { class: 'sec-msg', role: 'status', hidden: '' });
+  const check = h('button', { class: 'pill-btn set-back', type: 'button' }, t('Check now'));
+  check.disabled = u.demo || u.checking;
+  check.onclick = async () => {
+    check.disabled = true;
+    msg.hidden = true;
+    check.textContent = t('Checking…');
+    const res = await api('admin/update/check', 'POST').catch(() => null);
+    if (res?.ok) {
+      setUpdate(await res.json());
+      return load(body, 'update');
+    }
+    check.disabled = false;
+    check.textContent = t('Check now');
+    msg.textContent = res?.status === 429 ? t('Just checked. Try again in a moment.') : res?.status === 409 ? t('A check is running already.') : t('Server not reachable.');
+    msg.classList.add('lock-error');
+    msg.hidden = false;
+  };
+  st.append(msg, check);
+
+  const how = section(t('Updating'), '');
+  how.append(form(body, data, [
+    { key: 'update_channel', label: t('Channel'), options: [['stable', t('Stable: new releases')], ['edge', t('Edge: every change that passed its tests')]],
+      hint: t('Stable gets new minor versions and fixes; a new major version is only announced. Edge follows the code as it is written.') },
+    { key: 'update_auto', label: t('Install updates by themselves'), type: 'checkbox', hint: t('With a backup first. Needs the updater container.') },
+    { key: 'update_time', label: t('Time of day'), hint: t('In the site’s time zone.'), type: 'time', showIf: 'update_auto' },
+    { key: 'update_mail', label: t('E-mail me when an update is out'), type: 'checkbox', hint: u.mail_on ? t('Once per version, to your confirmed address.') : t('Set up e-mail first.') },
+  ]));
+
+  const s = u.system;
+  const sys = section(t('System'), s.container ? t('In a container') : '');
+  const host = u.updater?.status?.host;
+  if (host) sys.append(factRow(t('Host'), host, true));
+  const running = Math.max(0, Math.round((Date.now() - new Date(s.started)) / 1000));
+  sys.append(
+    factRow(host ? t('Container') : t('Hostname'), s.hostname || '–', true),
+    factRow(t('Runs as'), s.user, true),
+    factRow(t('Running since'), `${dfTime.format(new Date(s.started))} (${span(running)})`),
+    ...(s.host_uptime ? [factRow(t('Host up for'), span(s.host_uptime))] : []),
+    factRow(t('Working directory'), s.cwd || '–', true),
+    factRow(t('Data folder'), s.data_dir || '–', true),
+    factRow(t('Database'), s.db_bytes ? size(s.db_bytes) : '–'),
+    factRow(t('Go'), s.go, true),
+    factRow(t('Platform'), `${s.platform} · ${t('{n} CPUs', { n: s.cpus })}`),
+    factRow(t('Time zone'), s.zone),
+  );
+  return [ver, st, how, ...updaterSection(u.updater), sys];
+}
+
+const JOB_STATES = {
+  done: () => t('Installed'), unchanged: () => t('Nothing new'), rolled_back: () => t('Went back'), failed: () => t('Failed'), running: () => t('Running'),
+};
+
+// The updater container: whether it answers, its channel tag and the last
+// updates it made.
+function updaterSection(up) {
+  if (!up?.present) return [];
+  const sec = section(t('Updater'), up.status ? t('Tag {tag}', { tag: up.status.tag }) : '');
+  if (up.error) {
+    sec.append(h('p', { class: 'lock-error' }, t('The updater doesn’t answer: {why}', { why: up.error })));
+    return [sec];
+  }
+  const jobs = up.status.history || [];
+  if (!jobs.length) sec.append(h('p', { class: 'muted' }, t('No updates yet.')));
+  for (const j of jobs.slice(0, 5)) {
+    const row = h('div', { class: 'day-item sec-item set-run' });
+    const name = h('span', { class: 'name' });
+    name.append(h('span', { class: 'txt' }, dfTime.format(new Date(j.started))));
+    const after = j.after?.eumetria || j.before?.eumetria || '';
+    row.append(name, h('span', { class: 'amt' }, [JOB_STATES[j.state]?.() || j.state, after].filter(Boolean).join(' · ')));
+    if (j.error) row.append(h('span', { class: 'lock-error set-why' }, j.error));
+    sec.append(row);
+  }
+  return [sec];
+}
+
+// applyButton installs (kind "update") or moves to a new major version
+// ("major"): Eumetria backs up, then the updater takes over. ask is a
+// question to confirm first.
+function applyButton(body, u, kind, label, ask = '') {
+  const b = h('button', { class: 'pill-btn pf-save upd-apply', type: 'button' }, label);
+  b.onclick = async () => {
+    if (ask && !confirm(ask)) return;
+    b.disabled = true;
+    body.querySelector('.adm-error')?.remove();
+    const res = await api('admin/update', 'POST', { kind }).catch(() => null);
+    if (res?.ok) return load(body, 'update');
+    b.disabled = false;
+    const why = res ? await reason(res.clone()) : '';
+    if (why === 'reauth') return body.prepend(confirmNote());
+    showError(body, { busy: t('An update is being started already.'), no_updater: t('The updater doesn’t answer.'), no_target: t('Nothing to install: check for updates first.') }[why]
+      || (res ? t('That didn’t work. Try again.') : t('Server not reachable.')));
+  };
+  return b;
+}
+
+const STEPS = () => [['backup', t('Backup')], ['pull', t('Download')], ['restart', t('Restart')], ['health', t('Health check')]];
+const STEP_OF = { backup: 'backup', asking: 'pull', updating: 'pull', pull: 'pull', restart: 'restart', health: 'health', rollback: 'health', handover: 'health' };
+
+// progress follows an update until Eumetria runs again: the steps, then
+// "Waiting for Eumetria…" while it restarts, then the page loads anew (with
+// the new version's files). It stops when the update ends without a
+// restart: nothing new, or refused before anything restarted.
+function progress(body, u) {
+  const box = h('div', { class: 'upd-progress', role: 'status' });
+  const list = h('ol', { class: 'upd-steps' });
+  const note = h('p', { class: 'muted' });
+  box.append(list, note);
+  const startedAt = u.system.started, version = u.version;
+  const before = u.updater?.status?.history?.[0]?.id || '';
+  const draw = (info, waiting) => {
+    const step = STEP_OF[info?.updater?.status?.job?.step || info?.apply?.step] || 'pull';
+    const at = STEPS().findIndex(([k]) => k === step);
+    list.replaceChildren(...STEPS().map(([, label], i) => h('li', { class: i < at ? 'done' : i === at ? 'now' : '' }, label)));
+    note.textContent = waiting ? t('Waiting for Eumetria to come back…')
+      : info?.updater?.status?.job?.step === 'rollback' ? t('The new version didn’t start: going back…') : t('Don’t close this page; it reloads when Eumetria runs again.');
+  };
+  draw(u, false);
+  const mine = ++polling;
+  const tick = async () => {
+    if (mine !== polling || !document.contains(box)) return;
+    const res = await fetch('api/admin/update', { cache: 'no-store', credentials: 'same-origin' }).catch(() => null);
+    const info = res?.ok ? await res.json().catch(() => null) : null;
+    if (!info) {
+      draw(null, true);
+      return setTimeout(tick, 2000);
+    }
+    // Eumetria restarted (a new version, a rebuild, or after going back).
+    if (info.version !== version || info.system?.started !== startedAt) return location.reload();
+    const last = info.updater?.status?.history?.[0];
+    if (info.apply?.error || (last && last.id !== before && !info.updater.status.job)) return load(body, 'update');
+    draw(info, false);
+    setTimeout(tick, 2000);
+  };
+  setTimeout(tick, 2000);
+  return box;
 }
