@@ -253,7 +253,7 @@ const dismissNotice = () => ev(`[...document.querySelectorAll('button')].find((b
   // Profile and Settings.
   for (const [name, hash] of [['profile-account', 'profile=account'], ['profile-training', 'profile=training'], ['profile-layout', 'profile=layout'], ['profile-phases', 'profile=phases'],
     ['settings-sign-in', 'settings=sign-in'], ['settings-devices', 'settings=devices'], ['settings-users', 'settings=users'], ['settings-roles', 'settings=roles'],
-    ['settings-google', 'settings=google'], ['settings-ai', 'settings=ai'], ['settings-backups', 'settings=backups'], ['settings-general', 'settings=general']]) {
+    ['settings-google', 'settings=google'], ['settings-ai', 'settings=ai'], ['settings-backups', 'settings=backups'], ['settings-general', 'settings=general'], ['settings-update', 'settings=update']]) {
     await open(B + '/#' + hash, WIDE, 1500);
     await shot(name);
   }

@@ -1,6 +1,6 @@
 ---
 title: Docker Compose and nginx
-description: 'Set Eumetria up on a Linux server with Docker Compose, nginx and HTTPS, as its own user, with nightly updates.'
+description: 'Set Eumetria up on a Linux server with Docker Compose, nginx and HTTPS, as its own user, with updates from the page.'
 ---
 
 This is the setup Eumetria is built for: one container behind nginx, with HTTPS from Let's Encrypt, running as its own unprivileged user. It takes about half an hour.
@@ -82,9 +82,28 @@ certbot certonly --webroot -w /var/www/letsencrypt -d eumetria.example.com \
 
 ## 5. Updates
 
-Copy [`deploy/cron`](https://github.com/eumetria-labs/eumetria/blob/main/deploy/cron) to `/etc/cron.d/eumetria` (mode 644). Every night at 04:00 it pulls the newest image of the tag in `compose.yaml`; Compose restarts the container only when the image changed. Backups run inside the app; see [Backups and restore](/eumetria/operations/backups/).
+Nothing to set up: the compose file has the updater container, `eumetria-updater`, which `docker compose up -d` started with the rest. Eumetria checks for new versions once a day; **Settings → Update** shows what's new and installs it with one click, a backup first. Stable updates and security rebuilds install by themselves at 04:00 unless you switch that off. Backups run inside the app; see [Backups and restore](/eumetria/operations/backups/).
 
-`compose.yaml` uses `:1`, the newest 1.x release. To follow every commit on main instead, to pin a release or to go back to an older one, see [Updates and releases](/eumetria/operations/updates/).
+The updater is the only container with the Docker socket. It has no ports, only an internal network to Eumetria, and pulls nothing but Eumetria's own images. It runs as root without capabilities, so `/srv/eumetria` and the `.env` it writes there must belong to root, as step 1 sets them up.
+
+The channel is stable (`:1`, the newest 1.x release) by default. To follow every commit on main instead, or to pin one release by hand, see [Updates and releases](/eumetria/operations/updates/).
+
+### Moving a server off the nightly cron
+
+A server set up before 1.0 updates through `/etc/cron.d/eumetria`. To move it to the updater:
+
+```sh
+cd /srv/eumetria
+ls -ld . .env 2>/dev/null                # owner root; if not: chown root:root . .env
+cp compose.yaml compose.yaml.old
+# the new deploy/compose.yaml, with your own edits from compose.yaml.old
+# (UID:GID, ports, the network) carried over
+nano compose.yaml
+docker compose config -q && docker compose pull && docker compose up -d
+rm /etc/cron.d/eumetria
+```
+
+Then **Settings → Update → Check now**: the Updater row shows its tag and the host name. If it says "The updater doesn't answer", look at `docker compose logs updater`.
 
 ## Optional: Claude Code runner
 

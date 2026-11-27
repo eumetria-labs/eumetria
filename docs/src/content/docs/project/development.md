@@ -68,7 +68,7 @@ go run ./cmd/eumetria -debug-week 2026-10-15 -dry-run   # the weekly review's in
 | `site` | the page: plain HTML, CSS and JavaScript modules, no build step; compiled into the binary |
 | `tests` | the page's logic, run with `node --test` |
 | `scripts` | browser checks (smoke, perf, prefs) and the docs' screenshots |
-| `deploy` | Docker Compose, nginx and cron templates |
+| `deploy` | Docker Compose, nginx and updater templates |
 | `docs` | this documentation (Starlight) |
 
 ## These docs

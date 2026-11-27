@@ -9,6 +9,8 @@ Every night at 03:30, Eumetria writes an archive to `/var/backups/eumetria` and 
 - meal and recipe photos, profile pictures and images in notes;
 - the Google token.
 
+Before every update from **Settings → Update**, by hand or at 04:00, Eumetria makes one more and waits for it: if it fails, nothing is installed. Its name is in the update's history, for going back after a version that changed the database (see [Updates and releases](/eumetria/operations/updates/#going-back)). It's kept like the nightly ones.
+
 **Settings → Backups** changes the time and how long they're kept, shows the last runs and has **Back up now**. A backup doesn't run during a sync.
 
 ![Settings → Backups](../../../assets/screens/settings-backups.png)

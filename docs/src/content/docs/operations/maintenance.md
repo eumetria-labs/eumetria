@@ -12,7 +12,7 @@ All commands run on the server in `/srv/eumetria`.
 | Fetch the whole history again (after editing old days in Yazio) | the sync button's menu → **Full refresh**, or the same `curl` with `/api/sync?all=1` |
 | Sync state | `curl -H "Authorization: Bearer <token>" https://eumetria.example.com/api/status` |
 | Change a setting | account menu → **Settings**; it applies once saved |
-| Update | `docker compose pull && docker compose up -d` (the [cron](/eumetria/install/server/#5-updates) does this nightly) |
+| Update | **Settings → Update** (installs stable updates at 04:00 by itself); by hand: `docker compose pull && docker compose up -d` |
 | Roll back | `image: ghcr.io/eumetria-labs/eumetria:1.2.3` (or `:<commit>`) in `compose.yaml`, then `docker compose up -d`; see [Updates and releases](/eumetria/operations/updates/) |
 | Which version runs | **Settings → General**, at the bottom, or `docker compose run --rm eumetria -version` |
 | Authorize Fitbit again | **Settings → Google → Connect again** |

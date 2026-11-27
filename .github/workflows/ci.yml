@@ -50,6 +50,23 @@ jobs:
         env:
           CHROME_BIN: google-chrome
 
+  # In-place updates end to end with real Docker (scripts/updater-e2e.sh):
+  # a local registry, two image sets, update, self-replacement, rollback of
+  # a broken image, the edge switch, refusals, and the button in the page.
+  # The image job waits for it: a release that can't update itself stays out.
+  updater-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: docker version && docker compose version && google-chrome --version
+      - run: scripts/updater-e2e.sh
+        env:
+          CHROME_BIN: google-chrome
+
   # Known vulnerabilities in the code's call paths, with the newest Go. Not
   # a step the image waits for: a new advisory without a fix yet shouldn't
   # stop a deploy, but the run turns red and says what to update.
@@ -64,7 +81,7 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   image:
-    needs: test
+    needs: [test, updater-e2e]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

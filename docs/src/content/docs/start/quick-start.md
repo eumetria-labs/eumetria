@@ -84,6 +84,16 @@ Press **Open settings**, or go to your avatar → **Settings → Yazio**, and en
 
 **Test connection**, save, then press the sync button next to the range. The first sync fetches a year of history and every meal photo, which takes a few minutes.
 
+## Updates
+
+Without the updater container of the [server setup](/eumetria/install/server/#5-updates), Eumetria still checks for new versions: **Settings → Update** shows what's new, but instead of an install button it shows the command. For this `docker run` container, update by hand (the data stays in the volume):
+
+```sh
+docker pull ghcr.io/eumetria-labs/eumetria:1
+docker rm -f eumetria
+# then the docker run command from step 1 again
+```
+
 ## Just looking?
 
 To see Eumetria with sample data and without any accounts of your own, start it in demo mode and sign in as `demo` / `demo`:
