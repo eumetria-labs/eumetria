@@ -15,7 +15,7 @@ RUN mkdir -p /out/state
 
 # docker compose itself, the official static binary. Pinned by digest;
 # Dependabot proposes updates (.github/dependabot.yml).
-FROM docker/compose-bin:v5.7.1@sha256:6a6704a7ccbc45eb4cc7e5b71dba685e9bc23705c580430f15034b2b5e46ec2b AS compose
+FROM docker/compose-bin:v5.8.0@sha256:c9f99a4efa43ca83e5acc056da938c38504010c10a2dd804569032be5d3b0dd5 AS compose
 
 # distroless/static as root: the Docker socket belongs to root (or the
 # docker group, whose id differs between hosts). Root here is no more than
