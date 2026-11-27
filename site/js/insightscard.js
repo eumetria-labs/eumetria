@@ -1,16 +1,18 @@
 // The Insights card: Goals (how often each goal was met in the range) and
 // Explore (how two daily measures move together, as a scatter plot with
-// Spearman's r). The numbers come from correlate.js; the range is the
-// dashboard's. A pattern, not proof: the card says so.
+// Spearman's r), and Streaks (goals met days in a row, and when each was
+// last missed, over the whole history). The numbers come from
+// correlate.js; the range is the dashboard's. A pattern, not proof: the card says so.
 
-import { LOCALE, dfShort, fmt, fmtDuration, parse } from './format.js';
+import { LOCALE, actLabel, dfShort, fmt, fmtDuration, parse } from './format.js';
 import { $, h, svg, showTip, hideTip, panelTabs } from './dom.js';
 import { state, store } from './state.js';
 import { niceTicks, resizer } from './charts.js';
 import { openDay } from './sheet.js';
 import { dayTags } from './checkin.js';
 import { clockOf } from './sleeptiming.js';
-import { LAGS, MEASURES, correlate, goalHits, measure, pairsOf } from './correlate.js';
+import { LAGS, MEASURES, RECENT_DAYS, correlate, goalHits, goalStreaks, lastTimes, measure, pairsOf } from './correlate.js';
+import { promptTypes } from './unlogged.js';
 import { t, tn } from './i18n.js';
 
 // The measures' names and groups as the page says them.
@@ -47,8 +49,9 @@ export function renderInsightsCard(s) {
   card.hidden = !state.data.days.length;
   if (card.hidden) return;
   renderGoals(s);
+  renderStreaks();
   renderExplore(s);
-  panelTabs($('#insights-tabs'), [['goals', t('Goals'), '🎯'], ['explore', t('Explore'), '🔍']], store.get('insightsTab'), (key) => store.set('insightsTab', key));
+  panelTabs($('#insights-tabs'), [['goals', t('Goals'), '🎯'], ['streaks', t('Streaks'), '🔥'], ['explore', t('Explore'), '🔍']], store.get('insightsTab'), (key) => store.set('insightsTab', key));
 }
 
 // openExplore shows the Explore tab (from the Patterns tab's link).
@@ -96,6 +99,88 @@ function renderGoals(s) {
   }
   host.replaceChildren(list, h('p', { class: 'note muted' }, notes.join(' ')));
 }
+
+/* ---------- streaks ---------- */
+
+const STREAK_LABELS = { logged: () => t('Food logged'), ...GOAL_LABELS };
+const STREAK_ICONS = { logged: '📝', protein: '💪', energy: '🔥', steps: '👟', sleep: '😴', alcohol_free: '🚱' };
+
+// A date as "Nov 14", with the year when it isn't this one.
+const when = (d) => dfShort.format(parse(d)) + (d.slice(0, 4) !== state.today?.slice(0, 4) ? ` ${d.slice(0, 4)}` : '');
+function ago(d) {
+  const n = state.today ? Math.round((parse(state.today) - parse(d)) / 864e5) : null;
+  return n == null ? '' : n === 0 ? t('today') : n === 1 ? t('yesterday') : tn(n, '{n} day ago', '{n} days ago');
+}
+// A day's date that opens the day.
+function dayLink(d) {
+  const b = h('button', { class: 'link-btn', type: 'button', title: t('Open {date}', { date: dfShort.format(parse(d)) }) }, when(d));
+  b.onclick = () => openDay(d);
+  return b;
+}
+
+// renderStreaks: per goal (and food logged) the streak running now, the
+// longest so far and the last miss, then the last training and weigh-in;
+// over everything synced, not the range.
+function renderStreaks() {
+  const host = $('#insights-streaks');
+  const alcoholKnown = state.data.days.some((d) => d.nut?.alcohol);
+  const rows = goalStreaks(state.data.days, { goals: state.data.goals, sleepGoal: state.data.sleep_goal, phases: state.phases, today: state.today, alcoholKnown });
+  if (!rows.length) return host.replaceChildren(h('p', { class: 'empty-tab' }, t('No goals to count in this range.')));
+  const list = h('div', { class: 'streaks' });
+  for (const x of rows) {
+    const row = h('div', { class: 'streak' + (x.n ? '' : ' off') });
+    const main = h('div', { class: 'st-main' });
+    main.append(h('span', { class: 'st-name' }, STREAK_LABELS[x.key]()));
+    const sub = h('span', { class: 'st-sub muted' });
+    const part = (...nodes) => { if (sub.childNodes.length) sub.append(' · '); sub.append(...nodes); };
+    if (x.best && x.best.n > x.n) {
+      const range = h('span', { class: 'st-range' });
+      range.append('(', dayLink(x.best.from), ' – ', dayLink(x.best.to), ')');
+      part(t('Longest: {days}', { days: tn(x.best.n, '{n} day', '{n} days') }), ' ', range);
+    } else if (x.n > 1) part(t('Your longest yet'));
+    if (x.miss) {
+      if (x.key === 'alcohol_free') part(t('Last alcohol:'), ' ', dayLink(x.miss), `, ${ago(x.miss)} (${fmt(x.grams)}\u00a0g)`);
+      else if (x.key === 'logged') part(t('Last day not logged:'), ' ', dayLink(x.miss), `, ${ago(x.miss)}`);
+      else part(t('Last missed:'), ' ', dayLink(x.miss), `, ${ago(x.miss)}`);
+    }
+    main.append(sub);
+    const now = h('b', { class: 'st-now', title: x.from ? t('Since {date}', { date: when(x.from) }) : '' }, tn(x.n, '{n} day', '{n} days'));
+    row.append(h('span', { class: 'st-icon', 'aria-hidden': 'true' }, STREAK_ICONS[x.key]), main, now);
+    list.append(row);
+  }
+  const note = t('Days in a row up to yesterday, over everything synced, not just the range. A day without data ends a streak; alcohol logged today counts at once, and so do today’s training and weigh-in.');
+  host.replaceChildren(list, ...lastTimeRows(), h('p', { class: 'note muted' }, note));
+}
+
+// The last training and weigh-in, today included: when, and what.
+function lastTimeRows() {
+  const noted = [...state.lifts.map((e) => e.date), ...state.wods.results.map((r) => r.date), ...state.trainings.map((x) => x.date)];
+  const items = lastTimes(state.data.days, { noted, types: promptTypes(), today: state.today });
+  if (!items.length) return [];
+  const list = h('div', { class: 'streaks st-last' });
+  for (const x of items) {
+    const row = h('div', { class: 'streak' });
+    const main = h('div', { class: 'st-main' });
+    const sub = h('span', { class: 'st-sub muted' });
+    sub.append(dayLink(x.date));
+    if (x.key === 'trained') {
+      if (x.what.length) sub.append(` · ${x.what.map(actLabel).join(', ')}`);
+      sub.append(' · ' + tn(x.recent, '{n} day trained in the last {weeks} weeks', '{n} days trained in the last {weeks} weeks', { weeks: fmt(RECENT_DAYS / 7) }));
+    } else {
+      sub.append(` · ${fmt(x.value, 1)}\u00a0kg`);
+    }
+    main.append(h('span', { class: 'st-name' }, x.key === 'trained' ? t('Last training') : t('Last weigh-in')), sub);
+    const a = ago(x.date);
+    row.append(h('span', { class: 'st-icon', 'aria-hidden': 'true' }, x.key === 'trained' ? '🏋️' : '⚖️'), main, h('b', { class: 'st-now' }, a.charAt(0).toUpperCase() + a.slice(1)));
+    list.append(row);
+  }
+  return [h('h3', { class: 'mini-title' }, t('Last time')), list];
+}
+
+// A training added, changed or removed moves the last training.
+document.addEventListener('trainings-change', () => {
+  if (state.data?.days.length && !$('#insights-card').hidden) renderStreaks();
+});
 
 /* ---------- explore ---------- */
 

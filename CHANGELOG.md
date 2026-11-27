@@ -11,6 +11,10 @@ The section of a release becomes its notes on GitHub; see
 
 ## [Unreleased]
 
+### Added
+
+- Insights → Streaks: for food logged and each goal, the days in a row it was met, the longest streak so far, and when it was last missed — for alcohol, the last drink, how many days ago and its grams. Below them, the last training (with the days trained in the last 4 weeks) and the last weigh-in. Over everything synced, not just the range.
+
 ## [1.0.1] - 2026-11-27
 
 ### Fixed

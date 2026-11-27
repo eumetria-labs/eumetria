@@ -212,7 +212,7 @@ const dismissNotice = () => ev(`[...document.querySelectorAll('button')].find((b
   await wait(500);
   await shotOf('card-training-calendar', '#training-card');
   await click('#training-tabs [data-tab="overview"]');
-  await ev(`[...document.querySelectorAll('#insights-tabs [role=tab]')][1]?.click()`);
+  await ev(`document.querySelector('#insights-tabs [data-tab="explore"]')?.click()`);
   await wait(800);
   await shotOf('card-insights-explore', '#insights-card');
 

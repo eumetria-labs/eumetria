@@ -21,7 +21,7 @@
 // are kept, never a 401 or the sign-in; the page clears the data when the
 // user signs out, gets a 401 or another user signs in (account.js).
 
-const CACHE = 'stats-v77';
+const CACHE = 'stats-v78';
 const DATA = 'stats-data-v1';
 const FLAGS = 'eumetria-flags';
 // Photos shared to the installed app (manifest share_target), waiting for

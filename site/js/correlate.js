@@ -9,6 +9,7 @@
 import { addDays, iso, parse } from './format.js';
 import { macroGoal, weightTrendAt } from './insights.js';
 import { phaseOn } from './phase.js';
+import { prompts, trainingDays, workoutName } from './health.js';
 import { midMin, onsetMin, wakeMin } from './sleeptiming.js';
 
 // A measure: key, group, unit, how to read it from a day (null: not known
@@ -150,32 +151,116 @@ export function calorieHit(d, kind) {
   return Math.abs(d.energy - goal) <= goal * CALORIE_BAND;
 }
 
+// kindOn is the calorie rule a day falls under: its phase's cut or bulk,
+// else maintain.
+function kindOn(d, ctx) {
+  const p = ctx.phases ? phaseOn(ctx.phases, d.date, ctx.today) : null;
+  return p && (p.kind === 'cut' || p.kind === 'bulk') ? p.kind : 'maintain';
+}
+
+// goalJudges: for each goal the context has, [key, judge], where judge
+// tells whether a day met it: true, false, or null when not known. Protein,
+// calories and alcohol are judged on days with food logged.
+function goalJudges(ctx) {
+  const g = ctx.goals || {};
+  const out = [
+    ['protein', (d) => {
+      const goal = d.energy > 0 && macroGoal(d, 'protein', g);
+      return goal ? d.protein >= goal : null;
+    }],
+    ['energy', (d) => (d.energy > 0 ? calorieHit(d, kindOn(d, ctx)) : null)],
+  ];
+  if (g.steps) out.push(['steps', (d) => (d.steps > 0 ? d.steps >= g.steps : null)]);
+  if (ctx.sleepGoal) out.push(['sleep', (d) => (d.sleep?.asleep > 0 ? d.sleep.asleep >= ctx.sleepGoal : null)]);
+  // Only once alcohol was ever logged: else every day is "without".
+  if (ctx.alcoholKnown) out.push(['alcohol_free', (d) => (d.energy > 0 ? !(d.nut?.alcohol?.[0] > 0) : null)]);
+  return out;
+}
+
 // goalHits counts, over the rows, the days each goal was met: [{ key, hit,
 // of, kind? }] for protein, calories (by phase), steps, sleep and days
 // without alcohol; a goal without days to judge is left out. Days without
-// data don't count. ctx: { goals, sleepGoal, phases, today }.
+// data don't count. ctx: { goals, sleepGoal, phases, today, alcoholKnown }.
 export function goalHits(rows, ctx = {}) {
-  const g = ctx.goals || {};
   const out = [];
-  const add = (key, judged, extra = {}) => {
-    const days = judged.filter((v) => v != null);
-    if (days.length) out.push({ key, hit: days.filter(Boolean).length, of: days.length, ...extra });
-  };
-  const logged = rows.filter((d) => d.energy > 0);
-  add('protein', logged.map((d) => {
-    const goal = macroGoal(d, 'protein', g);
-    return goal ? d.protein >= goal : null;
-  }));
-  const kinds = new Set();
-  add('energy', logged.map((d) => {
-    const p = ctx.phases ? phaseOn(ctx.phases, d.date, ctx.today) : null;
-    const kind = p && (p.kind === 'cut' || p.kind === 'bulk') ? p.kind : 'maintain';
-    kinds.add(kind);
-    return calorieHit(d, kind);
-  }), { kinds: [...kinds] });
-  if (g.steps) add('steps', rows.map((d) => (d.steps > 0 ? d.steps >= g.steps : null)));
-  if (ctx.sleepGoal) add('sleep', rows.map((d) => (d.sleep?.asleep > 0 ? d.sleep.asleep >= ctx.sleepGoal : null)));
-  // Only once alcohol was ever logged: else every day is "without".
-  if (ctx.alcoholKnown) add('alcohol_free', logged.map((d) => !(d.nut?.alcohol?.[0] > 0)));
+  for (const [key, judge] of goalJudges(ctx)) {
+    const days = rows.map(judge).filter((v) => v != null);
+    if (!days.length) continue;
+    const x = { key, hit: days.filter(Boolean).length, of: days.length };
+    if (key === 'energy') x.kinds = [...new Set(rows.filter((d) => d.energy > 0).map((d) => kindOn(d, ctx)))];
+    out.push(x);
+  }
+  return out;
+}
+
+/* ---------- streaks ---------- */
+
+// goalStreaks walks the whole history day by day and tells, for food
+// logged and each goal: the streak running now (n days since from, up to
+// yesterday when the last day is today), the longest streak ({ n, from,
+// to }) and the last day it was missed (for alcohol: the last day with
+// alcohol, and its grams). A day without data ends a streak; today is
+// still running and left out, except alcohol logged today, which can't be
+// undone. ctx as for goalHits. [{ key, n, from, best, miss, grams? }]
+export function goalStreaks(days, ctx = {}) {
+  if (!days.length) return [];
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  const last = days.at(-1).date;
+  const end = last === ctx.today ? iso(addDays(parse(last), -1)) : last;
+  const judges = [['logged', (d) => d.energy > 0], ...goalJudges(ctx)];
+  const out = [];
+  for (const [key, judge] of judges) {
+    let n = 0, from = null, best = null, miss = null, known = false;
+    for (let t = parse(days[0].date), date = days[0].date; date <= end; t = addDays(t, 1), date = iso(t)) {
+      const d = byDate.get(date);
+      // A day missing from the history is a day without food logged.
+      const v = d ? judge(d) : key === 'logged' ? false : null;
+      if (v != null) known = true;
+      if (v === true) {
+        if (!n) from = date;
+        n++;
+        if (!best || n > best.n) best = { n, from, to: date };
+      } else {
+        n = 0;
+        if (v === false) miss = date;
+      }
+    }
+    if (key === 'alcohol_free' && last === ctx.today && judge(byDate.get(last)) === false) {
+      n = 0;
+      miss = last;
+    }
+    if (!known) continue;
+    const x = { key, n, from: n ? from : null, best, miss };
+    if (key === 'alcohol_free' && miss) x.grams = byDate.get(miss).nut.alcohol[0];
+    out.push(x);
+  }
+  return out;
+}
+
+/* ---------- last times ---------- */
+
+// RECENT_DAYS is the window lastTimes counts training days in.
+export const RECENT_DAYS = 28;
+
+// lastTimes tells when you last trained and last weighed in, today
+// included (neither can be undone): [{ key: 'trained', date, what, recent }
+// , { key: 'weighed', date, value }], each only when it ever happened.
+// Training is what the training calendar counts: Fitbit workouts of the
+// training types (types; null: all but walks) and days with a lift,
+// benchmark result or training noted (noted: their dates). what names the
+// day's workouts; recent counts the days trained in the last RECENT_DAYS.
+export function lastTimes(days, { noted = [], types = null, today = null } = {}) {
+  if (!days.length) return [];
+  const out = [];
+  const trained = [...trainingDays(days, noted, [], types).keys()].sort();
+  if (trained.length) {
+    const date = trained.at(-1);
+    const day = days.find((d) => d.date === date);
+    const what = [...new Set((day?.workouts || []).filter(prompts(types)).map((w) => workoutName(w.type)))];
+    const since = iso(addDays(parse(today || days.at(-1).date), -(RECENT_DAYS - 1)));
+    out.push({ key: 'trained', date, what, recent: trained.filter((d) => d >= since).length });
+  }
+  const w = days.findLast((d) => d.weight != null);
+  if (w) out.push({ key: 'weighed', date: w.date, value: w.weight });
   return out;
 }

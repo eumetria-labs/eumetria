@@ -1,9 +1,9 @@
 ---
 title: Insights
-description: 'How often you met your goals, and how two measures move together.'
+description: 'How often you met your goals, your streaks, and how two measures move together.'
 ---
 
-The **Insights** card has two tabs, both for the range picked.
+The **Insights** card has three tabs. Goals and Explore follow the range picked; Streaks looks at everything synced.
 
 ## Goals
 
@@ -14,9 +14,26 @@ How often each goal was met:
 - **Steps** and the **sleep goal**.
 - **Days without alcohol**, once alcohol was ever logged.
 
-Days without data don't count, today is left out, and there are no streaks. The weekly review gets the same counts for its week.
+Days without data don't count and today is left out. The weekly review gets the same counts for its week.
 
 ![Insights → Goals](../../../assets/screens/card-insights.png)
+
+## Streaks
+
+For food logged and each goal above, one line:
+
+- **Days in a row** the goal was met, up to yesterday. It reads "Your longest yet" when no earlier streak was longer.
+- **Longest** streak so far, with its first and last day.
+- **Last missed**, and how many days ago. For alcohol that's the last day with a drink and its grams; for food logged, the last day without an entry.
+
+A day without data ends a streak. Today is still running and left out, except a drink logged today, which ends the alcohol-free streak at once. Every date opens its day.
+
+Below the streaks, **Last time**:
+
+- **Last training**: how many days ago, the day's workouts, and how many days you trained in the last 4 weeks. It counts what the training calendar counts: Fitbit workouts of your training types (Profile → Training; without a choice, all but walks) and days with a lift, benchmark result or training noted.
+- **Last weigh-in**: how many days ago, and the weight.
+
+Both include today.
 
 ## Explore
 

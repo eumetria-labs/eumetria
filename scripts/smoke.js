@@ -85,8 +85,9 @@ const views = [
   { hash: 'range=30&view=nutrition', expect: ['class="hbar nut-row', 'class="alcohol-line"'] },
   // This morning's check-in on the Today card, the demo's cold as a band.
   { hash: 'range=30', expect: ['class="checkin-line"', 'phase-band ph-sick'] },
-  // Insights: goal hit rates, and the scatter of the default pair.
-  { hash: 'range=90', expect: ['class="hbars goal-hits"', 'class="ex-r"'] },
+  // Insights: goal hit rates, streaks with the last drink, and the scatter
+  // of the default pair.
+  { hash: 'range=90', expect: ['class="hbars goal-hits"', 'class="ex-r"', 'class="streaks"', 'Last alcohol:', 'Last weigh-in'] },
   // Personal bests: a best of several reps shows its estimated 1 RM.
   { hash: 'range=30', expect: ['class="lift-e1rm"'] },
   // German ("#lang=de" in a link), page and a day.

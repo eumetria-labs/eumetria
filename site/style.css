@@ -453,6 +453,18 @@ main.dim { opacity: .6; }
 
 /* Horizontal bars (foods, activities) */
 .hbars { display: grid; gap: 12px; align-content: start; }
+.streaks { display: grid; gap: 14px; }
+.streak { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 12px; align-items: baseline; font-size: 14px; }
+.streak .st-icon { font-size: 18px; line-height: 1; align-self: start; padding-top: 1px; }
+.streak .st-range { white-space: nowrap; }
+.streak .st-main { display: grid; gap: 2px; min-width: 0; }
+.streak .st-name { font-weight: 500; }
+.streak .st-sub { font-size: 13px; }
+.streak .st-sub .link-btn { color: inherit; }
+.streak .st-now { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.streak.off .st-now { color: var(--muted); font-weight: 400; }
+.streaks + .note { margin-top: 18px; }
+#insights-streaks .mini-title { margin: 22px 0 12px; }
 .hbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; align-items: baseline; font-size: 14px; }
 .hbar .val { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hbar .val small { color: var(--muted); font-weight: 400; margin-left: 5px; }

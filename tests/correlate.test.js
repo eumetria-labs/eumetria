@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calorieHit, correlate, fit, goalHits, pairsOf, ranks, spearman, strength } from '../site/js/correlate.js';
+import { calorieHit, correlate, fit, goalHits, goalStreaks, lastTimes, pairsOf, ranks, spearman, strength } from '../site/js/correlate.js';
 
 const close = (a, b, eps = 1e-4) => assert.ok(Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 
@@ -81,4 +81,45 @@ test('goal hit rates count only days with data', () => {
   const some = goalHits(rows, {}).map((h) => h.key);
   assert.deepEqual(some, ['protein', 'energy']);
   assert.deepEqual(goalHits([], { goals: { steps: 1 }, sleepGoal: 1 }), []);
+});
+
+test('goalStreaks: the streak now, the longest, and the last miss', () => {
+  const day = (date, protein, alcohol = 0) => ({ date, energy: 2000, energy_goal: 2000, protein, protein_goal: 100, nut: { alcohol: [alcohol, 1] } });
+  const days = [
+    day('2026-11-01', 120), day('2026-11-02', 120), day('2026-11-03', 120), // 3 in a row
+    day('2026-11-04', 80, 24), // missed, and a drink
+    // 11-05 missing: ends any streak, and no food logged
+    day('2026-11-06', 110), day('2026-11-07', 110),
+    day('2026-11-08', 50), // today: still running, left out
+  ];
+  const by = Object.fromEntries(goalStreaks(days, { today: '2026-11-08', alcoholKnown: true }).map((x) => [x.key, x]));
+  assert.deepEqual([by.protein.n, by.protein.from], [2, '2026-11-06']);
+  assert.deepEqual(by.protein.best, { n: 3, from: '2026-11-01', to: '2026-11-03' });
+  assert.equal(by.protein.miss, '2026-11-04');
+  assert.deepEqual([by.logged.n, by.logged.miss, by.logged.best.n], [2, '2026-11-05', 4]);
+  assert.deepEqual([by.alcohol_free.n, by.alcohol_free.miss, by.alcohol_free.grams], [2, '2026-11-04', 24]);
+  // A drink today can't be undone: it ends the streak now.
+  days[6] = day('2026-11-08', 50, 12);
+  const a = goalStreaks(days, { today: '2026-11-08', alcoholKnown: true }).find((x) => x.key === 'alcohol_free');
+  assert.deepEqual([a.n, a.miss, a.grams, a.best.n], [0, '2026-11-08', 12, 3]);
+  // Without a steps goal or alcohol logged: left out.
+  assert.deepEqual(goalStreaks(days, {}).map((x) => x.key), ['logged', 'protein', 'energy']);
+  assert.deepEqual(goalStreaks([], {}), []);
+});
+
+test('lastTimes: the last training and weigh-in, today included', () => {
+  const days = [
+    { date: '2026-11-01', weight: 80.2, workouts: [{ id: 'a', type: 'RUNNING', dur: 1800 }] },
+    { date: '2026-11-05', workouts: [{ id: 'b', type: 'STRENGTH_TRAINING', dur: 3600 }, { id: 'c', type: 'WALKING', dur: 1800 }] },
+    { date: '2026-11-08', weight: 79.6, workouts: [{ id: 'd', type: 'WALKING', dur: 3600 }] }, // a walk isn't training
+  ];
+  const [tr, we] = lastTimes(days, { today: '2026-11-08' });
+  assert.deepEqual([tr.key, tr.date, tr.what, tr.recent], ['trained', '2026-11-05', ['Strength training'], 2]);
+  assert.deepEqual([we.key, we.date, we.value], ['weighed', '2026-11-08', 79.6]);
+  // A noted lift counts, with no workout to name; walks count when picked.
+  assert.deepEqual(lastTimes(days, { noted: ['2026-11-07'], today: '2026-11-08' })[0].date, '2026-11-07');
+  assert.equal(lastTimes(days, { types: ['WALKING'], today: '2026-11-08' })[0].date, '2026-11-08');
+  // Only 28 days back count as recent.
+  assert.equal(lastTimes(days, { today: '2026-11-30' })[0].recent, 1);
+  assert.deepEqual(lastTimes([{ date: '2026-11-01' }]), []);
 });
