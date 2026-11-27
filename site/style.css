@@ -1683,7 +1683,10 @@ textarea.field.note-input[hidden], .note-preview[hidden] { display: none; }
 .upd-box p, .upd-major p { margin: 0 0 6px; }
 .upd-box p:last-child, .upd-major p:last-child { margin-bottom: 0; }
 .upd-box .upd-cmd { background: var(--surface); }
-.upd-apply { margin: 8px 8px 0 0; }
+/* Install / Switch: its own class, not .pf-save, which the settings view hides (the save bar saves). */
+.upd-apply { margin: 8px 8px 0 0; background: var(--ink); color: var(--surface); }
+.upd-apply:hover { background: color-mix(in oklab, var(--ink) 85%, var(--surface)); }
+.upd-apply:disabled { opacity: .6; cursor: progress; }
 .upd-progress { margin: 10px 0; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); font-size: 14px; }
 .upd-steps { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 8px; padding: 0; list-style: none; }
 .upd-steps li { color: var(--muted); }

@@ -75,6 +75,11 @@ try {
     label = await ev(`document.querySelector('.upd-apply')?.textContent || ''`);
   }
   check('Settings → Update offers to install', !!label, await ev(`document.querySelector('.pf-content')?.textContent.slice(0, 400) || ''`));
+  // Visible, not only there: a click from script works on a hidden button
+  // too, and once the settings view's CSS hid it (.pf-save).
+  const shown = await ev(`(() => { const b = document.querySelector('.upd-apply'); if (!b) return false;
+    const r = b.getBoundingClientRect(), s = getComputedStyle(b); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; })()`);
+  check('the install button can be seen', shown);
   const host = await ev(`[...document.querySelectorAll('.set-fact')].find((r) => r.textContent.startsWith('Host'))?.textContent || ''`);
   check('the real host name comes from the updater', !!host, host);
   const tagBefore = await ev(`[...document.querySelectorAll('.wo-sec-head')].find((x) => x.textContent.startsWith('Updater'))?.textContent || ''`);

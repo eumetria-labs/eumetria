@@ -841,7 +841,7 @@ function updaterSection(up) {
 // ("major"): Eumetria backs up, then the updater takes over. ask is a
 // question to confirm first.
 function applyButton(body, u, kind, label, ask = '') {
-  const b = h('button', { class: 'pill-btn pf-save upd-apply', type: 'button' }, label);
+  const b = h('button', { class: 'pill-btn upd-apply', type: 'button' }, label);
   b.onclick = async () => {
     if (ask && !confirm(ask)) return;
     b.disabled = true;

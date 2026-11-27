@@ -103,8 +103,11 @@ until_healthy e2e-eumetria && ok "Eumetria 1.0.0 runs" || bad "Eumetria didn't g
 until_healthy e2e-eumetria-updater && ok "the updater runs" || bad "the updater didn't get healthy: $(docker logs e2e-eumetria-updater 2>&1 | tail -5)"
 
 TOKEN=$(docker run --rm -v "${P}_updater:/s:ro" busybox cat /s/token)
+# Retries while the updater can't be reached: after an update that replaced
+# it, the handover recreates its container a few seconds after the job ended.
+# (Without --fail, an HTTP answer such as 400 or 401 isn't retried.)
 api() { # api METHOD PATH [BODY] [TOKEN]
-  docker run --rm --network "${P}_updates" curlimages/curl -s -o /dev/stdout -w '\n%{http_code}' \
+  docker run --rm --network "${P}_updates" curlimages/curl -s --retry 20 --retry-delay 1 --retry-all-errors -o /dev/stdout -w '\n%{http_code}' \
     -X "$1" -H "Authorization: Bearer ${4-$TOKEN}" -H 'Content-Type: application/json' ${3:+--data "$3"} "http://updater:8080$2"
 }
 code() { tail -n1 <<<"$1"; }
